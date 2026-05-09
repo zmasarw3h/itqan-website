@@ -2,68 +2,99 @@
 
 Emergency lightweight check-in system for one masjid while Canvas is unavailable.
 
-## Scope
+## What This App Does
 
-Students can submit one daily completion check-in. Admins can view progress, correct check-ins, and export CSV.
+- Students sign in, submit one daily completion check-in, see today's status, and view their own history.
+- Admins sign in, view all active students, review weekly/date completion, filter by student/date/status, correct check-ins, and export CSV.
+- The app intentionally excludes teacher roles, weekly plans, sadaqa, announcements, payments, booking, parent accounts, multi-masjid support, and Quran selection.
 
-See:
+## Stack
 
-- `AGENTS.md`
-- `docs/BUILD_SPEC.md`
-- `supabase/migrations/001_initial_schema.sql`
-
-## Codex Goal Prompt
-
-Use this prompt with Codex `/goal`:
-
-```txt
-/goal Build the full ITQAN Daily Check-In emergency app using AGENTS.md and docs/BUILD_SPEC.md.
-
-Do not ask questions unless implementation is impossible.
-
-Use reasonable defaults.
-
-Stop only when:
-- Student login works.
-- Student daily check-in works.
-- Duplicate same-day check-ins are blocked.
-- Student history works.
-- Admin dashboard works.
-- Admin filters work.
-- Admin correction works.
-- CSV export works.
-- Supabase migration exists.
-- Role-based access is enforced server-side.
-- Setup/deployment instructions are documented.
-- npm run check passes.
-
-Do not build anything out of scope:
-teacher roles, weekly plans, plan approval, Saturday scoring, sadaqa, announcements, multi-masjid support, payments, booking, parent accounts, or Quran ayah selector.
-```
-
-## Expected Stack
-
-- Next.js
+- Next.js App Router
 - TypeScript
-- Supabase Auth
-- Supabase Postgres
+- Supabase Auth and Postgres
+- Supabase RLS with user-authenticated server clients
 - Tailwind CSS
+- Vitest
 - Vercel
-- Vitest or equivalent
 
-## Required Environment Variables
+## Local Setup
+
+1. Install dependencies:
+
+   ```bash
+   npm install
+   ```
+
+2. Create `.env.local`:
+
+   ```bash
+   cp .env.example .env.local
+   ```
+
+3. Fill in Supabase values:
+
+   ```bash
+   NEXT_PUBLIC_SUPABASE_URL=
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=
+   # Optional server-only key for setup/admin scripts only. Do not expose this in browser code.
+   SUPABASE_SERVICE_ROLE_KEY=
+   ```
+
+4. Apply the database migration in Supabase:
+
+   ```bash
+   supabase db push
+   ```
+
+   Or paste `supabase/migrations/001_initial_schema.sql` into the Supabase SQL editor.
+
+5. Create Supabase Auth users with email/password, then insert matching rows in `public.profiles`. Each profile `id` must equal the Auth user UUID.
+
+   Example profile data is in `docs/SEED_DATA.md`:
+
+   ```csv
+   name,email,role,active
+   Admin One,admin1@example.com,admin,true
+   Student One,student1@example.com,student,true
+   Student Two,student2@example.com,student,true
+   ```
+
+6. Run the app:
+
+   ```bash
+   npm run dev
+   ```
+
+7. Open `http://localhost:3000/login`.
+
+## Deployment
+
+Deploy to Vercel and configure these environment variables:
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
-# Optional server-only key if needed. Never expose it to the browser.
 SUPABASE_SERVICE_ROLE_KEY=
 ```
 
-## Required Final Command
+`SUPABASE_SERVICE_ROLE_KEY` is optional for this app runtime and must stay server-only. Normal page and action behavior uses the signed-in user's Supabase session and RLS.
 
-Codex must make this command pass before finishing:
+Apply `supabase/migrations/001_initial_schema.sql` to the production Supabase project before using the deployed app.
+
+## Required Checks
+
+Run:
 
 ```bash
 npm run check
+```
+
+That command runs:
+
+```bash
+npm run lint
+npm run typecheck
+npm run test
+npm run build
 ```
