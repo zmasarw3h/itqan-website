@@ -17,7 +17,7 @@ export default function LoginForm() {
 
     try {
       const supabase = createBrowserSupabaseClient();
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password
       });
@@ -27,12 +27,27 @@ export default function LoginForm() {
         return;
       }
 
+      const user = signInData.user;
+
+      if (!user) {
+        await supabase.auth.signOut();
+        setError("Unable to confirm the signed-in user.");
+        return;
+      }
+
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("id,name,email,role,active")
+        .eq("id", user.id)
         .single<Profile>();
 
-      if (profileError || !profile || !profile.active) {
+      if (profileError && profileError.code !== "PGRST116") {
+        await supabase.auth.signOut();
+        setError("Unable to load your profile. Please try again.");
+        return;
+      }
+
+      if (!profile || !profile.active) {
         await supabase.auth.signOut();
         setError("This account is not active.");
         return;

@@ -1,6 +1,5 @@
 import AppNav from "@/app/nav";
 import { submitTodayCheckIn } from "@/app/student/actions";
-import { APP_TIME_ZONE } from "@/lib/config";
 import { friendlyDate, todayDateString } from "@/lib/dates";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn } from "@/lib/types";
@@ -30,8 +29,7 @@ export default async function StudentCheckInPage({
       <main className="mx-auto max-w-3xl px-4 py-8">
         <section className="rounded-lg border border-stone-200 bg-white p-6 shadow-sm">
           <div className="mb-6">
-            <p className="text-sm font-medium uppercase tracking-wide text-gold">{APP_TIME_ZONE}</p>
-            <h1 className="mt-2 text-2xl font-semibold text-ink">Today&apos;s Check-In</h1>
+            <h1 className="text-2xl font-semibold text-ink">Today&apos;s Check-In</h1>
             <p className="mt-1 text-stone-600">
               {profile.name} · {friendlyDate(today)}
             </p>
