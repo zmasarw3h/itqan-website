@@ -7,9 +7,9 @@ import type { Profile, Role } from "@/lib/types";
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
-export function createServerSupabaseClient() {
+export async function createServerSupabaseClient() {
   const { url, anonKey } = getSupabasePublicConfig();
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
 
   return createServerClient(url, anonKey, {
     cookies: {
@@ -30,7 +30,7 @@ export function createServerSupabaseClient() {
 }
 
 export async function getCurrentProfile() {
-  const supabase = createServerSupabaseClient();
+  const supabase = await createServerSupabaseClient();
   const {
     data: { user }
   } = await supabase.auth.getUser();

@@ -11,14 +11,16 @@ export default async function AdminStudentPage({
   params,
   searchParams
 }: {
-  params: { id: string };
-  searchParams: { status?: string };
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ status?: string }>;
 }) {
+  const resolvedParams = await params;
+  const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["admin"]);
   const { data: student } = await supabase
     .from("profiles")
     .select("id,name,email,role,active,created_at")
-    .eq("id", params.id)
+    .eq("id", resolvedParams.id)
     .eq("role", "student")
     .single<Profile>();
 
@@ -42,12 +44,12 @@ export default async function AdminStudentPage({
           <p className="text-stone-600">{student.email}</p>
         </div>
 
-        {searchParams.status === "corrected" ? (
+        {resolvedSearchParams.status === "corrected" ? (
           <p className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
             Correction saved.
           </p>
         ) : null}
-        {searchParams.status === "correction-error" ? (
+        {resolvedSearchParams.status === "correction-error" ? (
           <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
             Unable to save correction.
           </p>

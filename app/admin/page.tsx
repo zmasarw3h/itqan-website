@@ -33,9 +33,10 @@ function csvHref(filters: DashboardFilters) {
   return query ? `/admin/export?${query}` : "/admin/export";
 }
 
-export default async function AdminPage({ searchParams }: { searchParams: AdminSearchParams }) {
+export default async function AdminPage({ searchParams }: { searchParams: Promise<AdminSearchParams> }) {
+  const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["admin"]);
-  const filters = cleanFilters(searchParams);
+  const filters = cleanFilters(resolvedSearchParams);
   const dates = filters.date ? [filters.date] : currentWeekDates(todayDateString());
 
   const { data: students } = await supabase

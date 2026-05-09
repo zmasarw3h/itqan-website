@@ -10,8 +10,9 @@ export const dynamic = "force-dynamic";
 export default async function StudentCheckInPage({
   searchParams
 }: {
-  searchParams: { status?: string };
+  searchParams: Promise<{ status?: string }>;
 }) {
+  const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["student"]);
   const today = todayDateString();
   const { data: checkin } = await supabase
@@ -36,17 +37,17 @@ export default async function StudentCheckInPage({
             </p>
           </div>
 
-          {searchParams.status === "submitted" ? (
+          {resolvedSearchParams.status === "submitted" ? (
             <p className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
               Check-in submitted.
             </p>
           ) : null}
-          {searchParams.status === "duplicate" ? (
+          {resolvedSearchParams.status === "duplicate" ? (
             <p className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
               You already have a check-in for today.
             </p>
           ) : null}
-          {searchParams.status === "error" ? (
+          {resolvedSearchParams.status === "error" ? (
             <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
               Unable to submit. Please try again.
             </p>

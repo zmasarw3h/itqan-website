@@ -5,7 +5,7 @@ import { hasSupabasePublicConfig, getSupabasePublicConfig } from "@/lib/config";
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   if (!hasSupabasePublicConfig()) {
     return NextResponse.next();
   }
