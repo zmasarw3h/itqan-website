@@ -11,6 +11,7 @@ const students: Profile[] = [
     id: "student-1",
     name: "Student One",
     email: "student1@example.com",
+    phone: "+1 555 0101",
     role: "student",
     active: true
   },
@@ -18,6 +19,7 @@ const students: Profile[] = [
     id: "student-2",
     name: "Student Two",
     email: "student2@example.com",
+    phone: null,
     role: "student",
     active: true
   }
@@ -50,11 +52,13 @@ describe("check-in rules", () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({
       studentId: "student-1",
+      studentPhone: "+1 555 0101",
       completed: true,
       status: "completed"
     });
     expect(rows[1]).toMatchObject({
       studentId: "student-2",
+      studentPhone: null,
       completed: false,
       status: "missing",
       checkin: null

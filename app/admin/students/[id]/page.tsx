@@ -19,7 +19,7 @@ export default async function AdminStudentPage({
   const { supabase, profile } = await requireProfile(["admin"]);
   const { data: student } = await supabase
     .from("profiles")
-    .select("id,name,email,role,active,created_at")
+    .select("id,name,email,phone,role,active,created_at")
     .eq("id", resolvedParams.id)
     .eq("role", "student")
     .single<Profile>();
@@ -41,7 +41,7 @@ export default async function AdminStudentPage({
       <main className="mx-auto max-w-5xl px-4 py-8">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold text-ink">{student.name}</h1>
-          <p className="text-stone-600">{student.email}</p>
+          <p className="text-stone-600">{student.phone || student.email}</p>
         </div>
 
         {resolvedSearchParams.status === "corrected" ? (

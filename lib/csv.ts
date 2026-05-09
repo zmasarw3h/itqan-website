@@ -2,6 +2,7 @@ import type { CompletionRow } from "@/lib/types";
 
 const CSV_COLUMNS = [
   "student name",
+  "student phone",
   "student email",
   "date",
   "completed",
@@ -27,6 +28,7 @@ export function completionRowsToCsv(rows: CompletionRow[]) {
     ...rows.map((row) =>
       [
         row.studentName,
+        row.studentPhone,
         row.studentEmail,
         row.date,
         row.completed,

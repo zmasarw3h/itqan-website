@@ -29,7 +29,7 @@ export async function GET(request: Request) {
 
   const { data: students } = await supabase
     .from("profiles")
-    .select("id,name,email,role,active,created_at")
+    .select("id,name,email,phone,role,active,created_at")
     .eq("role", "student")
     .eq("active", true)
     .order("name", { ascending: true })

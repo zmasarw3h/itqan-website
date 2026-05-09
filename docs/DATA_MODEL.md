@@ -4,6 +4,7 @@
 - id
 - name
 - email
+- phone: text, optional display-only
 - role: student | admin
 - active: boolean
 - created_at

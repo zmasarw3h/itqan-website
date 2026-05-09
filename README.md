@@ -47,17 +47,17 @@ Emergency lightweight check-in system for one masjid while Canvas is unavailable
    supabase db push
    ```
 
-   Or paste `supabase/migrations/001_initial_schema.sql` into the Supabase SQL editor.
+   Or paste the SQL files in `supabase/migrations` into the Supabase SQL editor in filename order.
 
-5. Create Supabase Auth users with email/password, then insert matching rows in `public.profiles`. Each profile `id` must equal the Auth user UUID.
+5. Create Supabase Auth users with email/password, then insert matching rows in `public.profiles`. Each profile `id` must equal the Auth user UUID. `phone` is optional, display-only, and does not affect login.
 
    Example profile data is in `docs/SEED_DATA.md`:
 
    ```csv
-   name,email,role,active
-   Admin One,admin1@example.com,admin,true
-   Student One,student1@example.com,student,true
-   Student Two,student2@example.com,student,true
+   name,email,phone,role,active
+   Admin One,admin1@example.com,,admin,true
+   Student One,student1@example.com,+1 555 0101,student,true
+   Student Two,student2@example.com,+1 555 0102,student,true
    ```
 
 6. Run the app:
@@ -80,7 +80,7 @@ SUPABASE_SERVICE_ROLE_KEY=
 
 `SUPABASE_SERVICE_ROLE_KEY` is optional for this app runtime and must stay server-only. Normal page and action behavior uses the signed-in user's Supabase session and RLS.
 
-Apply `supabase/migrations/001_initial_schema.sql` to the production Supabase project before using the deployed app.
+Apply all files in `supabase/migrations` to the production Supabase project before using the deployed app.
 
 ## Required Checks
 

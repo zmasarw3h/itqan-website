@@ -59,6 +59,7 @@ export function buildCompletionRows(
         studentId: student.id,
         studentName: student.name,
         studentEmail: student.email,
+        studentPhone: student.phone,
         date,
         completed,
         status,

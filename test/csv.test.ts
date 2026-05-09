@@ -6,6 +6,7 @@ describe("CSV export", () => {
   it("contains expected columns", () => {
     expect(csvColumns()).toEqual([
       "student name",
+      "student phone",
       "student email",
       "date",
       "completed",
@@ -22,6 +23,7 @@ describe("CSV export", () => {
         studentId: "student-1",
         studentName: "Student, One",
         studentEmail: "student1@example.com",
+        studentPhone: "+1 555 0101",
         date: "2026-05-08",
         completed: true,
         status: "completed",
@@ -38,7 +40,7 @@ describe("CSV export", () => {
       }
     ];
 
-    expect(completionRowsToCsv(rows)).toContain('"Student, One",student1@example.com');
+    expect(completionRowsToCsv(rows)).toContain('"Student, One",+1 555 0101,student1@example.com');
     expect(completionRowsToCsv(rows)).toContain('"Read ""lesson"""');
   });
 });

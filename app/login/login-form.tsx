@@ -37,7 +37,7 @@ export default function LoginForm() {
 
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
-        .select("id,name,email,role,active")
+        .select("id,name,email,phone,role,active")
         .eq("id", user.id)
         .single<Profile>();
 

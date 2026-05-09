@@ -41,7 +41,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
 
   const { data: students } = await supabase
     .from("profiles")
-    .select("id,name,email,role,active,created_at")
+    .select("id,name,email,phone,role,active,created_at")
     .eq("role", "student")
     .eq("active", true)
     .order("name", { ascending: true })
@@ -137,7 +137,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
                 key={student.id}
               >
                 <p className="font-medium text-ink">{student.name}</p>
-                <p className="text-sm text-stone-600">{student.email}</p>
+                <p className="text-sm text-stone-600">{student.phone || student.email}</p>
               </Link>
             ))}
           </div>
@@ -164,7 +164,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
                   <tr key={`${row.studentId}-${row.date}`}>
                     <td className="px-4 py-3">
                       <p className="font-medium text-ink">{row.studentName}</p>
-                      <p className="text-xs text-stone-500">{row.studentEmail}</p>
+                      <p className="text-xs text-stone-500">{row.studentPhone || row.studentEmail}</p>
                     </td>
                     <td className="px-4 py-3">{friendlyDate(row.date)}</td>
                     <td className="px-4 py-3">

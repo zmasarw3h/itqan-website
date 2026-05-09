@@ -78,6 +78,7 @@ Fields:
 - `id uuid primary key`
 - `name text not null`
 - `email text not null`
+- `phone text null`
 - `role text not null check role in ('student', 'admin')`
 - `active boolean not null default true`
 - `created_at timestamptz not null default now()`
