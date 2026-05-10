@@ -7,9 +7,9 @@ describe("weighted Quran tracker scoring", () => {
       {
         key: "new_memorization_3x",
         label: "New memorization assigned recited three times",
-        weight: 30
+        weight: 25
       },
-      { key: "old_revision", label: "Old revision recited", weight: 25 },
+      { key: "old_revision", label: "Old revision recited", weight: 30 },
       {
         key: "salat_recitation",
         label: "Weekly assigned recitation recited during salat",
@@ -31,6 +31,8 @@ describe("weighted Quran tracker scoring", () => {
   });
 
   it("scores Thursday completion", () => {
+    expect(tasksForDate("2026-05-14").find((task) => task.key === "old_revision")?.weight).toBe(25);
+
     const result = calculateDailySubmission("2026-05-14", [
       "weekly_recitation_3x",
       "old_revision",
@@ -42,6 +44,8 @@ describe("weighted Quran tracker scoring", () => {
   });
 
   it("scores Friday completion", () => {
+    expect(tasksForDate("2026-05-15").find((task) => task.key === "old_revision")?.weight).toBe(25);
+
     const result = calculateDailySubmission("2026-05-15", [
       "weekly_recitation_5x",
       "old_revision",
@@ -65,7 +69,7 @@ describe("weighted Quran tracker scoring", () => {
   it("scores partial completion", () => {
     const result = calculateDailySubmission("2026-05-10", ["new_memorization_3x", "tajweed_hearing"]);
 
-    expect(result).toMatchObject({ earnedWeight: 50, totalWeight: 100, dailyScore: 50 });
+    expect(result).toMatchObject({ earnedWeight: 45, totalWeight: 100, dailyScore: 45 });
   });
 
   it("calculates weekly average across seven daily percentages", () => {

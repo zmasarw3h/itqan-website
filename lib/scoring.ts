@@ -14,6 +14,12 @@ const OLD_REVISION: CheckInTask = {
   weight: 25
 };
 
+const SUNDAY_TO_WEDNESDAY_OLD_REVISION: CheckInTask = {
+  key: "old_revision",
+  label: "Old revision recited",
+  weight: 30
+};
+
 const SALAT_RECITATION: CheckInTask = {
   key: "salat_recitation",
   label: "Weekly assigned recitation recited during salat",
@@ -30,9 +36,9 @@ const SUNDAY_TO_WEDNESDAY_TASKS: CheckInTask[] = [
   {
     key: "new_memorization_3x",
     label: "New memorization assigned recited three times",
-    weight: 30
+    weight: 25
   },
-  OLD_REVISION,
+  SUNDAY_TO_WEDNESDAY_OLD_REVISION,
   SALAT_RECITATION,
   TAJWEED_HEARING
 ];
