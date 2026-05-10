@@ -58,8 +58,6 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
 
   const { data: checkins } = await checkinQuery.returns<CheckIn[]>();
   const rows = buildCompletionRows(students ?? [], checkins ?? [], dates, filters);
-  const completedCount = rows.filter((row) => row.completed).length;
-  const missingCount = rows.length - completedCount;
 
   return (
     <>
@@ -68,9 +66,6 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold text-ink">Admin Dashboard</h1>
-            <p className="mt-1 text-stone-600">
-              {completedCount} completed · {missingCount} missing
-            </p>
           </div>
           <Link
             className="rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink"

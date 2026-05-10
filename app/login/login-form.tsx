@@ -1,9 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { phoneNumberToAuthEmail } from "@/lib/phone-auth";
-import { createBrowserSupabaseClient } from "@/lib/supabase-browser";
-import type { Profile } from "@/lib/types";
+import { signInWithPhone } from "@/app/login/actions";
 
 export default function LoginForm() {
   const [phone, setPhone] = useState("");
@@ -17,53 +15,14 @@ export default function LoginForm() {
     setIsLoading(true);
 
     try {
-      let authEmail: string;
+      const result = await signInWithPhone(phone, password);
 
-      try {
-        authEmail = phoneNumberToAuthEmail(phone);
-      } catch (phoneError) {
-        setError(phoneError instanceof Error ? phoneError.message : "Enter a valid phone number.");
+      if (result.error) {
+        setError(result.error);
         return;
       }
 
-      const supabase = createBrowserSupabaseClient();
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: authEmail,
-        password
-      });
-
-      if (signInError) {
-        setError(signInError.message);
-        return;
-      }
-
-      const user = signInData.user;
-
-      if (!user) {
-        await supabase.auth.signOut();
-        setError("Unable to confirm the signed-in user.");
-        return;
-      }
-
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("id,name,email,phone,role,active")
-        .eq("id", user.id)
-        .single<Profile>();
-
-      if (profileError && profileError.code !== "PGRST116") {
-        await supabase.auth.signOut();
-        setError("Unable to load your profile. Please try again.");
-        return;
-      }
-
-      if (!profile || !profile.active) {
-        await supabase.auth.signOut();
-        setError("This account is not active.");
-        return;
-      }
-
-      window.location.href = profile.role === "admin" ? "/admin" : "/student/check-in";
+      window.location.href = result.redirectTo ?? "/student/check-in";
     } catch (unknownError) {
       setError(unknownError instanceof Error ? unknownError.message : "Unable to sign in.");
     } finally {
@@ -86,7 +45,7 @@ export default function LoginForm() {
           required
         />
         <span className="mt-1 block text-xs text-stone-500">
-          Use 10 digits, or include + and country code.
+          Enter the phone number on file. Country code is optional unless two accounts share the same local number.
         </span>
       </label>
       <label className="block">

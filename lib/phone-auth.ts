@@ -1,5 +1,13 @@
 const AUTH_EMAIL_DOMAIN = "itqan.local";
 
+export function phoneDigits(input: string) {
+  return input.replace(/\D/g, "");
+}
+
+export function hasExplicitCountryCode(input: string) {
+  return input.trim().startsWith("+");
+}
+
 export function normalizePhoneNumber(input: string) {
   const trimmed = input.trim();
 
@@ -8,7 +16,7 @@ export function normalizePhoneNumber(input: string) {
   }
 
   if (trimmed.startsWith("+")) {
-    const digits = trimmed.slice(1).replace(/\D/g, "");
+    const digits = phoneDigits(trimmed.slice(1));
 
     if (digits.length < 8 || digits.length > 15) {
       throw new Error("Enter a valid phone number.");
@@ -17,7 +25,7 @@ export function normalizePhoneNumber(input: string) {
     return `+${digits}`;
   }
 
-  const digits = trimmed.replace(/\D/g, "");
+  const digits = phoneDigits(trimmed);
 
   if (digits.length === 10) {
     return `+1${digits}`;
@@ -33,4 +41,12 @@ export function normalizePhoneNumber(input: string) {
 export function phoneNumberToAuthEmail(input: string) {
   const normalized = normalizePhoneNumber(input);
   return `${normalized.slice(1)}@${AUTH_EMAIL_DOMAIN}`;
+}
+
+export function normalizedPhoneToAuthEmail(normalizedPhone: string) {
+  if (!normalizedPhone.startsWith("+")) {
+    throw new Error("Normalized phone number must start with +.");
+  }
+
+  return `${normalizedPhone.slice(1)}@${AUTH_EMAIL_DOMAIN}`;
 }
