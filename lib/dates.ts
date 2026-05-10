@@ -1,26 +1,39 @@
-import { APP_TIME_ZONE } from "@/lib/config";
+import { APP_TIME_ZONE, CHECK_IN_RESET_HOUR } from "@/lib/config";
 
-function formatDateInTimeZone(date: Date, timeZone: string) {
+function getDatePartsInTimeZone(date: Date, timeZone: string) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
     year: "numeric",
     month: "2-digit",
-    day: "2-digit"
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23"
   }).formatToParts(date);
 
   const year = parts.find((part) => part.type === "year")?.value;
   const month = parts.find((part) => part.type === "month")?.value;
   const day = parts.find((part) => part.type === "day")?.value;
+  const hour = parts.find((part) => part.type === "hour")?.value;
 
-  if (!year || !month || !day) {
+  if (!year || !month || !day || !hour) {
     throw new Error("Unable to format date.");
   }
 
-  return `${year}-${month}-${day}`;
+  return { dateString: `${year}-${month}-${day}`, hour: Number(hour) };
 }
 
-export function todayDateString(now = new Date(), timeZone = APP_TIME_ZONE) {
-  return formatDateInTimeZone(now, timeZone);
+export function todayDateString(
+  now = new Date(),
+  timeZone = APP_TIME_ZONE,
+  resetHour = CHECK_IN_RESET_HOUR
+) {
+  const parts = getDatePartsInTimeZone(now, timeZone);
+
+  if (parts.hour < resetHour) {
+    return addDays(parts.dateString, -1);
+  }
+
+  return parts.dateString;
 }
 
 export function addDays(dateString: string, days: number) {

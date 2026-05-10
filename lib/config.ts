@@ -1,4 +1,5 @@
 export const APP_TIME_ZONE = "America/Toronto";
+export const CHECK_IN_RESET_HOUR = 1;
 
 export function getSupabasePublicConfig() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

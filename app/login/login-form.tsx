@@ -45,7 +45,7 @@ export default function LoginForm() {
           required
         />
         <span className="mt-1 block text-xs text-stone-500">
-          Canada: enter 10 digits, e.g. 4165550100. Outside Canada: include + and your country code.
+          Canadian number: enter 10 digits, e.g. 4165550100. Non-Canadian number: include + and your country code.
         </span>
       </label>
       <label className="block">
