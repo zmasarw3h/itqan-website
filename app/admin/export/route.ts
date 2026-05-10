@@ -3,7 +3,7 @@ import { buildCompletionRows } from "@/lib/checkins";
 import { completionRowsToCsv } from "@/lib/csv";
 import { currentWeekDates, todayDateString } from "@/lib/dates";
 import { getCurrentProfile } from "@/lib/supabase-server";
-import type { CheckIn, CompletionStatus, DashboardFilters, Profile } from "@/lib/types";
+import type { CheckIn, CheckInItem, CompletionStatus, DashboardFilters, Profile } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,7 @@ function filtersFromUrl(url: URL): DashboardFilters {
   return {
     studentId: url.searchParams.get("student") ?? undefined,
     date: url.searchParams.get("date") ?? undefined,
-    status: status === "completed" || status === "missing" ? (status as CompletionStatus) : undefined
+    status: status === "submitted" || status === "missing" ? (status as CompletionStatus) : undefined
   };
 }
 
@@ -37,7 +37,7 @@ export async function GET(request: Request) {
 
   let checkinQuery = supabase
     .from("checkins")
-    .select("id,student_id,date,completed,note,submitted_at,updated_at,updated_by_admin")
+    .select("id,student_id,date,completed,note,earned_weight,total_weight,daily_score,submitted_at,updated_at,updated_by_admin")
     .in("date", dates);
 
   if (filters.studentId) {
@@ -45,7 +45,15 @@ export async function GET(request: Request) {
   }
 
   const { data: checkins } = await checkinQuery.returns<CheckIn[]>();
-  const rows = buildCompletionRows(students ?? [], checkins ?? [], dates, filters);
+  const checkinIds = (checkins ?? []).map((checkin) => checkin.id);
+  const { data: items } = checkinIds.length
+    ? await supabase
+        .from("checkin_items")
+        .select("id,checkin_id,student_id,date,task_key,task_label,weight,completed,created_at")
+        .in("checkin_id", checkinIds)
+        .returns<CheckInItem[]>()
+    : { data: [] };
+  const rows = buildCompletionRows(students ?? [], checkins ?? [], dates, filters, items ?? []);
   const csv = completionRowsToCsv(rows);
 
   return new NextResponse(csv, {

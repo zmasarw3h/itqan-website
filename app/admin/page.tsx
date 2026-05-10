@@ -2,8 +2,9 @@ import Link from "next/link";
 import AppNav from "@/app/nav";
 import { buildCompletionRows } from "@/lib/checkins";
 import { currentWeekDates, friendlyDate, todayDateString } from "@/lib/dates";
+import { formatScore } from "@/lib/scoring";
 import { requireProfile } from "@/lib/supabase-server";
-import type { CheckIn, CompletionStatus, DashboardFilters, Profile } from "@/lib/types";
+import type { CheckIn, CheckInItem, CompletionStatus, DashboardFilters, Profile } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,7 @@ function cleanFilters(searchParams: AdminSearchParams): DashboardFilters {
     studentId: searchParams.student || undefined,
     date: searchParams.date || undefined,
     status:
-      searchParams.status === "completed" || searchParams.status === "missing"
+      searchParams.status === "submitted" || searchParams.status === "missing"
         ? searchParams.status
         : undefined
   };
@@ -49,7 +50,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
 
   let checkinQuery = supabase
     .from("checkins")
-    .select("id,student_id,date,completed,note,submitted_at,updated_at,updated_by_admin")
+    .select("id,student_id,date,completed,note,earned_weight,total_weight,daily_score,submitted_at,updated_at,updated_by_admin")
     .in("date", dates);
 
   if (filters.studentId) {
@@ -57,7 +58,15 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   }
 
   const { data: checkins } = await checkinQuery.returns<CheckIn[]>();
-  const rows = buildCompletionRows(students ?? [], checkins ?? [], dates, filters);
+  const checkinIds = (checkins ?? []).map((checkin) => checkin.id);
+  const { data: items } = checkinIds.length
+    ? await supabase
+        .from("checkin_items")
+        .select("id,checkin_id,student_id,date,task_key,task_label,weight,completed,created_at")
+        .in("checkin_id", checkinIds)
+        .returns<CheckInItem[]>()
+    : { data: [] };
+  const rows = buildCompletionRows(students ?? [], checkins ?? [], dates, filters, items ?? []);
 
   return (
     <>
@@ -108,7 +117,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
               name="status"
             >
               <option value="">All statuses</option>
-              <option value="completed">Completed</option>
+              <option value="submitted">Submitted</option>
               <option value="missing">Missing</option>
             </select>
           </label>
@@ -149,6 +158,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
                   <th className="px-4 py-3 font-medium">Student</th>
                   <th className="px-4 py-3 font-medium">Date</th>
                   <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Score</th>
                   <th className="px-4 py-3 font-medium">Submitted</th>
                   <th className="px-4 py-3 font-medium">Note</th>
                   <th className="px-4 py-3 font-medium">History</th>
@@ -164,9 +174,10 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
                     <td className="px-4 py-3">{friendlyDate(row.date)}</td>
                     <td className="px-4 py-3">
                       <span className={row.completed ? "text-green-700" : "text-amber-700"}>
-                        {row.completed ? "Completed" : "Missing"}
+                        {row.completed ? "Submitted" : "Missing"}
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-stone-700">{formatScore(row.checkin?.daily_score)}</td>
                     <td className="px-4 py-3 text-stone-600">
                       {row.checkin ? new Date(row.checkin.submitted_at).toLocaleString() : ""}
                     </td>
@@ -180,7 +191,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
                 ))}
                 {rows.length ? null : (
                   <tr>
-                    <td className="px-4 py-6 text-stone-600" colSpan={6}>
+                    <td className="px-4 py-6 text-stone-600" colSpan={7}>
                       No rows match these filters.
                     </td>
                   </tr>

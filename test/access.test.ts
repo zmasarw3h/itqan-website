@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canReadAdminData, canReadStudentData, canSubmitStudentCheckIn } from "@/lib/access";
+import { canReadAdminData, canReadCheckInScores, canReadStudentData, canSubmitStudentCheckIn } from "@/lib/access";
 import type { Profile } from "@/lib/types";
 
 const student: Profile = {
@@ -43,6 +43,16 @@ describe("access rules", () => {
     expect(canReadStudentData(admin, student.id)).toBe(true);
     expect(canReadStudentData(admin, otherStudent.id)).toBe(true);
     expect(canReadAdminData(admin)).toBe(true);
+  });
+
+  it("allows admins to view scores", () => {
+    expect(canReadCheckInScores(admin, student.id)).toBe(true);
+    expect(canReadCheckInScores(admin, otherStudent.id)).toBe(true);
+  });
+
+  it("prevents students from reading other students' scores", () => {
+    expect(canReadCheckInScores(student, student.id)).toBe(true);
+    expect(canReadCheckInScores(student, otherStudent.id)).toBe(false);
   });
 
   it("allows only the active student to submit their own check-in", () => {

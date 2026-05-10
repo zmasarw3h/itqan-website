@@ -32,6 +32,9 @@ const checkins: CheckIn[] = [
     date: "2026-05-08",
     completed: true,
     note: "Done",
+    earned_weight: 100,
+    total_weight: 100,
+    daily_score: 100,
     submitted_at: "2026-05-08T12:00:00.000Z",
     updated_at: null,
     updated_by_admin: null
@@ -54,7 +57,7 @@ describe("check-in rules", () => {
       studentId: "student-1",
       studentPhone: "+1 555 0101",
       completed: true,
-      status: "completed"
+      status: "submitted"
     });
     expect(rows[1]).toMatchObject({
       studentId: "student-2",
@@ -80,6 +83,9 @@ describe("check-in rules", () => {
       date: "2026-05-08",
       completed: false,
       note: "Excused",
+      earned_weight: null,
+      total_weight: null,
+      daily_score: null,
       updated_at: "2026-05-08T15:30:00.000Z",
       updated_by_admin: "admin-1"
     });

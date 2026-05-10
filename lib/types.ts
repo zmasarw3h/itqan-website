@@ -16,12 +16,27 @@ export type CheckIn = {
   date: string;
   completed: boolean;
   note: string | null;
+  earned_weight: number | null;
+  total_weight: number | null;
+  daily_score: number | null;
   submitted_at: string;
   updated_at: string | null;
   updated_by_admin: string | null;
 };
 
-export type CompletionStatus = "completed" | "missing";
+export type CheckInItem = {
+  id: string;
+  checkin_id: string;
+  student_id: string;
+  date: string;
+  task_key: string;
+  task_label: string;
+  weight: number;
+  completed: boolean;
+  created_at: string;
+};
+
+export type CompletionStatus = "submitted" | "missing";
 
 export type CompletionRow = {
   studentId: string;
@@ -32,6 +47,7 @@ export type CompletionRow = {
   completed: boolean;
   status: CompletionStatus;
   checkin: CheckIn | null;
+  items: CheckInItem[];
 };
 
 export type DashboardFilters = {

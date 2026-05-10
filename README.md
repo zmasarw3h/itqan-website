@@ -4,8 +4,8 @@ Emergency lightweight check-in system for one masjid while Canvas is unavailable
 
 ## What This App Does
 
-- Students sign in, submit one daily completion check-in, see today's status, and view their own history.
-- Admins sign in, view all active students, review weekly/date completion, filter by student/date/status, correct check-ins, and export CSV.
+- Students sign in, submit one weighted daily Quran checklist, see today's submitted checklist and score, and view their own history.
+- Admins sign in, view all active students, review weekly/date submission scores, filter by student/date/status, correct check-ins, and export CSV.
 - The app intentionally excludes teacher roles, weekly plans, sadaqa, announcements, payments, booking, parent accounts, multi-masjid support, and Quran selection.
 
 ## Stack
@@ -137,7 +137,7 @@ SUPABASE_SERVICE_ROLE_KEY=
 
 `SUPABASE_SERVICE_ROLE_KEY` is optional for this app runtime and must stay server-only. Normal page and action behavior uses the signed-in user's Supabase session and RLS.
 
-Apply all files in `supabase/migrations` to the production Supabase project before using the deployed app.
+Apply all files in `supabase/migrations` to the production Supabase project before using the deployed app. The weighted checklist migration keeps `public.checkins`, adds aggregate score columns, and stores each submitted task snapshot in `public.checkin_items` so historical labels and weights remain stable.
 
 ## Required Checks
 
