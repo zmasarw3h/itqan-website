@@ -77,7 +77,7 @@ Fields:
 
 - `id uuid primary key`
 - `name text not null`
-- `email text not null`
+- `email text not null` (internal synthetic auth email)
 - `phone text null`
 - `role text not null check role in ('student', 'admin')`
 - `active boolean not null default true`

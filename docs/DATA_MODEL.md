@@ -3,7 +3,7 @@
 ## users / profiles
 - id
 - name
-- email
+- email: internal synthetic auth email
 - phone: text, optional display-only
 - role: student | admin
 - active: boolean

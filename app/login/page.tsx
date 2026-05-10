@@ -8,7 +8,7 @@ export default function LoginPage() {
           <p className="text-sm font-semibold uppercase tracking-wide text-gold">ITQAN</p>
           <h1 className="mt-2 text-2xl font-semibold text-ink">Daily Check-In</h1>
           <p className="mt-2 text-sm text-stone-600">
-            Sign in with your assigned email and password.
+            Sign in with your phone number and assigned password.
           </p>
         </div>
         <LoginForm />

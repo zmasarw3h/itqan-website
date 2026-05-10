@@ -49,15 +49,22 @@ Emergency lightweight check-in system for one masjid while Canvas is unavailable
 
    Or paste the SQL files in `supabase/migrations` into the Supabase SQL editor in filename order.
 
-5. Create Supabase Auth users with email/password, then insert matching rows in `public.profiles`. Each profile `id` must equal the Auth user UUID. `phone` is optional, display-only, and does not affect login.
+5. Create Supabase Auth users with email/password, then insert matching rows in `public.profiles`. Users enter phone numbers at login, but Supabase Auth still uses email/password internally.
+
+   Convert phone numbers to synthetic auth emails:
+
+   - `4165551234` normalizes to `+14165551234`
+   - Auth email becomes `14165551234@itqan.local`
+
+   Each profile `id` must equal the Auth user UUID. `profiles.email` stores the synthetic auth email. `profiles.phone` is optional display-only data shown to admins.
 
    Example profile data is in `docs/SEED_DATA.md`:
 
    ```csv
    name,email,phone,role,active
-   Admin One,admin1@example.com,,admin,true
-   Student One,student1@example.com,+1 555 0101,student,true
-   Student Two,student2@example.com,+1 555 0102,student,true
+   Admin One,14165550000@itqan.local,+1 416 555 0000,admin,true
+   Student One,14165550101@itqan.local,+1 416 555 0101,student,true
+   Student Two,14165550102@itqan.local,+1 416 555 0102,student,true
    ```
 
 6. Run the app:

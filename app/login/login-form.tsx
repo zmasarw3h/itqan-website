@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { phoneNumberToAuthEmail } from "@/lib/phone-auth";
 import { createBrowserSupabaseClient } from "@/lib/supabase-browser";
 import type { Profile } from "@/lib/types";
 
 export default function LoginForm() {
-  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -16,9 +17,18 @@ export default function LoginForm() {
     setIsLoading(true);
 
     try {
+      let authEmail: string;
+
+      try {
+        authEmail = phoneNumberToAuthEmail(phone);
+      } catch (phoneError) {
+        setError(phoneError instanceof Error ? phoneError.message : "Enter a valid phone number.");
+        return;
+      }
+
       const supabase = createBrowserSupabaseClient();
       const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
+        email: authEmail,
         password
       });
 
@@ -64,15 +74,20 @@ export default function LoginForm() {
   return (
     <form className="space-y-4" onSubmit={handleSubmit}>
       <label className="block">
-        <span className="text-sm font-medium text-ink">Email</span>
+        <span className="text-sm font-medium text-ink">Phone Number</span>
         <input
           className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2 outline-none focus:border-moss focus:ring-2 focus:ring-moss/20"
-          type="email"
-          autoComplete="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
+          type="tel"
+          autoComplete="tel"
+          inputMode="tel"
+          placeholder="4165551234"
+          value={phone}
+          onChange={(event) => setPhone(event.target.value)}
           required
         />
+        <span className="mt-1 block text-xs text-stone-500">
+          Use 10 digits, or include + and country code.
+        </span>
       </label>
       <label className="block">
         <span className="text-sm font-medium text-ink">Password</span>

@@ -10,7 +10,7 @@ const students: Profile[] = [
   {
     id: "student-1",
     name: "Student One",
-    email: "student1@example.com",
+    email: "14165550101@itqan.local",
     phone: "+1 555 0101",
     role: "student",
     active: true
@@ -18,7 +18,7 @@ const students: Profile[] = [
   {
     id: "student-2",
     name: "Student Two",
-    email: "student2@example.com",
+    email: "14165550102@itqan.local",
     phone: null,
     role: "student",
     active: true

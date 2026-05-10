@@ -22,7 +22,7 @@ describe("CSV export", () => {
       {
         studentId: "student-1",
         studentName: "Student, One",
-        studentEmail: "student1@example.com",
+        studentEmail: "14165550101@itqan.local",
         studentPhone: "+1 555 0101",
         date: "2026-05-08",
         completed: true,
@@ -40,7 +40,7 @@ describe("CSV export", () => {
       }
     ];
 
-    expect(completionRowsToCsv(rows)).toContain('"Student, One",+1 555 0101,student1@example.com');
+    expect(completionRowsToCsv(rows)).toContain('"Student, One",+1 555 0101,14165550101@itqan.local');
     expect(completionRowsToCsv(rows)).toContain('"Read ""lesson"""');
   });
 });

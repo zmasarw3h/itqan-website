@@ -5,7 +5,7 @@ import type { Profile } from "@/lib/types";
 const student: Profile = {
   id: "student-1",
   name: "Student One",
-  email: "student1@example.com",
+  email: "14165550101@itqan.local",
   phone: "+1 555 0101",
   role: "student",
   active: true
@@ -14,7 +14,7 @@ const student: Profile = {
 const otherStudent: Profile = {
   id: "student-2",
   name: "Student Two",
-  email: "student2@example.com",
+  email: "14165550102@itqan.local",
   phone: null,
   role: "student",
   active: true
@@ -23,7 +23,7 @@ const otherStudent: Profile = {
 const admin: Profile = {
   id: "admin-1",
   name: "Admin One",
-  email: "admin1@example.com",
+  email: "14165550000@itqan.local",
   phone: null,
   role: "admin",
   active: true
