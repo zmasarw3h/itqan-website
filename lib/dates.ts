@@ -45,10 +45,9 @@ export function addDays(dateString: string, days: number) {
 export function currentWeekDates(today = todayDateString()) {
   const date = new Date(`${today}T00:00:00.000Z`);
   const day = date.getUTCDay();
-  const mondayOffset = day === 0 ? -6 : 1 - day;
-  const monday = addDays(today, mondayOffset);
+  const sunday = addDays(today, -day);
 
-  return Array.from({ length: 7 }, (_, index) => addDays(monday, index));
+  return Array.from({ length: 7 }, (_, index) => addDays(sunday, index));
 }
 
 export function friendlyDate(dateString: string) {

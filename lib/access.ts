@@ -19,3 +19,7 @@ export function canReadAdminData(actor: Profile | null) {
 export function canSubmitStudentCheckIn(actor: Profile | null, studentId: string) {
   return Boolean(actor?.active && actor.role === "student" && actor.id === studentId);
 }
+
+export function canReadCheckInScores(actor: Profile | null, studentId: string) {
+  return canReadStudentData(actor, studentId);
+}

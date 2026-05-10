@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
 import AppNav from "@/app/nav";
 import { correctCheckIn } from "@/app/admin/actions";
-import { friendlyDate, todayDateString } from "@/lib/dates";
+import { currentWeekDates, friendlyDate, todayDateString } from "@/lib/dates";
+import { allScoringTasks, calculateWeeklyAverage, formatScore } from "@/lib/scoring";
 import { requireProfile } from "@/lib/supabase-server";
-import type { CheckIn, Profile } from "@/lib/types";
+import type { CheckIn, CheckInItem, Profile } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -30,10 +31,30 @@ export default async function AdminStudentPage({
 
   const { data: checkins } = await supabase
     .from("checkins")
-    .select("id,student_id,date,completed,note,submitted_at,updated_at,updated_by_admin")
+    .select("id,student_id,date,completed,note,earned_weight,total_weight,daily_score,submitted_at,updated_at,updated_by_admin")
     .eq("student_id", student.id)
     .order("date", { ascending: false })
     .returns<CheckIn[]>();
+  const checkinIds = (checkins ?? []).map((checkin) => checkin.id);
+  const { data: items } = checkinIds.length
+    ? await supabase
+        .from("checkin_items")
+        .select("id,checkin_id,student_id,date,task_key,task_label,weight,completed,created_at")
+        .in("checkin_id", checkinIds)
+        .order("created_at", { ascending: true })
+        .returns<CheckInItem[]>()
+    : { data: [] };
+  const itemsByCheckInId = new Map<string, CheckInItem[]>();
+
+  for (const item of items ?? []) {
+    itemsByCheckInId.set(item.checkin_id, [...(itemsByCheckInId.get(item.checkin_id) ?? []), item]);
+  }
+
+  const scoreByDate = new Map((checkins ?? []).map((checkin) => [checkin.date, Number(checkin.daily_score ?? 0)]));
+  const weeklyAverage = calculateWeeklyAverage(
+    currentWeekDates(todayDateString()).map((date) => scoreByDate.get(date) ?? 0)
+  );
+  const correctionTasks = allScoringTasks();
 
   return (
     <>
@@ -42,6 +63,7 @@ export default async function AdminStudentPage({
         <div className="mb-6">
           <h1 className="text-2xl font-semibold text-ink">{student.name}</h1>
           <p className="text-stone-600">{student.phone || student.email}</p>
+          <p className="mt-1 text-stone-600">Current week average: {formatScore(weeklyAverage)}</p>
         </div>
 
         {resolvedSearchParams.status === "corrected" ? (
@@ -71,9 +93,9 @@ export default async function AdminStudentPage({
             </label>
             <label className="block">
               <span className="text-sm font-medium text-ink">Status</span>
-              <select className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2" name="completed">
-                <option value="true">Completed</option>
-                <option value="false">Missing</option>
+              <select className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2" name="status">
+                <option value="submitted">Submitted</option>
+                <option value="missing">Missing</option>
               </select>
             </label>
             <label className="block md:col-span-2">
@@ -84,6 +106,23 @@ export default async function AdminStudentPage({
                 placeholder="Optional correction note"
               />
             </label>
+            <fieldset className="space-y-3 md:col-span-4">
+              <legend className="text-sm font-medium text-ink">Completed tasks</legend>
+              <div className="grid gap-3 md:grid-cols-2">
+                {correctionTasks.map((task) => (
+                  <label
+                    className="flex items-start justify-between gap-4 rounded-md border border-stone-200 p-3"
+                    key={task.key}
+                  >
+                    <span className="flex items-start gap-3">
+                      <input className="mt-1 h-4 w-4" name="task_keys" type="checkbox" value={task.key} />
+                      <span className="text-sm text-ink">{task.label}</span>
+                    </span>
+                    <span className="shrink-0 text-sm text-stone-600">{task.weight}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
             <div className="md:col-span-4">
               <button className="rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink">
                 Save correction
@@ -99,7 +138,8 @@ export default async function AdminStudentPage({
               <thead className="bg-stone-50 text-ink">
                 <tr>
                   <th className="px-4 py-3 font-medium">Date</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Score</th>
+                  <th className="px-4 py-3 font-medium">Checklist</th>
                   <th className="px-4 py-3 font-medium">Submitted</th>
                   <th className="px-4 py-3 font-medium">Updated</th>
                   <th className="px-4 py-3 font-medium">Note</th>
@@ -109,10 +149,20 @@ export default async function AdminStudentPage({
                 {(checkins ?? []).map((checkin) => (
                   <tr key={checkin.id}>
                     <td className="px-4 py-3">{friendlyDate(checkin.date)}</td>
-                    <td className="px-4 py-3">
-                      <span className={checkin.completed ? "text-green-700" : "text-amber-700"}>
-                        {checkin.completed ? "Completed" : "Missing"}
+                    <td className="px-4 py-3 text-stone-700">
+                      {formatScore(checkin.daily_score)}
+                      <span className="block text-xs text-stone-500">
+                        {checkin.earned_weight ?? 0}/{checkin.total_weight ?? 0}
                       </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <ul className="space-y-1">
+                        {(itemsByCheckInId.get(checkin.id) ?? []).map((item) => (
+                          <li className={item.completed ? "text-ink" : "text-stone-500"} key={item.id}>
+                            {item.completed ? "Done" : "Missed"}: {item.task_label} ({item.weight})
+                          </li>
+                        ))}
+                      </ul>
                     </td>
                     <td className="px-4 py-3 text-stone-600">
                       {new Date(checkin.submitted_at).toLocaleString()}
@@ -125,7 +175,7 @@ export default async function AdminStudentPage({
                 ))}
                 {checkins?.length ? null : (
                   <tr>
-                    <td className="px-4 py-6 text-stone-600" colSpan={5}>
+                    <td className="px-4 py-6 text-stone-600" colSpan={6}>
                       No check-ins yet.
                     </td>
                   </tr>
