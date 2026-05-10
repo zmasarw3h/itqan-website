@@ -1,7 +1,14 @@
 import Link from "next/link";
 import AppNav from "@/app/nav";
 import { buildCompletionRows } from "@/lib/checkins";
-import { currentWeekDates, friendlyDate, todayDateString } from "@/lib/dates";
+import {
+  formatWeekRange,
+  friendlyDate,
+  isValidDateString,
+  todayDateString,
+  weekDatesFromStart,
+  weekStartForDate
+} from "@/lib/dates";
 import { formatScore } from "@/lib/scoring";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn, CheckInItem, CompletionStatus, DashboardFilters, Profile } from "@/lib/types";
@@ -11,13 +18,23 @@ export const dynamic = "force-dynamic";
 type AdminSearchParams = {
   student?: string;
   date?: string;
+  week?: string;
   status?: CompletionStatus;
 };
 
-function cleanFilters(searchParams: AdminSearchParams): DashboardFilters {
+function validWeekStart(value: string | undefined, fallback: string) {
+  if (!value || !isValidDateString(value)) {
+    return fallback;
+  }
+
+  return weekStartForDate(value) === value ? value : fallback;
+}
+
+function cleanFilters(searchParams: AdminSearchParams, currentWeekStart: string): DashboardFilters {
   return {
     studentId: searchParams.student || undefined,
-    date: searchParams.date || undefined,
+    date: searchParams.date && isValidDateString(searchParams.date) ? searchParams.date : undefined,
+    weekStart: validWeekStart(searchParams.week, currentWeekStart),
     status:
       searchParams.status === "submitted" || searchParams.status === "missing"
         ? searchParams.status
@@ -29,16 +46,27 @@ function csvHref(filters: DashboardFilters) {
   const params = new URLSearchParams();
   if (filters.studentId) params.set("student", filters.studentId);
   if (filters.date) params.set("date", filters.date);
+  if (filters.weekStart) params.set("week", filters.weekStart);
   if (filters.status) params.set("status", filters.status);
   const query = params.toString();
   return query ? `/admin/export?${query}` : "/admin/export";
 }
 
+function currentWeekHref(filters: DashboardFilters, currentWeekStart: string) {
+  const params = new URLSearchParams();
+  if (filters.studentId) params.set("student", filters.studentId);
+  if (filters.status) params.set("status", filters.status);
+  params.set("week", currentWeekStart);
+  return `/admin?${params.toString()}`;
+}
+
 export default async function AdminPage({ searchParams }: { searchParams: Promise<AdminSearchParams> }) {
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["admin"]);
-  const filters = cleanFilters(resolvedSearchParams);
-  const dates = filters.date ? [filters.date] : currentWeekDates(todayDateString());
+  const currentWeekStart = weekStartForDate(todayDateString());
+  const filters = cleanFilters(resolvedSearchParams, currentWeekStart);
+  const selectedWeekStart = filters.weekStart ?? currentWeekStart;
+  const dates = filters.date ? [filters.date] : weekDatesFromStart(selectedWeekStart);
 
   const { data: students } = await supabase
     .from("profiles")
@@ -47,6 +75,19 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     .eq("active", true)
     .order("name", { ascending: true })
     .returns<Profile[]>();
+
+  const { data: checkinDates } = await supabase
+    .from("checkins")
+    .select("date")
+    .order("date", { ascending: false })
+    .returns<Array<{ date: string }>>();
+  const availableWeekStarts = [
+    ...new Set([
+      currentWeekStart,
+      selectedWeekStart,
+      ...(checkinDates ?? []).map((checkin) => weekStartForDate(checkin.date))
+    ])
+  ].sort((a, b) => b.localeCompare(a));
 
   let checkinQuery = supabase
     .from("checkins")
@@ -84,7 +125,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
           </Link>
         </div>
 
-        <form className="mt-6 grid gap-4 rounded-lg border border-stone-200 bg-white p-4 shadow-sm md:grid-cols-4">
+        <form className="mt-6 grid gap-4 rounded-lg border border-stone-200 bg-white p-4 shadow-sm md:grid-cols-5">
           <label className="block">
             <span className="text-sm font-medium text-ink">Student</span>
             <select
@@ -96,6 +137,20 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
               {(students ?? []).map((student) => (
                 <option key={student.id} value={student.id}>
                   {student.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-ink">Week</span>
+            <select
+              className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
+              defaultValue={selectedWeekStart}
+              name="week"
+            >
+              {availableWeekStarts.map((weekStart) => (
+                <option key={weekStart} value={weekStart}>
+                  {formatWeekRange(weekStart)}
                 </option>
               ))}
             </select>
@@ -125,6 +180,12 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
             <button className="rounded-md bg-ink px-4 py-2.5 text-sm font-medium text-white">
               Apply
             </button>
+            <Link
+              className="rounded-md border border-stone-300 px-4 py-2.5 text-sm font-medium"
+              href={currentWeekHref(filters, currentWeekStart)}
+            >
+              Current Week
+            </Link>
             <Link className="rounded-md border border-stone-300 px-4 py-2.5 text-sm font-medium" href="/admin">
               Clear
             </Link>
@@ -149,7 +210,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
 
         <section className="mt-8">
           <h2 className="text-lg font-semibold text-ink">
-            {filters.date ? friendlyDate(filters.date) : "Current Week"} Completion
+            {filters.date ? `${friendlyDate(filters.date)} Completion` : `Week of ${formatWeekRange(selectedWeekStart)}`}
           </h2>
           <div className="mt-3 overflow-x-auto rounded-lg border border-stone-200 bg-white shadow-sm">
             <table className="w-full min-w-[860px] text-left text-sm">

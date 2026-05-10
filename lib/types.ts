@@ -53,5 +53,6 @@ export type CompletionRow = {
 export type DashboardFilters = {
   studentId?: string;
   date?: string;
+  weekStart?: string;
   status?: CompletionStatus;
 };
