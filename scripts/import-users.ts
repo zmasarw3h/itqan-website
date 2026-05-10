@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadEnvConfig } from "@next/env";
@@ -13,6 +12,8 @@ import {
 
 loadEnvConfig(process.cwd());
 
+const IMPORT_PASSWORD = "itqan2026";
+
 function requireEnv(name: string) {
   const value = process.env[name];
 
@@ -21,10 +22,6 @@ function requireEnv(name: string) {
   }
 
   return value;
-}
-
-function generateTemporaryPassword() {
-  return `${randomBytes(18).toString("base64url")}A1!`;
 }
 
 async function findAuthUserByEmail(supabase: SupabaseClient, email: string) {
@@ -54,10 +51,9 @@ async function findAuthUserByEmail(supabase: SupabaseClient, email: string) {
 }
 
 async function createAuthUser(supabase: SupabaseClient, record: ValidImportRecord) {
-  const temporaryPassword = generateTemporaryPassword();
   const { data, error } = await supabase.auth.admin.createUser({
     email: record.authEmail,
-    password: temporaryPassword,
+    password: IMPORT_PASSWORD,
     email_confirm: true
   });
 
@@ -69,7 +65,19 @@ async function createAuthUser(supabase: SupabaseClient, record: ValidImportRecor
     throw new Error("Supabase did not return the created user.");
   }
 
-  return { user: data.user, temporaryPassword };
+  return { user: data.user, temporaryPassword: IMPORT_PASSWORD };
+}
+
+async function updateAuthUserPassword(supabase: SupabaseClient, user: User) {
+  const { data, error } = await supabase.auth.admin.updateUserById(user.id, {
+    password: IMPORT_PASSWORD
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return data.user ?? user;
 }
 
 async function upsertProfile(supabase: SupabaseClient, record: ValidImportRecord, user: User) {
@@ -108,9 +116,13 @@ async function processRecord(supabase: SupabaseClient, record: ValidImportRecord
         throw error;
       }
 
-      user = maybeExistingUser;
+      user = await updateAuthUserPassword(supabase, maybeExistingUser);
+      temporaryPassword = IMPORT_PASSWORD;
       status = "existing/updated";
     }
+  } else {
+    user = await updateAuthUserPassword(supabase, user);
+    temporaryPassword = IMPORT_PASSWORD;
   }
 
   await upsertProfile(supabase, record, user);

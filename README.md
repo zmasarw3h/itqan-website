@@ -109,7 +109,13 @@ Phone login still uses Supabase email/password internally. The import normalizes
 - `5550101000` becomes `+15550101000`
 - Auth email becomes `15550101000@itqan.local`
 
-The script generates temporary passwords only for newly created users. Existing users are updated in `public.profiles`, but their passwords are not overwritten.
+The script sets the same temporary password for every imported user:
+
+```txt
+itqan2026
+```
+
+New users are created with that password. Existing imported users are also reset to that password when you rerun the import, and their `public.profiles` rows are updated.
 
 After each run, a local credential report is written to:
 
@@ -117,7 +123,7 @@ After each run, a local credential report is written to:
 data/import-results-YYYY-MM-DD-HHMMSS.csv
 ```
 
-Report CSV files include generated temporary passwords for newly created users. Keep real import CSV files and generated reports local. The repo ignores `data/*.csv`; commit only `data/.gitkeep` and fake samples under `docs/`.
+Report CSV files include the temporary password for imported users. Keep real import CSV files and generated reports local. The repo ignores `data/*.csv`; commit only `data/.gitkeep` and fake samples under `docs/`.
 
 ## Deployment
 
