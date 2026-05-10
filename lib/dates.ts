@@ -42,12 +42,61 @@ export function addDays(dateString: string, days: number) {
   return date.toISOString().slice(0, 10);
 }
 
-export function currentWeekDates(today = todayDateString()) {
-  const date = new Date(`${today}T00:00:00.000Z`);
-  const day = date.getUTCDay();
-  const sunday = addDays(today, -day);
+export function isValidDateString(dateString: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+    return false;
+  }
 
-  return Array.from({ length: 7 }, (_, index) => addDays(sunday, index));
+  const date = new Date(`${dateString}T00:00:00.000Z`);
+
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === dateString;
+}
+
+export function weekStartForDate(dateString: string) {
+  if (!isValidDateString(dateString)) {
+    throw new Error("Invalid date.");
+  }
+
+  const date = new Date(`${dateString}T00:00:00.000Z`);
+  const day = date.getUTCDay();
+
+  return addDays(dateString, -day);
+}
+
+export function weekDatesFromStart(weekStart: string) {
+  if (!isValidDateString(weekStart)) {
+    throw new Error("Invalid week start date.");
+  }
+
+  return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
+}
+
+export function currentWeekDates(today = todayDateString()) {
+  return weekDatesFromStart(weekStartForDate(today));
+}
+
+export function formatWeekRange(weekStart: string) {
+  const start = new Date(`${weekStart}T00:00:00.000Z`);
+  const endDateString = addDays(weekStart, 6);
+  const end = new Date(`${endDateString}T00:00:00.000Z`);
+  const monthFormatter = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" });
+  const yearFormatter = new Intl.DateTimeFormat("en-US", { year: "numeric", timeZone: "UTC" });
+  const startMonth = monthFormatter.format(start);
+  const endMonth = monthFormatter.format(end);
+  const startDay = start.getUTCDate();
+  const endDay = end.getUTCDate();
+  const startYear = yearFormatter.format(start);
+  const endYear = yearFormatter.format(end);
+
+  if (startYear === endYear && startMonth === endMonth) {
+    return `${startMonth} ${startDay}–${endDay}, ${startYear}`;
+  }
+
+  if (startYear === endYear) {
+    return `${startMonth} ${startDay}–${endMonth} ${endDay}, ${startYear}`;
+  }
+
+  return `${startMonth} ${startDay}, ${startYear}–${endMonth} ${endDay}, ${endYear}`;
 }
 
 export function friendlyDate(dateString: string) {

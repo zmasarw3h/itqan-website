@@ -1,18 +1,28 @@
 import { NextResponse } from "next/server";
 import { buildCompletionRows } from "@/lib/checkins";
 import { completionRowsToCsv } from "@/lib/csv";
-import { currentWeekDates, todayDateString } from "@/lib/dates";
+import { isValidDateString, todayDateString, weekDatesFromStart, weekStartForDate } from "@/lib/dates";
 import { getCurrentProfile } from "@/lib/supabase-server";
 import type { CheckIn, CheckInItem, CompletionStatus, DashboardFilters, Profile } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-function filtersFromUrl(url: URL): DashboardFilters {
+function validWeekStart(value: string | null, fallback: string) {
+  if (!value || !isValidDateString(value)) {
+    return fallback;
+  }
+
+  return weekStartForDate(value) === value ? value : fallback;
+}
+
+function filtersFromUrl(url: URL, currentWeekStart: string): DashboardFilters {
   const status = url.searchParams.get("status");
+  const date = url.searchParams.get("date");
 
   return {
     studentId: url.searchParams.get("student") ?? undefined,
-    date: url.searchParams.get("date") ?? undefined,
+    date: date && isValidDateString(date) ? date : undefined,
+    weekStart: validWeekStart(url.searchParams.get("week"), currentWeekStart),
     status: status === "submitted" || status === "missing" ? (status as CompletionStatus) : undefined
   };
 }
@@ -24,8 +34,9 @@ export async function GET(request: Request) {
     return new NextResponse("Not found", { status: 404 });
   }
 
-  const filters = filtersFromUrl(new URL(request.url));
-  const dates = filters.date ? [filters.date] : currentWeekDates(todayDateString());
+  const currentWeekStart = weekStartForDate(todayDateString());
+  const filters = filtersFromUrl(new URL(request.url), currentWeekStart);
+  const dates = filters.date ? [filters.date] : weekDatesFromStart(filters.weekStart ?? currentWeekStart);
 
   const { data: students } = await supabase
     .from("profiles")
