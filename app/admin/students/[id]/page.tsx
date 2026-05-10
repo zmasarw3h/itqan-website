@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import AppNav from "@/app/nav";
-import { correctCheckIn } from "@/app/admin/actions";
+import CorrectionForm from "./correction-form";
 import { currentWeekDates, friendlyDate, todayDateString } from "@/lib/dates";
-import { allScoringTasks, calculateWeeklyAverage, formatScore } from "@/lib/scoring";
+import { calculateWeeklyAverage, formatScore } from "@/lib/scoring";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn, CheckInItem, Profile } from "@/lib/types";
 
@@ -50,22 +50,31 @@ export default async function AdminStudentPage({
     itemsByCheckInId.set(item.checkin_id, [...(itemsByCheckInId.get(item.checkin_id) ?? []), item]);
   }
 
-  const scoreByDate = new Map((checkins ?? []).map((checkin) => [checkin.date, Number(checkin.daily_score ?? 0)]));
-  const weeklyAverage = calculateWeeklyAverage(
-    currentWeekDates(todayDateString()).map((date) => scoreByDate.get(date) ?? 0)
+  const today = todayDateString();
+  const weekDates = currentWeekDates(today);
+  const checkinByDate = new Map((checkins ?? []).map((checkin) => [checkin.date, checkin]));
+  const pastOrCurrentWeekDates = weekDates.filter((date) => date <= today);
+  const currentWeekCheckins = weekDates
+    .map((date) => checkinByDate.get(date))
+    .filter((checkin): checkin is CheckIn => Boolean(checkin));
+  const submittedCheckinsSoFar = pastOrCurrentWeekDates
+    .map((date) => checkinByDate.get(date))
+    .filter((checkin): checkin is CheckIn => Boolean(checkin));
+  const submittedDaysThisWeek = currentWeekCheckins.length;
+  const missingDaysSoFar = pastOrCurrentWeekDates.filter((date) => !checkinByDate.has(date)).length;
+  const averageSoFar = calculateWeeklyAverage(submittedCheckinsSoFar.map((checkin) => checkin.daily_score));
+  const latestSubmitted = (checkins ?? []).reduce<CheckIn | null>(
+    (latest, checkin) =>
+      !latest || new Date(checkin.submitted_at).getTime() > new Date(latest.submitted_at).getTime()
+        ? checkin
+        : latest,
+    null
   );
-  const correctionTasks = allScoringTasks();
 
   return (
     <>
       <AppNav role={profile.role} name={profile.name} />
       <main className="mx-auto max-w-5xl px-4 py-8">
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold text-ink">{student.name}</h1>
-          <p className="text-stone-600">{student.phone || student.email}</p>
-          <p className="mt-1 text-stone-600">Current week average: {formatScore(weeklyAverage)}</p>
-        </div>
-
         {resolvedSearchParams.status === "corrected" ? (
           <p className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
             Correction saved.
@@ -77,112 +86,110 @@ export default async function AdminStudentPage({
           </p>
         ) : null}
 
-        <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
-          <h2 className="text-lg font-semibold text-ink">Manual Correction</h2>
-          <form action={correctCheckIn} className="mt-4 grid gap-4 md:grid-cols-4">
-            <input name="student_id" type="hidden" value={student.id} />
-            <label className="block">
-              <span className="text-sm font-medium text-ink">Date</span>
-              <input
-                className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
-                defaultValue={todayDateString()}
-                name="date"
-                required
-                type="date"
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-ink">Status</span>
-              <select className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2" name="status">
-                <option value="submitted">Submitted</option>
-                <option value="missing">Missing</option>
-              </select>
-            </label>
-            <label className="block md:col-span-2">
-              <span className="text-sm font-medium text-ink">Note</span>
-              <input
-                className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
-                name="note"
-                placeholder="Optional correction note"
-              />
-            </label>
-            <fieldset className="space-y-3 md:col-span-4">
-              <legend className="text-sm font-medium text-ink">Completed tasks</legend>
-              <div className="grid gap-3 md:grid-cols-2">
-                {correctionTasks.map((task) => (
-                  <label
-                    className="flex items-start justify-between gap-4 rounded-md border border-stone-200 p-3"
-                    key={task.key}
-                  >
-                    <span className="flex items-start gap-3">
-                      <input className="mt-1 h-4 w-4" name="task_keys" type="checkbox" value={task.key} />
-                      <span className="text-sm text-ink">{task.label}</span>
-                    </span>
-                    <span className="shrink-0 text-sm text-stone-600">{task.weight}</span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <div className="md:col-span-4">
-              <button className="rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink">
-                Save correction
-              </button>
+        <section className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold text-ink">{student.name}</h1>
+              <p className="mt-1 text-stone-600">{student.phone || student.email}</p>
             </div>
-          </form>
+            <div className="rounded-md bg-stone-50 px-4 py-3 text-right">
+              <p className="text-xs font-medium uppercase text-stone-500">Latest submitted score</p>
+              <p className="text-2xl font-semibold text-ink">{formatScore(latestSubmitted?.daily_score) || "None"}</p>
+            </div>
+          </div>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-md border border-stone-200 p-4">
+              <p className="text-sm text-stone-600">Submitted days this week</p>
+              <p className="mt-1 text-2xl font-semibold text-ink">{submittedDaysThisWeek}</p>
+            </div>
+            <div className="rounded-md border border-stone-200 p-4">
+              <p className="text-sm text-stone-600">Missing days so far</p>
+              <p className="mt-1 text-2xl font-semibold text-ink">{missingDaysSoFar}</p>
+            </div>
+            <div className="rounded-md border border-stone-200 p-4">
+              <p className="text-sm text-stone-600">Average so far</p>
+              <p className="mt-1 text-2xl font-semibold text-ink">{formatScore(averageSoFar) || "None"}</p>
+            </div>
+            <div className="rounded-md border border-stone-200 p-4">
+              <p className="text-sm text-stone-600">Phone</p>
+              <p className="mt-1 break-words text-lg font-semibold text-ink">{student.phone || "Not set"}</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <h2 className="text-lg font-semibold text-ink">Current Week</h2>
+          <div className="mt-3 overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm">
+            <div className="divide-y divide-stone-200">
+              {weekDates.map((date) => {
+                const checkin = checkinByDate.get(date);
+
+                return (
+                  <div className="grid gap-3 px-4 py-3 md:grid-cols-[1.2fr_1fr_1fr]" key={date}>
+                    <div>
+                      <p className="font-medium text-ink">{friendlyDate(date)}</p>
+                    </div>
+                    <div>
+                      <span className={checkin ? "font-medium text-green-700" : "font-medium text-amber-700"}>
+                        {checkin ? `Submitted - ${formatScore(checkin.daily_score)}` : "Missing"}
+                      </span>
+                    </div>
+                    <div className="text-stone-600">
+                      {checkin ? `${checkin.earned_weight ?? 0}/${checkin.total_weight ?? 0}` : ""}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </section>
 
         <section className="mt-8">
           <h2 className="text-lg font-semibold text-ink">History</h2>
-          <div className="mt-3 overflow-x-auto rounded-lg border border-stone-200 bg-white shadow-sm">
-            <table className="w-full min-w-[760px] text-left text-sm">
-              <thead className="bg-stone-50 text-ink">
-                <tr>
-                  <th className="px-4 py-3 font-medium">Date</th>
-                  <th className="px-4 py-3 font-medium">Score</th>
-                  <th className="px-4 py-3 font-medium">Checklist</th>
-                  <th className="px-4 py-3 font-medium">Submitted</th>
-                  <th className="px-4 py-3 font-medium">Updated</th>
-                  <th className="px-4 py-3 font-medium">Note</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-stone-200">
-                {(checkins ?? []).map((checkin) => (
-                  <tr key={checkin.id}>
-                    <td className="px-4 py-3">{friendlyDate(checkin.date)}</td>
-                    <td className="px-4 py-3 text-stone-700">
-                      {formatScore(checkin.daily_score)}
-                      <span className="block text-xs text-stone-500">
-                        {checkin.earned_weight ?? 0}/{checkin.total_weight ?? 0}
+          <div className="mt-3 space-y-4">
+            {(checkins ?? []).map((checkin) => (
+              <article className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm" key={checkin.id}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold text-ink">{friendlyDate(checkin.date)}</h3>
+                    <p className="mt-1 text-sm text-stone-600">
+                      Submitted {new Date(checkin.submitted_at).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-lg font-semibold text-ink">{formatScore(checkin.daily_score)}</p>
+                    <p className="text-sm text-stone-600">
+                      {checkin.earned_weight ?? 0}/{checkin.total_weight ?? 0}
+                    </p>
+                  </div>
+                </div>
+                {checkin.note ? <p className="mt-3 text-sm text-stone-700">Note: {checkin.note}</p> : null}
+                <div className="mt-4 grid gap-2 md:grid-cols-2">
+                  {(itemsByCheckInId.get(checkin.id) ?? []).map((item) => (
+                    <div
+                      className="flex items-start justify-between gap-4 rounded-md bg-stone-50 px-3 py-2 text-sm"
+                      key={item.id}
+                    >
+                      <span className={item.completed ? "text-ink" : "text-stone-500"}>
+                        {item.completed ? "Done" : "Missed"}: {item.task_label}
                       </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <ul className="space-y-1">
-                        {(itemsByCheckInId.get(checkin.id) ?? []).map((item) => (
-                          <li className={item.completed ? "text-ink" : "text-stone-500"} key={item.id}>
-                            {item.completed ? "Done" : "Missed"}: {item.task_label} ({item.weight})
-                          </li>
-                        ))}
-                      </ul>
-                    </td>
-                    <td className="px-4 py-3 text-stone-600">
-                      {new Date(checkin.submitted_at).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 text-stone-600">
-                      {checkin.updated_at ? new Date(checkin.updated_at).toLocaleString() : ""}
-                    </td>
-                    <td className="px-4 py-3 text-stone-600">{checkin.note ?? ""}</td>
-                  </tr>
-                ))}
-                {checkins?.length ? null : (
-                  <tr>
-                    <td className="px-4 py-6 text-stone-600" colSpan={6}>
-                      No check-ins yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                      <span className="shrink-0 text-stone-600">{item.weight}</span>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            ))}
+            {checkins?.length ? null : (
+              <div className="rounded-lg border border-stone-200 bg-white p-6 text-stone-600 shadow-sm">
+                No check-ins yet.
+              </div>
+            )}
           </div>
+        </section>
+
+        <section className="mt-8 rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
+          <h2 className="text-lg font-semibold text-ink">Manual Correction</h2>
+          <CorrectionForm studentId={student.id} today={today} />
         </section>
       </main>
     </>
