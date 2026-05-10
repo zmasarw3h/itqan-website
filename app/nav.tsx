@@ -5,10 +5,14 @@ import type { Role } from "@/lib/types";
 export default function AppNav({ role, name }: { role: Role; name: string }) {
   const links =
     role === "admin"
-      ? [{ href: "/admin", label: "Admin" }]
+      ? [
+          { href: "/admin", label: "Admin" },
+          { href: "/account/change-password", label: "Password" }
+        ]
       : [
           { href: "/student/check-in", label: "Check-In" },
-          { href: "/student/history", label: "History" }
+          { href: "/student/history", label: "History" },
+          { href: "/account/change-password", label: "Password" }
         ];
 
   return (
