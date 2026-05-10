@@ -39,13 +39,13 @@ export default function LoginForm() {
           type="tel"
           autoComplete="tel"
           inputMode="tel"
-          placeholder="4165551234"
+          placeholder="4165550100"
           value={phone}
           onChange={(event) => setPhone(event.target.value)}
           required
         />
         <span className="mt-1 block text-xs text-stone-500">
-          Enter the phone number on file. Country code is optional unless two accounts share the same local number.
+          Canada: enter 10 digits, e.g. 4165550100. Outside Canada: include + and your country code.
         </span>
       </label>
       <label className="block">
