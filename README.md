@@ -75,6 +75,50 @@ Emergency lightweight check-in system for one masjid while Canvas is unavailable
 
 7. Open `http://localhost:3000/login`.
 
+## Import Users From CSV
+
+Use the local import script to create/update Supabase Auth users and matching `public.profiles` rows from a CSV.
+
+The input CSV must have exactly these columns:
+
+```csv
+name,phone,role
+Sample Student,+1 555 010 1000,student
+Sample Admin,+1 555 010 1001,admin
+```
+
+A fake sample file is available at `docs/sample-users.csv`.
+
+Run the import with:
+
+```bash
+npm run import-users -- data/users.csv
+```
+
+Required environment variables:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+```
+
+The script uses the Supabase Admin API locally with `SUPABASE_SERVICE_ROLE_KEY`. Never expose that key to browser code and do not log it.
+
+Phone login still uses Supabase email/password internally. The import normalizes phone numbers and creates synthetic auth emails:
+
+- `5550101000` becomes `+15550101000`
+- Auth email becomes `15550101000@itqan.local`
+
+The script generates temporary passwords only for newly created users. Existing users are updated in `public.profiles`, but their passwords are not overwritten.
+
+After each run, a local credential report is written to:
+
+```txt
+data/import-results-YYYY-MM-DD-HHMMSS.csv
+```
+
+Report CSV files include generated temporary passwords for newly created users. Keep real import CSV files and generated reports local. The repo ignores `data/*.csv`; commit only `data/.gitkeep` and fake samples under `docs/`.
+
 ## Deployment
 
 Deploy to Vercel and configure these environment variables:

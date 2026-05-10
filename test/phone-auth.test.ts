@@ -9,6 +9,7 @@ describe("phone auth helpers", () => {
 
   it("preserves explicit country codes after stripping separators", () => {
     expect(normalizePhoneNumber("+1 (416) 555-1234")).toBe("+14165551234");
+    expect(normalizePhoneNumber("+99 123 456 7890")).toBe("+991234567890");
   });
 
   it("converts normalized phone numbers into synthetic auth emails", () => {
