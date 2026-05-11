@@ -37,10 +37,11 @@ Emergency lightweight check-in system for one masjid while Canvas is unavailable
 3. Fill in Supabase values:
 
    ```bash
-   NEXT_PUBLIC_SUPABASE_URL=
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=
-   # Optional server-only key for setup/admin scripts only. Do not expose this in browser code.
-   SUPABASE_SERVICE_ROLE_KEY=
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+# Server-only key used for user import and private weekly-plan Storage operations.
+# Do not expose this in browser code.
+SUPABASE_SERVICE_ROLE_KEY=
    ```
 
 4. Apply the database migration in Supabase:
@@ -58,7 +59,9 @@ Emergency lightweight check-in system for one masjid while Canvas is unavailable
    - File size limit: 1 MB if configured in the dashboard
    - Allowed MIME types: `image/png`, `image/jpeg`, `application/pdf` if configured in the dashboard
 
-   Add these Storage RLS policies for `storage.objects` so signed-in students can manage only their own folder and admins can read all plan files:
+   The app performs private Storage uploads and signed URL creation from server actions with `SUPABASE_SERVICE_ROLE_KEY`, after checking the signed-in user's role. Do not expose that key to the browser.
+
+   If you also want direct authenticated-user access to Storage objects outside the app server, add these Storage RLS policies for `storage.objects`:
 
    ```sql
    create policy "Students can upload own weekly plan files"
@@ -214,7 +217,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY` is optional for this app runtime and must stay server-only. Normal page and action behavior uses the signed-in user's Supabase session and RLS.
+`SUPABASE_SERVICE_ROLE_KEY` must stay server-only. Database page and action behavior uses the signed-in user's Supabase session and RLS. Private weekly-plan file upload, replacement cleanup, and signed URL creation use the service-role key only on the server.
 
 Apply all files in `supabase/migrations` to the production Supabase project before using the deployed app. The weighted checklist migration keeps `public.checkins`, adds aggregate score columns, and stores each submitted task snapshot in `public.checkin_items` so historical labels and weights remain stable.
 

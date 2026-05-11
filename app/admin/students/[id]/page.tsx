@@ -9,6 +9,7 @@ import {
   todayDateString
 } from "@/lib/dates";
 import { calculateWeeklyAverage, formatScore } from "@/lib/scoring";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn, CheckInItem, Profile, WeeklyPlan } from "@/lib/types";
 import { WEEKLY_PLAN_BUCKET } from "@/lib/weekly-plans";
@@ -25,6 +26,7 @@ export default async function AdminStudentPage({
   const resolvedParams = await params;
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["admin"]);
+  const storageSupabase = createSupabaseAdminClient();
   const { data: student } = await supabase
     .from("profiles")
     .select("id,name,email,phone,role,active,created_at")
@@ -86,7 +88,7 @@ export default async function AdminStudentPage({
     .maybeSingle<WeeklyPlan>();
   const weeklyPlanUrl = weeklyPlan
     ? (
-        await supabase.storage
+        await storageSupabase.storage
           .from(WEEKLY_PLAN_BUCKET)
           .createSignedUrl(weeklyPlan.file_path, 60 * 60, { download: weeklyPlan.file_name })
       ).data?.signedUrl

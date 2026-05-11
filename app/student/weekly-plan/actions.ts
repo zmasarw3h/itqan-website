@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { planWeekStartForDate, todayDateString } from "@/lib/dates";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import type { WeeklyPlan } from "@/lib/types";
 import {
@@ -13,6 +14,7 @@ import {
 
 export async function uploadWeeklyPlan(formData: FormData) {
   const { supabase, profile } = await requireProfile(["student"]);
+  const storageSupabase = createSupabaseAdminClient();
   const file = formData.get("plan");
   const weekStart = planWeekStartForDate(todayDateString());
 
@@ -33,7 +35,7 @@ export async function uploadWeeklyPlan(formData: FormData) {
     .maybeSingle<WeeklyPlan>();
 
   const filePath = weeklyPlanStoragePath(profile.id, weekStart, file.name);
-  const { error: uploadError } = await supabase.storage
+  const { error: uploadError } = await storageSupabase.storage
     .from(WEEKLY_PLAN_BUCKET)
     .upload(filePath, file, {
       cacheControl: "3600",
@@ -59,12 +61,12 @@ export async function uploadWeeklyPlan(formData: FormData) {
   );
 
   if (upsertError) {
-    await supabase.storage.from(WEEKLY_PLAN_BUCKET).remove([filePath]);
+    await storageSupabase.storage.from(WEEKLY_PLAN_BUCKET).remove([filePath]);
     redirect("/student/weekly-plan?status=save-error");
   }
 
   if (existingPlan?.file_path && existingPlan.file_path !== filePath) {
-    await supabase.storage.from(WEEKLY_PLAN_BUCKET).remove([existingPlan.file_path]);
+    await storageSupabase.storage.from(WEEKLY_PLAN_BUCKET).remove([existingPlan.file_path]);
   }
 
   revalidatePath("/student/weekly-plan");

@@ -1,6 +1,7 @@
 import AppNav from "@/app/nav";
 import WeeklyPlanUploadForm from "@/app/student/weekly-plan/weekly-plan-upload-form";
 import { formatPlanWeekRange, planWeekStartForDate, todayDateString } from "@/lib/dates";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import type { WeeklyPlan } from "@/lib/types";
 import { WEEKLY_PLAN_BUCKET } from "@/lib/weekly-plans";
@@ -37,6 +38,7 @@ export default async function StudentWeeklyPlanPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["student"]);
+  const storageSupabase = createSupabaseAdminClient();
   const weekStart = planWeekStartForDate(todayDateString());
   const { data: weeklyPlan } = await supabase
     .from("weekly_plans")
@@ -47,7 +49,7 @@ export default async function StudentWeeklyPlanPage({
 
   const signedUrl = weeklyPlan
     ? (
-        await supabase.storage
+        await storageSupabase.storage
           .from(WEEKLY_PLAN_BUCKET)
           .createSignedUrl(weeklyPlan.file_path, 60 * 60, { download: weeklyPlan.file_name })
       ).data?.signedUrl
