@@ -36,6 +36,17 @@ export type CheckInItem = {
   created_at: string;
 };
 
+export type WeeklyPlan = {
+  id: string;
+  student_id: string;
+  week_start: string;
+  file_path: string;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  uploaded_at: string;
+};
+
 export type CompletionStatus = "submitted" | "missing";
 
 export type CompletionRow = {

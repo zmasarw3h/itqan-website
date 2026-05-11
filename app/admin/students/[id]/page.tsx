@@ -1,10 +1,17 @@
 import { notFound } from "next/navigation";
 import AppNav from "@/app/nav";
 import CorrectionForm from "./correction-form";
-import { currentWeekDates, friendlyDate, todayDateString } from "@/lib/dates";
+import {
+  currentWeekDates,
+  formatPlanWeekRange,
+  friendlyDate,
+  planWeekStartForDate,
+  todayDateString
+} from "@/lib/dates";
 import { calculateWeeklyAverage, formatScore } from "@/lib/scoring";
 import { requireProfile } from "@/lib/supabase-server";
-import type { CheckIn, CheckInItem, Profile } from "@/lib/types";
+import type { CheckIn, CheckInItem, Profile, WeeklyPlan } from "@/lib/types";
+import { WEEKLY_PLAN_BUCKET } from "@/lib/weekly-plans";
 
 export const dynamic = "force-dynamic";
 
@@ -66,10 +73,24 @@ export default async function AdminStudentPage({
   const latestSubmitted = (checkins ?? []).reduce<CheckIn | null>(
     (latest, checkin) =>
       !latest || new Date(checkin.submitted_at).getTime() > new Date(latest.submitted_at).getTime()
-        ? checkin
-        : latest,
+      ? checkin
+      : latest,
     null
   );
+  const weekStart = planWeekStartForDate(today);
+  const { data: weeklyPlan } = await supabase
+    .from("weekly_plans")
+    .select("id,student_id,week_start,file_path,file_name,file_type,file_size,uploaded_at")
+    .eq("student_id", student.id)
+    .eq("week_start", weekStart)
+    .maybeSingle<WeeklyPlan>();
+  const weeklyPlanUrl = weeklyPlan
+    ? (
+        await supabase.storage
+          .from(WEEKLY_PLAN_BUCKET)
+          .createSignedUrl(weeklyPlan.file_path, 60 * 60, { download: weeklyPlan.file_name })
+      ).data?.signedUrl
+    : null;
 
   return (
     <>
@@ -142,6 +163,33 @@ export default async function AdminStudentPage({
               })}
             </div>
           </div>
+        </section>
+
+        <section className="mt-8 rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-ink">Weekly Plan</h2>
+              <p className="mt-1 text-sm text-stone-600">{formatPlanWeekRange(weekStart)}</p>
+            </div>
+            {weeklyPlanUrl ? (
+              <a
+                className="rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink"
+                href={weeklyPlanUrl}
+              >
+                View/download
+              </a>
+            ) : null}
+          </div>
+          {weeklyPlan ? (
+            <div className="mt-4 rounded-md bg-stone-50 p-4">
+              <p className="font-medium text-ink">{weeklyPlan.file_name}</p>
+              <p className="mt-1 text-sm text-stone-600">
+                Uploaded {new Date(weeklyPlan.uploaded_at).toLocaleString()}
+              </p>
+            </div>
+          ) : (
+            <p className="mt-4 rounded-md bg-stone-50 p-4 text-stone-600">No plan uploaded for this week.</p>
+          )}
         </section>
 
         <section className="mt-8">

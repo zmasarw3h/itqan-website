@@ -5,8 +5,10 @@ Emergency lightweight check-in system for one masjid while Canvas is unavailable
 ## What This App Does
 
 - Students sign in, submit one weighted daily Quran checklist, see today's submitted checklist and score, and view their own history.
+- Students upload one weekly plan image/PDF for the current Saturday-Friday halaqa week.
 - Admins sign in, view all active students, review weekly/date submission scores, filter by student/date/status, correct check-ins, and export CSV.
-- The app intentionally excludes teacher roles, weekly plans, sadaqa, announcements, payments, booking, parent accounts, multi-masjid support, and Quran selection.
+- Admins can view/download a student's uploaded weekly plan from that student's admin screen.
+- The app intentionally excludes teacher roles, plan approval, comments, plan parsing/OCR, sadaqa, announcements, payments, booking, parent accounts, multi-masjid support, and Quran selection.
 
 ## Stack
 
@@ -49,7 +51,69 @@ Emergency lightweight check-in system for one masjid while Canvas is unavailable
 
    Or paste the SQL files in `supabase/migrations` into the Supabase SQL editor in filename order.
 
-5. Create Supabase Auth users with email/password, then insert matching rows in `public.profiles`. Users enter phone numbers at login, but Supabase Auth still uses email/password internally.
+5. Create the private Supabase Storage bucket for weekly plan files:
+
+   - Bucket name: `weekly-plans`
+   - Public bucket: off/private
+   - File size limit: 1 MB if configured in the dashboard
+   - Allowed MIME types: `image/png`, `image/jpeg`, `application/pdf` if configured in the dashboard
+
+   Add these Storage RLS policies for `storage.objects` so signed-in students can manage only their own folder and admins can read all plan files:
+
+   ```sql
+   create policy "Students can upload own weekly plan files"
+     on storage.objects
+     for insert
+     with check (
+       bucket_id = 'weekly-plans'
+       and auth.uid()::text = (storage.foldername(name))[1]
+       and public.is_active_student()
+     );
+
+   create policy "Students can update own weekly plan files"
+     on storage.objects
+     for update
+     using (
+       bucket_id = 'weekly-plans'
+       and auth.uid()::text = (storage.foldername(name))[1]
+       and public.is_active_student()
+     )
+     with check (
+       bucket_id = 'weekly-plans'
+       and auth.uid()::text = (storage.foldername(name))[1]
+       and public.is_active_student()
+     );
+
+   create policy "Students can read own weekly plan files"
+     on storage.objects
+     for select
+     using (
+       bucket_id = 'weekly-plans'
+       and auth.uid()::text = (storage.foldername(name))[1]
+       and public.is_active_student()
+     );
+
+   create policy "Students can delete replaced weekly plan files"
+     on storage.objects
+     for delete
+     using (
+       bucket_id = 'weekly-plans'
+       and auth.uid()::text = (storage.foldername(name))[1]
+       and public.is_active_student()
+     );
+
+   create policy "Admins can read weekly plan files"
+     on storage.objects
+     for select
+     using (
+       bucket_id = 'weekly-plans'
+       and public.is_active_admin()
+     );
+   ```
+
+   Weekly plan metadata is stored in `public.weekly_plans` by the migration. Uploaded files are stored in Supabase Storage, not in the database.
+
+6. Create Supabase Auth users with email/password, then insert matching rows in `public.profiles`. Users enter phone numbers at login, but Supabase Auth still uses email/password internally.
 
    Convert phone numbers to synthetic auth emails:
 
@@ -67,13 +131,28 @@ Emergency lightweight check-in system for one masjid while Canvas is unavailable
    Student Two,14165550102@itqan.local,+1 416 555 0102,student,true
    ```
 
-6. Run the app:
+7. Run the app:
 
    ```bash
    npm run dev
    ```
 
-7. Open `http://localhost:3000/login`.
+8. Open `http://localhost:3000/login`.
+
+## Weekly Plans
+
+Students use the `Weekly Plan` navigation link to upload one plan file for the current halaqa week. Plan weeks run Saturday-Friday, and `week_start` is stored as the Saturday date.
+
+The upload accepts:
+
+- PNG
+- JPG
+- PDF
+- Maximum size: 1 MB
+
+Uploading again during the same week replaces the existing weekly plan record. The page shows the uploaded file name, upload timestamp, and a signed view/download link. If nothing is uploaded, it shows `No weekly plan uploaded yet.`
+
+Admins open `/admin/students/[id]` from the student list to view the student's current weekly plan. If a plan exists, the admin sees the file name, upload timestamp, and a signed view/download link. If no plan exists, the page shows `No plan uploaded for this week.`
 
 ## Import Users From CSV
 

@@ -108,3 +108,43 @@ export function friendlyDate(dateString: string) {
     timeZone: "UTC"
   }).format(new Date(`${dateString}T00:00:00.000Z`));
 }
+
+export function planWeekStartForDate(dateString = todayDateString()) {
+  const date = new Date(`${dateString}T00:00:00.000Z`);
+  const day = date.getUTCDay();
+  const saturdayOffset = day === 6 ? 0 : day + 1;
+
+  return addDays(dateString, -saturdayOffset);
+}
+
+export function planWeekDatesFromStart(weekStart: string) {
+  return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
+}
+
+export function formatPlanWeekRange(weekStart: string) {
+  const weekDates = planWeekDatesFromStart(weekStart);
+  const start = new Date(`${weekDates[0]}T00:00:00.000Z`);
+  const end = new Date(`${weekDates[6]}T00:00:00.000Z`);
+  const sameMonth = start.getUTCMonth() === end.getUTCMonth();
+  const sameYear = start.getUTCFullYear() === end.getUTCFullYear();
+
+  if (sameMonth && sameYear) {
+    const month = new Intl.DateTimeFormat("en-US", { month: "long", timeZone: "UTC" }).format(start);
+    return `${month} ${start.getUTCDate()}–${end.getUTCDate()}, ${start.getUTCFullYear()}`;
+  }
+
+  const startText = new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+    year: sameYear ? undefined : "numeric"
+  }).format(start);
+  const endText = new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC"
+  }).format(end);
+
+  return `${startText}–${endText}`;
+}
