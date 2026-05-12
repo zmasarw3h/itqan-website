@@ -3,10 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { assertNoDuplicateCheckIn, checkInItemPayloads, normalizeNote } from "@/lib/checkins";
-import { todayDateString } from "@/lib/dates";
-import { calculateDailySubmission } from "@/lib/scoring";
+import { todayDateString, weekStartForDate } from "@/lib/dates";
+import { assertNoDuplicatePartnerRecitation } from "@/lib/partner-recitations";
+import { calculateDailySubmission, partnerRoundForDate, PARTNER_RECITATION_POINTS_PER_ROUND } from "@/lib/scoring";
 import { requireProfile } from "@/lib/supabase-server";
-import type { CheckIn } from "@/lib/types";
+import type { CheckIn, PartnerRecitation } from "@/lib/types";
 
 export async function submitTodayCheckIn(formData: FormData) {
   const { supabase, profile } = await requireProfile(["student"]);
@@ -68,4 +69,44 @@ export async function submitTodayCheckIn(formData: FormData) {
   revalidatePath("/student/check-in");
   revalidatePath("/student/history");
   redirect("/student/check-in?status=submitted");
+}
+
+export async function submitPartnerRecitation() {
+  const { supabase, profile } = await requireProfile(["student"]);
+  const today = todayDateString();
+  const weekStart = weekStartForDate(today);
+  const round = partnerRoundForDate(today);
+
+  const { data: existing } = await supabase
+    .from("partner_recitations")
+    .select("student_id,week_start,round")
+    .eq("student_id", profile.id)
+    .eq("week_start", weekStart)
+    .eq("round", round)
+    .maybeSingle<Pick<PartnerRecitation, "student_id" | "week_start" | "round">>();
+
+  try {
+    assertNoDuplicatePartnerRecitation(existing ?? null);
+  } catch {
+    redirect("/student/partner-recitation?status=duplicate");
+  }
+
+  const { error } = await supabase.from("partner_recitations").insert({
+    student_id: profile.id,
+    week_start: weekStart,
+    round,
+    points: PARTNER_RECITATION_POINTS_PER_ROUND
+  });
+
+  if (error?.code === "23505") {
+    redirect("/student/partner-recitation?status=duplicate");
+  }
+
+  if (error) {
+    redirect("/student/partner-recitation?status=error");
+  }
+
+  revalidatePath("/student/partner-recitation");
+  revalidatePath("/student/history");
+  redirect("/student/partner-recitation?status=submitted");
 }
