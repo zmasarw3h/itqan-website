@@ -85,6 +85,6 @@ describe("weekly plan dates", () => {
   });
 
   it("formats the weekly plan range", () => {
-    expect(formatPlanWeekRange("2026-05-09")).toBe("May 9–15, 2026");
+    expect(formatPlanWeekRange("2026-05-09")).toBe("May 9–16, 2026");
   });
 });

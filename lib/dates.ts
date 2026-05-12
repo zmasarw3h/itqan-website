@@ -124,7 +124,7 @@ export function planWeekDatesFromStart(weekStart: string) {
 export function formatPlanWeekRange(weekStart: string) {
   const weekDates = planWeekDatesFromStart(weekStart);
   const start = new Date(`${weekDates[0]}T00:00:00.000Z`);
-  const end = new Date(`${weekDates[6]}T00:00:00.000Z`);
+  const end = new Date(`${addDays(weekStart, 7)}T00:00:00.000Z`);
   const sameMonth = start.getUTCMonth() === end.getUTCMonth();
   const sameYear = start.getUTCFullYear() === end.getUTCFullYear();
 

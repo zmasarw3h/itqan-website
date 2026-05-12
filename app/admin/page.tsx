@@ -125,11 +125,11 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
           </Link>
         </div>
 
-        <form className="mt-6 grid gap-4 rounded-lg border border-stone-200 bg-white p-4 shadow-sm md:grid-cols-5">
-          <label className="block">
+        <form className="mt-6 grid grid-cols-1 gap-4 rounded-lg border border-stone-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-5">
+          <label className="block min-w-0">
             <span className="text-sm font-medium text-ink">Student</span>
             <select
-              className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
+              className="mt-1 w-full min-w-0 rounded-md border border-stone-300 px-3 py-2"
               defaultValue={filters.studentId ?? ""}
               name="student"
             >
@@ -141,10 +141,10 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
               ))}
             </select>
           </label>
-          <label className="block">
+          <label className="block min-w-0">
             <span className="text-sm font-medium text-ink">Week</span>
             <select
-              className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
+              className="mt-1 w-full min-w-0 rounded-md border border-stone-300 px-3 py-2"
               defaultValue={selectedWeekStart}
               name="week"
             >
@@ -155,19 +155,19 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
               ))}
             </select>
           </label>
-          <label className="block">
+          <label className="block min-w-0">
             <span className="text-sm font-medium text-ink">Date</span>
             <input
-              className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
+              className="mt-1 w-full min-w-0 rounded-md border border-stone-300 px-3 py-2"
               defaultValue={filters.date ?? ""}
               name="date"
               type="date"
             />
           </label>
-          <label className="block">
+          <label className="block min-w-0">
             <span className="text-sm font-medium text-ink">Status</span>
             <select
-              className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
+              className="mt-1 w-full min-w-0 rounded-md border border-stone-300 px-3 py-2"
               defaultValue={filters.status ?? ""}
               name="status"
             >
@@ -176,17 +176,20 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
               <option value="missing">Missing</option>
             </select>
           </label>
-          <div className="flex items-end gap-2">
-            <button className="rounded-md bg-ink px-4 py-2.5 text-sm font-medium text-white">
+          <div className="flex min-w-0 flex-wrap items-end gap-2 self-end sm:col-span-2 lg:col-span-1">
+            <button className="w-full rounded-md bg-ink px-4 py-2.5 text-sm font-medium text-white sm:w-auto">
               Apply
             </button>
             <Link
-              className="rounded-md border border-stone-300 px-4 py-2.5 text-sm font-medium"
+              className="w-full rounded-md border border-stone-300 px-4 py-2.5 text-center text-sm font-medium sm:w-auto"
               href={currentWeekHref(filters, currentWeekStart)}
             >
               Current Week
             </Link>
-            <Link className="rounded-md border border-stone-300 px-4 py-2.5 text-sm font-medium" href="/admin">
+            <Link
+              className="w-full rounded-md border border-stone-300 px-4 py-2.5 text-center text-sm font-medium sm:w-auto"
+              href="/admin"
+            >
               Clear
             </Link>
           </div>
