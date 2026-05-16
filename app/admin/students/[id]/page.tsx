@@ -1,17 +1,20 @@
 import { notFound } from "next/navigation";
 import AppNav from "@/app/nav";
 import CorrectionForm, { type CorrectionFormCheckIn } from "./correction-form";
+import HalaqaGradeForm from "./halaqa-grade-form";
 import {
   currentWeekDates,
+  formatWeekRange,
   formatPlanWeekRange,
   friendlyDate,
   planWeekStartForDate,
-  todayDateString
+  todayDateString,
+  weekStartForDate
 } from "@/lib/dates";
-import { calculateWeeklyAverage, formatScore } from "@/lib/scoring";
+import { calculateWeeklyAverage, calculateWeeklyScore, formatScore } from "@/lib/scoring";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
-import type { CheckIn, CheckInItem, Profile, WeeklyPlan } from "@/lib/types";
+import type { CheckIn, CheckInItem, HalaqaGrade, PartnerRecitation, Profile, WeeklyPlan } from "@/lib/types";
 import { WEEKLY_PLAN_BUCKET } from "@/lib/weekly-plans";
 
 export const dynamic = "force-dynamic";
@@ -61,6 +64,7 @@ export default async function AdminStudentPage({
 
   const today = todayDateString();
   const weekDates = currentWeekDates(today);
+  const currentTrackerWeekStart = weekStartForDate(today);
   const checkinByDate = new Map((checkins ?? []).map((checkin) => [checkin.date, checkin]));
   const correctionCheckIns: CorrectionFormCheckIn[] = (checkins ?? []).map((checkin) => ({
     date: checkin.date,
@@ -80,6 +84,23 @@ export default async function AdminStudentPage({
   const submittedDaysThisWeek = currentWeekCheckins.length;
   const missingDaysSoFar = pastOrCurrentWeekDates.filter((date) => !checkinByDate.has(date)).length;
   const averageSoFar = calculateWeeklyAverage(submittedCheckinsSoFar.map((checkin) => checkin.daily_score));
+  const { data: partnerRecitations } = await supabase
+    .from("partner_recitations")
+    .select("id,student_id,week_start,round,points,submitted_at")
+    .eq("student_id", student.id)
+    .eq("week_start", currentTrackerWeekStart)
+    .returns<PartnerRecitation[]>();
+  const { data: halaqaGrade } = await supabase
+    .from("halaqa_grades")
+    .select("id,student_id,week_start,attended,attendance_points,recitation_points,notes,graded_by,graded_at,updated_at")
+    .eq("student_id", student.id)
+    .eq("week_start", currentTrackerWeekStart)
+    .maybeSingle<HalaqaGrade>();
+  const weeklyScore = calculateWeeklyScore({
+    dailyScores: weekDates.map((date) => checkinByDate.get(date)?.daily_score ?? 0),
+    partnerRecitations: partnerRecitations ?? [],
+    halaqaGrade: halaqaGrade ?? null
+  });
   const latestSubmitted = (checkins ?? []).reduce<CheckIn | null>(
     (latest, checkin) =>
       !latest || new Date(checkin.submitted_at).getTime() > new Date(latest.submitted_at).getTime()
@@ -116,6 +137,16 @@ export default async function AdminStudentPage({
             Unable to save correction.
           </p>
         ) : null}
+        {resolvedSearchParams.status === "grade-saved" ? (
+          <p className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
+            Halaqa grade saved.
+          </p>
+        ) : null}
+        {resolvedSearchParams.status === "grade-invalid" || resolvedSearchParams.status === "grade-error" ? (
+          <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+            Unable to save halaqa grade. If attended is yes, recitation must be 10–50.
+          </p>
+        ) : null}
 
         <section className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
@@ -142,8 +173,11 @@ export default async function AdminStudentPage({
               <p className="mt-1 text-2xl font-semibold text-ink">{formatScore(averageSoFar) || "None"}</p>
             </div>
             <div className="rounded-md border border-stone-200 p-4">
-              <p className="text-sm text-stone-600">Phone</p>
-              <p className="mt-1 break-words text-lg font-semibold text-ink">{student.phone || "Not set"}</p>
+              <p className="text-sm text-stone-600">Weekly score</p>
+              <p className="mt-1 text-2xl font-semibold text-ink">
+                {weeklyScore.total_points} / {weeklyScore.total_possible}
+              </p>
+              <p className="text-sm text-stone-600">{weeklyScore.percentage}%</p>
             </div>
           </div>
         </section>
@@ -182,6 +216,38 @@ export default async function AdminStudentPage({
               })}
             </div>
           </div>
+        </section>
+
+        <section className="mt-8 rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-ink">Weekly Score</h2>
+              <p className="mt-1 text-sm text-stone-600">Week of {formatWeekRange(currentTrackerWeekStart)}</p>
+            </div>
+            <p className="text-2xl font-semibold text-ink">
+              {weeklyScore.total_points} / 1000 = {weeklyScore.percentage}%
+            </p>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="rounded-md bg-stone-50 p-4">
+              <p className="text-sm text-stone-600">Daily checklist</p>
+              <p className="mt-1 text-xl font-semibold text-ink">{weeklyScore.daily_points} / 700</p>
+            </div>
+            <div className="rounded-md bg-stone-50 p-4">
+              <p className="text-sm text-stone-600">Partner recitation</p>
+              <p className="mt-1 text-xl font-semibold text-ink">{weeklyScore.partner_points} / 150</p>
+            </div>
+            <div className="rounded-md bg-stone-50 p-4">
+              <p className="text-sm text-stone-600">Halaqa grade</p>
+              <p className="mt-1 text-xl font-semibold text-ink">{weeklyScore.halaqa_points} / 150</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="mt-8 rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
+          <h2 className="text-lg font-semibold text-ink">Halaqa Grade</h2>
+          <p className="mt-1 text-sm text-stone-600">Saturday grade for {formatWeekRange(currentTrackerWeekStart)}</p>
+          <HalaqaGradeForm grade={halaqaGrade ?? null} studentId={student.id} weekStart={currentTrackerWeekStart} />
         </section>
 
         <section className="mt-8 rounded-lg border border-stone-200 bg-white p-4 shadow-sm">

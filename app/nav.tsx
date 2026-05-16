@@ -11,7 +11,7 @@ export default function AppNav({ role, name }: { role: Role; name: string }) {
         ]
       : [
           { href: "/student/check-in", label: "Check-In" },
-          { href: "/student/check-in", label: "Partner Recitation" },
+          { href: "/student/partner-recitation", label: "Partner Recitation" },
           { href: "/student/grades", label: "Grades" },
           { href: "/student/weekly-plan", label: "Weekly Plan" },
           { href: "/student/history", label: "History" },

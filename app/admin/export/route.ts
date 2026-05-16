@@ -23,7 +23,10 @@ function filtersFromUrl(url: URL, currentWeekStart: string): DashboardFilters {
     studentId: url.searchParams.get("student") ?? undefined,
     date: date && isValidDateString(date) ? date : undefined,
     weekStart: validWeekStart(url.searchParams.get("week"), currentWeekStart),
-    status: status === "submitted" || status === "missing" ? (status as CompletionStatus) : undefined
+    status:
+      status === "submitted" || status === "missing" || status === "upcoming"
+        ? (status as CompletionStatus)
+        : undefined
   };
 }
 

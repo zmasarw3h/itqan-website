@@ -4,9 +4,9 @@ Emergency lightweight check-in system for one masjid while Canvas is unavailable
 
 ## What This App Does
 
-- Students sign in, submit one weighted daily Quran checklist, see today's submitted checklist and score, and view their own history.
+- Students sign in, submit one weighted daily Quran checklist, confirm partner recitation rounds, view weekly grades, see today's submitted checklist and score, and view their own history.
 - Students upload one weekly plan image/PDF for the current Saturday-Friday halaqa week.
-- Admins sign in, view all active students, review weekly/date submission scores, filter by student/date/status, correct check-ins, and export CSV.
+- Admins sign in, view all active students, review weekly/date submission scores, filter by student/date/status, correct check-ins, enter Saturday halaqa grades, and export CSV.
 - Admins can view/download a student's uploaded weekly plan from that student's admin screen.
 - The app intentionally excludes teacher roles, plan approval, comments, plan parsing/OCR, sadaqa, announcements, payments, booking, parent accounts, multi-masjid support, and Quran selection.
 
@@ -156,6 +156,18 @@ The upload accepts:
 Uploading again during the same week replaces the existing weekly plan record. The page shows the uploaded file name, upload timestamp, and a signed view/download link. If nothing is uploaded, it shows `No weekly plan uploaded yet.`
 
 Admins open `/admin/students/[id]` from the student list to view the student's current weekly plan. If a plan exists, the admin sees the file name, upload timestamp, and a signed view/download link. If no plan exists, the page shows `No plan uploaded for this week.`
+
+## Weekly Scoring
+
+Weekly scoring totals 1000 points:
+
+- Daily checklist: 100 points per day, 700 per Sunday-Saturday tracker week.
+- Partner recitation: Round 1 is Sunday-Wednesday for 75 points; Round 2 is Thursday-Saturday for 75 points.
+- Saturday halaqa grade: 100 attendance points plus 10-50 admin-entered recitation points, for 150 max.
+
+Students use `Partner Recitation` to confirm the currently open round. The server determines the round from the same 1:00 AM effective date used by daily check-ins, and the database prevents duplicate submissions for the same student, week, and round. Students use `Grades` to view their read-only weekly total and breakdown.
+
+Admins enter halaqa grades from `/admin/students/[id]`. If a student did not attend, both attendance and recitation points are stored as 0. If they attended, recitation must be 10-50.
 
 ## Import Users From CSV
 

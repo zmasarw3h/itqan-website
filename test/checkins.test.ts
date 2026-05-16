@@ -4,6 +4,7 @@ import {
   assertNoDuplicateCheckIn,
   buildCompletionRows
 } from "@/lib/checkins";
+import { assertNoDuplicatePartnerRecitation } from "@/lib/partner-recitations";
 import type { CheckIn, Profile } from "@/lib/types";
 
 const students: Profile[] = [
@@ -47,6 +48,17 @@ describe("check-in rules", () => {
       "already exists"
     );
     expect(() => assertNoDuplicateCheckIn(null)).not.toThrow();
+  });
+
+  it("blocks duplicate partner recitation submissions for the same student, week, and round", () => {
+    expect(() =>
+      assertNoDuplicatePartnerRecitation({
+        student_id: "student-1",
+        week_start: "2026-05-10",
+        round: "round_1"
+      })
+    ).toThrow("already exists");
+    expect(() => assertNoDuplicatePartnerRecitation(null)).not.toThrow();
   });
 
   it("builds completed and missing rows for admin views", () => {

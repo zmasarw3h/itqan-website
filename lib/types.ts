@@ -47,6 +47,30 @@ export type WeeklyPlan = {
   uploaded_at: string;
 };
 
+export type PartnerRound = "round_1" | "round_2";
+
+export type PartnerRecitation = {
+  id: string;
+  student_id: string;
+  week_start: string;
+  round: PartnerRound;
+  points: number;
+  submitted_at: string;
+};
+
+export type HalaqaGrade = {
+  id: string;
+  student_id: string;
+  week_start: string;
+  attended: boolean;
+  attendance_points: number;
+  recitation_points: number;
+  notes: string | null;
+  graded_by: string | null;
+  graded_at: string;
+  updated_at: string | null;
+};
+
 export type CompletionStatus = "submitted" | "missing" | "upcoming";
 
 export type CompletionRow = {
