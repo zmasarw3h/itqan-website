@@ -68,6 +68,17 @@ describe("check-in rules", () => {
     });
   });
 
+  it("marks future dates as upcoming instead of missing", () => {
+    const rows = buildCompletionRows(students, [], ["2999-01-01"]);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      completed: false,
+      status: "upcoming",
+      checkin: null
+    });
+  });
+
   it("sets admin correction metadata for completed=false corrections", () => {
     const payload = adminCorrectionPayload({
       adminId: "admin-1",

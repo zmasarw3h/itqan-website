@@ -1,4 +1,5 @@
 import { calculateDailySubmission } from "@/lib/scoring";
+import { todayDateString } from "@/lib/dates";
 import type { CheckIn, CheckInItem, CompletionRow, CompletionStatus, DashboardFilters, Profile } from "@/lib/types";
 
 export function normalizeNote(value: FormDataEntryValue | null) {
@@ -16,8 +17,12 @@ export function assertNoDuplicateCheckIn(existing: Pick<CheckIn, "student_id" | 
   }
 }
 
-export function toCompletionStatus(checkin: CheckIn | null): CompletionStatus {
-  return checkin ? "submitted" : "missing";
+export function toCompletionStatus(checkin: CheckIn | null, date: string, today = todayDateString()): CompletionStatus {
+  if (checkin) {
+    return "submitted";
+  }
+
+  return date <= today ? "missing" : "upcoming";
 }
 
 export function checkInItemPayloads(input: {
@@ -58,6 +63,7 @@ export function buildCompletionRows(
 ): CompletionRow[] {
   const checkinByStudentAndDate = new Map<string, CheckIn>();
   const itemsByCheckInId = groupCheckInItemsByCheckInId(items);
+  const today = todayDateString();
 
   for (const checkin of checkins) {
     checkinByStudentAndDate.set(`${checkin.student_id}:${checkin.date}`, checkin);
@@ -81,7 +87,7 @@ export function buildCompletionRows(
 
       const checkin = checkinByStudentAndDate.get(`${student.id}:${date}`) ?? null;
       const completed = Boolean(checkin);
-      const status = toCompletionStatus(checkin);
+      const status = toCompletionStatus(checkin, date, today);
 
       if (filters.status && filters.status !== status) {
         continue;

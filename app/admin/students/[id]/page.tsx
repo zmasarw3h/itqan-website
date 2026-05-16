@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import AppNav from "@/app/nav";
-import CorrectionForm from "./correction-form";
+import CorrectionForm, { type CorrectionFormCheckIn } from "./correction-form";
 import {
   currentWeekDates,
   formatPlanWeekRange,
@@ -62,6 +62,14 @@ export default async function AdminStudentPage({
   const today = todayDateString();
   const weekDates = currentWeekDates(today);
   const checkinByDate = new Map((checkins ?? []).map((checkin) => [checkin.date, checkin]));
+  const correctionCheckIns: CorrectionFormCheckIn[] = (checkins ?? []).map((checkin) => ({
+    date: checkin.date,
+    status: checkin.completed ? "submitted" : "missing",
+    note: checkin.note ?? "",
+    completedTaskKeys: (itemsByCheckInId.get(checkin.id) ?? [])
+      .filter((item) => item.completed)
+      .map((item) => item.task_key)
+  }));
   const pastOrCurrentWeekDates = weekDates.filter((date) => date <= today);
   const currentWeekCheckins = weekDates
     .map((date) => checkinByDate.get(date))
@@ -146,6 +154,7 @@ export default async function AdminStudentPage({
             <div className="divide-y divide-stone-200">
               {weekDates.map((date) => {
                 const checkin = checkinByDate.get(date);
+                const isFuture = date > today;
 
                 return (
                   <div className="grid gap-3 px-4 py-3 md:grid-cols-[1.2fr_1fr_1fr]" key={date}>
@@ -153,12 +162,20 @@ export default async function AdminStudentPage({
                       <p className="font-medium text-ink">{friendlyDate(date)}</p>
                     </div>
                     <div>
-                      <span className={checkin ? "font-medium text-green-700" : "font-medium text-amber-700"}>
-                        {checkin ? `Submitted - ${formatScore(checkin.daily_score)}` : "Missing"}
+                      <span
+                        className={
+                          checkin
+                            ? "font-medium text-green-700"
+                            : isFuture
+                              ? "font-medium text-stone-500"
+                              : "font-medium text-amber-700"
+                        }
+                      >
+                        {checkin ? `Submitted - ${formatScore(checkin.daily_score)}` : isFuture ? "Upcoming" : "Missing"}
                       </span>
                     </div>
                     <div className="text-stone-600">
-                      {checkin ? `${checkin.earned_weight ?? 0}/${checkin.total_weight ?? 0}` : ""}
+                      {checkin ? `${checkin.earned_weight ?? 0}/${checkin.total_weight ?? 0}` : isFuture ? "Not due" : ""}
                     </div>
                   </div>
                 );
@@ -184,7 +201,7 @@ export default async function AdminStudentPage({
           </div>
           {weeklyPlan ? (
             <div className="mt-4 rounded-md bg-stone-50 p-4">
-              <p className="font-medium text-ink">{weeklyPlan.file_name}</p>
+              <p className="break-words font-medium text-ink">{weeklyPlan.file_name}</p>
               <p className="mt-1 text-sm text-stone-600">
                 Uploaded {new Date(weeklyPlan.uploaded_at).toLocaleString()}
               </p>
@@ -239,7 +256,7 @@ export default async function AdminStudentPage({
 
         <section className="mt-8 rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-semibold text-ink">Manual Correction</h2>
-          <CorrectionForm studentId={student.id} today={today} />
+          <CorrectionForm existingCheckIns={correctionCheckIns} studentId={student.id} today={today} />
         </section>
       </main>
     </>

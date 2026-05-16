@@ -57,7 +57,7 @@ export default function WeeklyPlanUploadForm() {
           Choose file
         </span>
       </label>
-      {fileName ? <p className="text-sm text-stone-700">Selected: {fileName}</p> : null}
+      {fileName ? <p className="break-words text-sm text-stone-700">Selected: {fileName}</p> : null}
       <button className="w-full rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink sm:w-auto">
         Upload weekly plan
       </button>

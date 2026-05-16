@@ -47,7 +47,7 @@ export type WeeklyPlan = {
   uploaded_at: string;
 };
 
-export type CompletionStatus = "submitted" | "missing";
+export type CompletionStatus = "submitted" | "missing" | "upcoming";
 
 export type CompletionRow = {
   studentId: string;

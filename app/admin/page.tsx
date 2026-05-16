@@ -237,8 +237,16 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
                     </td>
                     <td className="px-4 py-3">{friendlyDate(row.date)}</td>
                     <td className="px-4 py-3">
-                      <span className={row.completed ? "text-green-700" : "text-amber-700"}>
-                        {row.completed ? "Submitted" : "Missing"}
+                      <span
+                        className={
+                          row.status === "submitted"
+                            ? "text-green-700"
+                            : row.status === "upcoming"
+                              ? "text-stone-500"
+                              : "text-amber-700"
+                        }
+                      >
+                        {row.status === "submitted" ? "Submitted" : row.status === "upcoming" ? "Upcoming" : "Missing"}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-stone-700">{formatScore(row.checkin?.daily_score)}</td>

@@ -73,7 +73,7 @@ export default async function StudentWeeklyPlanPage({
           <div className="mt-6 rounded-md bg-stone-50 p-4">
             {weeklyPlan ? (
               <div className="space-y-2">
-                <p className="font-medium text-ink">{weeklyPlan.file_name}</p>
+                <p className="break-words font-medium text-ink">{weeklyPlan.file_name}</p>
                 <p className="text-sm text-stone-600">
                   Uploaded {new Date(weeklyPlan.uploaded_at).toLocaleString()}
                 </p>
