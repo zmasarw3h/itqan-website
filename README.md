@@ -6,7 +6,7 @@ Emergency lightweight check-in system for one masjid while Canvas is unavailable
 
 - Students sign in, submit one weighted daily Quran checklist, confirm partner recitation rounds, view weekly grades, see today's submitted checklist and score, and view their own history.
 - Students upload one weekly plan image/PDF for the current Saturday-Friday halaqa week.
-- Admins sign in, view all active students, review weekly/date submission scores, filter by student/date/status, correct check-ins, enter Saturday halaqa grades, and export CSV.
+- Admins sign in, add students, view all active students, review weekly/date submission scores, filter by student/date/status, correct check-ins, enter Saturday halaqa grades, and export CSV.
 - Admins can view/download a student's uploaded weekly plan from that student's admin screen.
 - The app intentionally excludes teacher roles, plan approval, comments, plan parsing/OCR, sadaqa, announcements, payments, booking, parent accounts, multi-masjid support, and Quran selection.
 
@@ -116,7 +116,7 @@ SUPABASE_SERVICE_ROLE_KEY=
 
    Weekly plan metadata is stored in `public.weekly_plans` by the migration. Uploaded files are stored in Supabase Storage, not in the database.
 
-6. Create Supabase Auth users with email/password, then insert matching rows in `public.profiles`. Users enter phone numbers at login, but Supabase Auth still uses email/password internally.
+6. Create the first admin Supabase Auth user with email/password, then insert a matching row in `public.profiles`. Users enter phone numbers at login, but Supabase Auth still uses email/password internally.
 
    Convert phone numbers to synthetic auth emails:
 
@@ -124,6 +124,8 @@ SUPABASE_SERVICE_ROLE_KEY=
    - Auth email becomes `14165551234@itqan.local`
 
    Each profile `id` must equal the Auth user UUID. `profiles.email` stores the synthetic auth email. `profiles.phone` is optional display-only data shown to admins.
+
+   After an admin can log in, they can add students from `Admin Dashboard -> Add Student`. The app normalizes the phone number, creates a Supabase Auth user with the synthetic auth email and password `itqan2026`, confirms the email, and creates the matching active student profile. The service-role key is used only in server code.
 
    Example profile data is in `docs/SEED_DATA.md`:
 
@@ -163,11 +165,11 @@ Weekly scoring totals 1000 points:
 
 - Daily checklist: 100 points per day, 700 per Sunday-Saturday tracker week.
 - Partner recitation: Round 1 is Sunday-Wednesday for 75 points; Round 2 is Thursday-Saturday for 75 points.
-- Saturday halaqa grade: 100 attendance points plus 10-50 admin-entered recitation points, for 150 max.
+- Saturday halaqa grade: 100 attendance points plus an admin-entered recitation mark out of 10. The app stores that mark as 10-50 recitation points by multiplying by 5, for 150 max.
 
 Students use `Partner Recitation` to confirm the currently open round. The server determines the round from the same 1:00 AM effective date used by daily check-ins, and the database prevents duplicate submissions for the same student, week, and round. Students use `Grades` to view their read-only weekly total and breakdown.
 
-Admins enter halaqa grades from `/admin/students/[id]`. If a student did not attend, both attendance and recitation points are stored as 0. If they attended, recitation must be 10-50.
+Admins enter halaqa grades from `/admin/students/[id]`. If a student did not attend, both attendance and recitation points are stored as 0. If they attended, recitation mark must be 2-10. Students use `Grades` to view attendance, recitation mark, stored recitation points, total halaqa points, and feedback entered in the grade notes field.
 
 ## Import Users From CSV
 

@@ -2,10 +2,68 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { buildAdminStudentCreateInput } from "@/lib/admin-students";
 import { adminCorrectionPayload, checkInItemPayloads, normalizeNote } from "@/lib/checkins";
 import { calculateDailySubmission, calculateHalaqaGrade } from "@/lib/scoring";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn } from "@/lib/types";
+
+export async function createStudent(formData: FormData) {
+  const { supabase } = await requireProfile(["admin"]);
+
+  let input: ReturnType<typeof buildAdminStudentCreateInput>;
+
+  try {
+    input = buildAdminStudentCreateInput({
+      name: formData.get("name"),
+      phone: formData.get("phone")
+    });
+  } catch {
+    redirect("/admin/students/new?status=invalid");
+  }
+
+  const { data: existingProfiles } = await supabase
+    .from("profiles")
+    .select("id")
+    .or(`email.eq.${input.email},phone.eq.${input.phone}`)
+    .limit(1)
+    .returns<Array<{ id: string }>>();
+
+  if (existingProfiles?.length) {
+    redirect("/admin/students/new?status=exists");
+  }
+
+  const adminSupabase = createSupabaseAdminClient();
+  const { data: authData, error: authError } = await adminSupabase.auth.admin.createUser({
+    email: input.email,
+    password: input.password,
+    email_confirm: true
+  });
+
+  if (authError || !authData.user) {
+    redirect("/admin/students/new?status=exists");
+  }
+
+  const { error: profileError } = await adminSupabase.from("profiles").upsert(
+    {
+      id: authData.user.id,
+      name: input.name,
+      email: input.email,
+      phone: input.phone,
+      role: input.role,
+      active: input.active
+    },
+    { onConflict: "id" }
+  );
+
+  if (profileError) {
+    redirect("/admin/students/new?status=profile-error");
+  }
+
+  revalidatePath("/admin");
+  redirect(`/admin/students/new?status=created&student=${authData.user.id}`);
+}
 
 export async function correctCheckIn(formData: FormData) {
   const { supabase, profile } = await requireProfile(["admin"]);
@@ -86,7 +144,7 @@ export async function saveHalaqaGrade(formData: FormData) {
   const studentId = String(formData.get("student_id") ?? "");
   const weekStart = String(formData.get("week_start") ?? "");
   const attended = formData.get("attended") === "true";
-  const recitationPointsValue = Number(formData.get("recitation_points") ?? 0);
+  const recitationMarkValue = Number(formData.get("recitation_mark_out_of_10") ?? 0);
   const notes = normalizeNote(formData.get("notes"));
 
   if (!studentId || !weekStart) {
@@ -98,7 +156,7 @@ export async function saveHalaqaGrade(formData: FormData) {
   try {
     grade = calculateHalaqaGrade({
       attended,
-      recitationPoints: attended ? recitationPointsValue : 0
+      recitationMarkOutOf10: attended ? recitationMarkValue : 0
     });
   } catch {
     redirect(`/admin/students/${studentId}?status=grade-invalid`);

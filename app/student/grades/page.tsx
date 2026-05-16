@@ -1,6 +1,6 @@
 import AppNav from "@/app/nav";
 import { formatWeekRange, isValidDateString, todayDateString, weekDatesFromStart, weekStartForDate } from "@/lib/dates";
-import { buildWeeklyGradeBreakdown, studentGradesScope } from "@/lib/grades";
+import { buildHalaqaFeedbackDisplay, buildWeeklyGradeBreakdown, studentGradesScope } from "@/lib/grades";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn, HalaqaGrade, PartnerRecitation } from "@/lib/types";
 
@@ -82,6 +82,7 @@ export default async function StudentGradesPage({
     partnerRecitations: partnerRecitations ?? [],
     halaqaGrade: halaqaGrade ?? null
   });
+  const halaqaDisplay = buildHalaqaFeedbackDisplay(halaqaGrade ?? null);
 
   return (
     <>
@@ -136,6 +137,33 @@ export default async function StudentGradesPage({
               <p className="mt-1 text-2xl font-semibold text-ink">{weeklyScore.halaqa_points} / 150</p>
             </div>
           </div>
+
+          <section className="mt-6 rounded-md border border-stone-200 p-4">
+            <h2 className="text-lg font-semibold text-ink">Saturday Halaqa Grade</h2>
+            {halaqaDisplay ? (
+              <div className="mt-3 grid gap-3 text-sm text-stone-700">
+                <p>
+                  <span className="font-medium text-ink">Attendance:</span> {halaqaDisplay.attendanceLabel}
+                </p>
+                <p>
+                  <span className="font-medium text-ink">Recitation:</span>{" "}
+                  {halaqaDisplay.attended
+                    ? `${halaqaDisplay.recitationMarkOutOf10} / 10 (${halaqaDisplay.recitationPoints} / 50)`
+                    : "0 / 50"}
+                </p>
+                <p>
+                  <span className="font-medium text-ink">Halaqa points:</span> {halaqaDisplay.halaqaPoints} / 150
+                </p>
+                {halaqaDisplay.notes ? (
+                  <p>
+                    <span className="font-medium text-ink">Feedback:</span> {halaqaDisplay.notes}
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <p className="mt-3 text-stone-600">No halaqa grade has been entered for this week yet.</p>
+            )}
+          </section>
         </section>
       </main>
     </>

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { saveHalaqaGrade } from "@/app/admin/actions";
+import { storedRecitationPointsToMark } from "@/lib/scoring";
 import type { HalaqaGrade } from "@/lib/types";
 
 export default function HalaqaGradeForm({
@@ -14,8 +15,11 @@ export default function HalaqaGradeForm({
   grade: HalaqaGrade | null;
 }) {
   const [attended, setAttended] = useState(Boolean(grade?.attended));
-  const [recitationPoints, setRecitationPoints] = useState(grade?.recitation_points || 10);
-  const total = attended ? 100 + recitationPoints : 0;
+  const [recitationMark, setRecitationMark] = useState(
+    grade?.attended ? storedRecitationPointsToMark(grade.recitation_points) : 10
+  );
+  const storedRecitationPoints = attended ? recitationMark * 5 : 0;
+  const total = attended ? 100 + storedRecitationPoints : 0;
 
   return (
     <form action={saveHalaqaGrade} className="mt-4 grid gap-4 md:grid-cols-4">
@@ -47,30 +51,31 @@ export default function HalaqaGradeForm({
         </div>
       </fieldset>
       <label className="block">
-        <span className="text-sm font-medium text-ink">Recitation grade</span>
+        <span className="text-sm font-medium text-ink">Recitation mark (out of 10)</span>
         <input
           className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2 disabled:bg-stone-100 disabled:text-stone-500"
           disabled={!attended}
-          max={50}
-          min={10}
-          name="recitation_points"
-          onChange={(event) => setRecitationPoints(Number(event.target.value))}
+          max={10}
+          min={2}
+          name="recitation_mark_out_of_10"
+          onChange={(event) => setRecitationMark(Number(event.target.value))}
           required={attended}
           type="number"
-          value={recitationPoints}
+          value={recitationMark}
         />
       </label>
       <div className="rounded-md bg-stone-50 px-4 py-3">
+        <p className="text-sm text-stone-600">Stored recitation score: {storedRecitationPoints} / 50</p>
         <p className="text-xs font-medium uppercase text-stone-500">Halaqa grade</p>
         <p className="mt-1 text-2xl font-semibold text-ink">{total} / 150</p>
       </div>
       <label className="block md:col-span-4">
-        <span className="text-sm font-medium text-ink">Notes</span>
+        <span className="text-sm font-medium text-ink">Feedback</span>
         <textarea
           className="mt-1 min-h-24 w-full rounded-md border border-stone-300 px-3 py-2"
           defaultValue={grade?.notes ?? ""}
           name="notes"
-          placeholder="Optional admin note"
+          placeholder="Optional student feedback"
         />
       </label>
       <div className="md:col-span-4">

@@ -7,6 +7,7 @@ export default function AppNav({ role, name }: { role: Role; name: string }) {
     role === "admin"
       ? [
           { href: "/admin", label: "Admin" },
+          { href: "/admin/students/new", label: "Add Student" },
           { href: "/account/change-password", label: "Password" }
         ]
       : [

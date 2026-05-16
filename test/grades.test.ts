@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildWeeklyGradeBreakdown, studentGradesScope } from "@/lib/grades";
+import { buildHalaqaFeedbackDisplay, buildWeeklyGradeBreakdown, studentGradesScope } from "@/lib/grades";
 
 describe("student grades", () => {
   it("builds a weekly score breakdown for the grades page", () => {
@@ -42,5 +42,23 @@ describe("student grades", () => {
       weekDates: ["2026-05-10"]
     });
     expect(() => studentGradesScope("", "2026-05-10", ["2026-05-10"])).toThrow("Student id is required");
+  });
+
+  it("builds student halaqa feedback display from stored grade data", () => {
+    expect(
+      buildHalaqaFeedbackDisplay({
+        attended: true,
+        attendance_points: 100,
+        recitation_points: 35,
+        notes: "Needs steadier revision."
+      })
+    ).toEqual({
+      attended: true,
+      attendanceLabel: "Present",
+      recitationMarkOutOf10: 7,
+      recitationPoints: 35,
+      halaqaPoints: 135,
+      notes: "Needs steadier revision."
+    });
   });
 });

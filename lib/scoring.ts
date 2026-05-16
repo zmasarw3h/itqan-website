@@ -34,6 +34,10 @@ export const PARTNER_RECITATION_POINTS_PER_ROUND = 75;
 export const PARTNER_RECITATION_WEEKLY_POINTS = 150;
 export const HALAQA_WEEKLY_POINTS = 150;
 export const WEEKLY_TOTAL_POINTS = 1000;
+export const HALAQA_ATTENDANCE_POINTS = 100;
+export const HALAQA_RECITATION_SCALE = 5;
+export const MIN_HALAQA_RECITATION_MARK = 2;
+export const MAX_HALAQA_RECITATION_MARK = 10;
 
 const COMMON_WEEKDAY_TASKS: CheckInTask[] = [
   { key: "revise_old", label: "Revise old", weight: 40 },
@@ -165,7 +169,23 @@ export function isPartnerRoundAvailable(round: PartnerRound, dateString: string)
   return partnerRoundForDate(dateString) === round;
 }
 
-export function calculateHalaqaGrade(input: { attended: boolean; recitationPoints: number }) {
+export function recitationMarkToStoredPoints(markOutOf10: number) {
+  if (
+    !Number.isInteger(markOutOf10) ||
+    markOutOf10 < MIN_HALAQA_RECITATION_MARK ||
+    markOutOf10 > MAX_HALAQA_RECITATION_MARK
+  ) {
+    throw new Error("Recitation mark must be between 2 and 10 when attended is true.");
+  }
+
+  return markOutOf10 * HALAQA_RECITATION_SCALE;
+}
+
+export function storedRecitationPointsToMark(recitationPoints: number | null | undefined) {
+  return Number(recitationPoints ?? 0) / HALAQA_RECITATION_SCALE;
+}
+
+export function calculateHalaqaGrade(input: { attended: boolean; recitationMarkOutOf10: number }) {
   if (!input.attended) {
     return {
       attended: false,
@@ -175,15 +195,13 @@ export function calculateHalaqaGrade(input: { attended: boolean; recitationPoint
     };
   }
 
-  if (!Number.isInteger(input.recitationPoints) || input.recitationPoints < 10 || input.recitationPoints > 50) {
-    throw new Error("Recitation points must be between 10 and 50 when attended is true.");
-  }
+  const recitationPoints = recitationMarkToStoredPoints(input.recitationMarkOutOf10);
 
   return {
     attended: true,
-    attendance_points: 100,
-    recitation_points: input.recitationPoints,
-    halaqa_points: 100 + input.recitationPoints
+    attendance_points: HALAQA_ATTENDANCE_POINTS,
+    recitation_points: recitationPoints,
+    halaqa_points: HALAQA_ATTENDANCE_POINTS + recitationPoints
   };
 }
 

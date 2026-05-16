@@ -1,4 +1,5 @@
 import { calculateWeeklyScore } from "@/lib/scoring";
+import { storedRecitationPointsToMark } from "@/lib/scoring";
 import type { CheckIn, HalaqaGrade, PartnerRecitation } from "@/lib/types";
 
 export function studentGradesScope(studentId: string, weekStart: string, weekDates: string[]) {
@@ -26,4 +27,23 @@ export function buildWeeklyGradeBreakdown(input: {
     partnerRecitations: input.partnerRecitations,
     halaqaGrade: input.halaqaGrade
   });
+}
+
+export function buildHalaqaFeedbackDisplay(
+  grade: Pick<HalaqaGrade, "attended" | "attendance_points" | "recitation_points" | "notes"> | null
+) {
+  if (!grade) {
+    return null;
+  }
+
+  const halaqaPoints = Number(grade.attendance_points ?? 0) + Number(grade.recitation_points ?? 0);
+
+  return {
+    attended: grade.attended,
+    attendanceLabel: grade.attended ? "Present" : "Absent",
+    recitationMarkOutOf10: grade.attended ? storedRecitationPointsToMark(grade.recitation_points) : 0,
+    recitationPoints: Number(grade.recitation_points ?? 0),
+    halaqaPoints,
+    notes: grade.notes?.trim() || null
+  };
 }

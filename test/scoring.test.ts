@@ -6,6 +6,8 @@ import {
   calculateWeeklyScore,
   isPartnerRoundAvailable,
   partnerRoundForDate,
+  recitationMarkToStoredPoints,
+  storedRecitationPointsToMark,
   tasksForDate
 } from "@/lib/scoring";
 
@@ -117,7 +119,7 @@ describe("weighted Quran tracker scoring", () => {
   });
 
   it("sets halaqa points to zero when attendance is false", () => {
-    expect(calculateHalaqaGrade({ attended: false, recitationPoints: 50 })).toEqual({
+    expect(calculateHalaqaGrade({ attended: false, recitationMarkOutOf10: 10 })).toEqual({
       attended: false,
       attendance_points: 0,
       recitation_points: 0,
@@ -125,13 +127,24 @@ describe("weighted Quran tracker scoring", () => {
     });
   });
 
-  it("requires attended recitation points to be 10-50", () => {
-    expect(() => calculateHalaqaGrade({ attended: true, recitationPoints: 9 })).toThrow("between 10 and 50");
-    expect(() => calculateHalaqaGrade({ attended: true, recitationPoints: 51 })).toThrow("between 10 and 50");
-    expect(calculateHalaqaGrade({ attended: true, recitationPoints: 40 })).toMatchObject({
+  it("scales attended recitation marks from out of 10 to stored out of 50 points", () => {
+    expect(recitationMarkToStoredPoints(2)).toBe(10);
+    expect(recitationMarkToStoredPoints(10)).toBe(50);
+    expect(storedRecitationPointsToMark(35)).toBe(7);
+  });
+
+  it("requires attended recitation mark to be 2-10", () => {
+    expect(() => calculateHalaqaGrade({ attended: true, recitationMarkOutOf10: 1 })).toThrow("between 2 and 10");
+    expect(() => calculateHalaqaGrade({ attended: true, recitationMarkOutOf10: 11 })).toThrow("between 2 and 10");
+    expect(calculateHalaqaGrade({ attended: true, recitationMarkOutOf10: 2 })).toMatchObject({
       attendance_points: 100,
-      recitation_points: 40,
-      halaqa_points: 140
+      recitation_points: 10,
+      halaqa_points: 110
+    });
+    expect(calculateHalaqaGrade({ attended: true, recitationMarkOutOf10: 10 })).toMatchObject({
+      attendance_points: 100,
+      recitation_points: 50,
+      halaqa_points: 150
     });
   });
 
