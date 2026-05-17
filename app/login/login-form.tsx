@@ -4,7 +4,7 @@ import { useState } from "react";
 import { signInWithPhone } from "@/app/login/actions";
 
 export default function LoginForm() {
-  const [phone, setPhone] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -15,7 +15,7 @@ export default function LoginForm() {
     setIsLoading(true);
 
     try {
-      const result = await signInWithPhone(phone, password);
+      const result = await signInWithPhone(identifier, password);
 
       if (result.error) {
         setError(result.error);
@@ -40,8 +40,8 @@ export default function LoginForm() {
           autoComplete="tel"
           inputMode="tel"
           placeholder="4165550100"
-          value={phone}
-          onChange={(event) => setPhone(event.target.value)}
+          value={identifier}
+          onChange={(event) => setIdentifier(event.target.value)}
           required
         />
         <span className="mt-1 block text-xs text-stone-500">

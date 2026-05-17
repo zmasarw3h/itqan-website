@@ -2,12 +2,7 @@
 
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
-import {
-  hasExplicitCountryCode,
-  normalizedPhoneToAuthEmail,
-  phoneDigits,
-  phoneNumberToAuthEmail
-} from "@/lib/phone-auth";
+import { resolveLoginIdentifierToAuthEmail } from "@/lib/login-identifier";
 import type { Profile } from "@/lib/types";
 
 type SignInResult = {
@@ -15,47 +10,29 @@ type SignInResult = {
   redirectTo?: string;
 };
 
-async function resolveAuthEmail(phone: string) {
-  if (hasExplicitCountryCode(phone)) {
-    return phoneNumberToAuthEmail(phone);
-  }
+async function resolveAuthEmail(identifier: string) {
+  return resolveLoginIdentifierToAuthEmail(identifier, async (digits) => {
+    const adminSupabase = createSupabaseAdminClient();
+    const { data: profiles, error } = await adminSupabase
+      .from("profiles")
+      .select("id,email,phone,role,active")
+      .eq("active", true)
+      .like("phone", `%${digits}`)
+      .returns<Pick<Profile, "id" | "email" | "phone" | "role" | "active">[]>();
 
-  const digits = phoneDigits(phone);
+    if (error) {
+      throw new Error("Unable to look up that phone number.");
+    }
 
-  if (digits.length < 7) {
-    throw new Error("Enter a valid phone number.");
-  }
-
-  const defaultAuthEmail = phoneNumberToAuthEmail(phone);
-  const adminSupabase = createSupabaseAdminClient();
-  const { data: profiles, error } = await adminSupabase
-    .from("profiles")
-    .select("id,email,phone,role,active")
-    .eq("active", true)
-    .like("phone", `%${digits}`)
-    .returns<Pick<Profile, "id" | "email" | "phone" | "role" | "active">[]>();
-
-  if (error) {
-    throw new Error("Unable to look up that phone number.");
-  }
-
-  if (!profiles || profiles.length === 0) {
-    return defaultAuthEmail;
-  }
-
-  if (profiles.length > 1) {
-    throw new Error("Multiple accounts match that phone number. Include + and country code.");
-  }
-
-  const profile = profiles[0];
-  return profile.phone ? normalizedPhoneToAuthEmail(profile.phone) : profile.email;
+    return profiles ?? [];
+  });
 }
 
-export async function signInWithPhone(phone: string, password: string): Promise<SignInResult> {
+export async function signInWithPhone(identifier: string, password: string): Promise<SignInResult> {
   let authEmail: string;
 
   try {
-    authEmail = await resolveAuthEmail(phone);
+    authEmail = await resolveAuthEmail(identifier);
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Enter a valid phone number." };
   }
