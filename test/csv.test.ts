@@ -62,6 +62,7 @@ describe("CSV export", () => {
 
     expect(completionRowsToCsv(rows)).toContain('"Student, One",+1 555 0101,14165550101@itqan.local');
     expect(completionRowsToCsv(rows)).toContain("submitted,75,75,100");
+    expect(completionRowsToCsv(rows)).toContain("May 8, 2026, 8:00 AM");
     expect(completionRowsToCsv(rows)).toContain("Weekly recitation made 5 times: completed (30)");
     expect(completionRowsToCsv(rows)).toContain('"Read ""lesson"""');
   });

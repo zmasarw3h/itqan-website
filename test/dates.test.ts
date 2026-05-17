@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   currentWeekDates,
+  formatDateInAppTimeZone,
+  formatDateTimeInAppTimeZone,
   formatPlanWeekRange,
   formatWeekRange,
   isValidDateString,
@@ -10,6 +12,24 @@ import {
   weekDatesFromStart,
   weekStartForDate
 } from "@/lib/dates";
+
+describe("app timezone timestamp formatting", () => {
+  it("formats UTC timestamps in America/Toronto daylight time", () => {
+    expect(formatDateTimeInAppTimeZone("2026-05-08T18:30:00.000Z")).toBe("May 8, 2026, 2:30 PM");
+  });
+
+  it("formats UTC timestamps in America/Toronto standard time", () => {
+    expect(formatDateTimeInAppTimeZone("2026-01-08T19:30:00.000Z")).toBe("Jan 8, 2026, 2:30 PM");
+  });
+
+  it("formats dates in America/Toronto instead of UTC", () => {
+    expect(formatDateInAppTimeZone("2026-05-09T02:30:00.000Z")).toBe("May 8, 2026");
+  });
+
+  it("returns an empty string for missing timestamps", () => {
+    expect(formatDateTimeInAppTimeZone(null)).toBe("");
+  });
+});
 
 describe("check-in date reset", () => {
   it("returns the previous date before the reset hour in America/Toronto", () => {

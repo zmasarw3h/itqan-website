@@ -2,6 +2,7 @@ import Link from "next/link";
 import AppNav from "@/app/nav";
 import { buildCompletionRows } from "@/lib/checkins";
 import {
+  formatDateTimeInAppTimeZone,
   formatWeekRange,
   friendlyDate,
   isValidDateString,
@@ -322,7 +323,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
                     </td>
                     <td className="px-4 py-3 text-stone-700">{formatScore(row.checkin?.daily_score)}</td>
                     <td className="px-4 py-3 text-stone-600">
-                      {row.checkin ? new Date(row.checkin.submitted_at).toLocaleString() : ""}
+                      {formatDateTimeInAppTimeZone(row.checkin?.submitted_at)}
                     </td>
                     <td className="px-4 py-3 text-stone-600">{row.checkin?.note ?? ""}</td>
                     <td className="px-4 py-3">

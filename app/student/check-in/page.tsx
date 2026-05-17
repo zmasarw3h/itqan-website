@@ -1,6 +1,6 @@
 import AppNav from "@/app/nav";
 import { submitTodayCheckIn } from "@/app/student/actions";
-import { friendlyDate, todayDateString } from "@/lib/dates";
+import { formatDateTimeInAppTimeZone, friendlyDate, todayDateString } from "@/lib/dates";
 import { formatScore, tasksForDate } from "@/lib/scoring";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn, CheckInItem } from "@/lib/types";
@@ -78,7 +78,7 @@ export default async function StudentCheckInPage({
               <div>
                 <h2 className="text-lg font-semibold text-ink">Submitted Summary</h2>
                 <p className="mt-1 text-sm text-stone-600">
-                  Submitted {checkin ? new Date(checkin.submitted_at).toLocaleString() : ""}
+                  Submitted {formatDateTimeInAppTimeZone(checkin?.submitted_at)}
                 </p>
               </div>
               <div className="rounded-md bg-stone-50 px-4 py-3 text-right">

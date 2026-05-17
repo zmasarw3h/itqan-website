@@ -4,6 +4,7 @@ import CorrectionForm, { type CorrectionFormCheckIn } from "./correction-form";
 import HalaqaGradeForm from "./halaqa-grade-form";
 import {
   currentWeekDates,
+  formatDateTimeInAppTimeZone,
   formatWeekRange,
   formatPlanWeekRange,
   friendlyDate,
@@ -269,7 +270,7 @@ export default async function AdminStudentPage({
             <div className="mt-4 rounded-md bg-stone-50 p-4">
               <p className="break-words font-medium text-ink">{weeklyPlan.file_name}</p>
               <p className="mt-1 text-sm text-stone-600">
-                Uploaded {new Date(weeklyPlan.uploaded_at).toLocaleString()}
+                Uploaded {formatDateTimeInAppTimeZone(weeklyPlan.uploaded_at)}
               </p>
             </div>
           ) : (
@@ -286,7 +287,7 @@ export default async function AdminStudentPage({
                   <div>
                     <h3 className="font-semibold text-ink">{friendlyDate(checkin.date)}</h3>
                     <p className="mt-1 text-sm text-stone-600">
-                      Submitted {new Date(checkin.submitted_at).toLocaleString()}
+                      Submitted {formatDateTimeInAppTimeZone(checkin.submitted_at)}
                     </p>
                   </div>
                   <div className="text-right">

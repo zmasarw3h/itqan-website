@@ -1,5 +1,13 @@
 import AppNav from "@/app/nav";
-import { formatWeekRange, friendlyDate, isValidDateString, todayDateString, weekDatesFromStart, weekStartForDate } from "@/lib/dates";
+import {
+  formatDateTimeInAppTimeZone,
+  formatWeekRange,
+  friendlyDate,
+  isValidDateString,
+  todayDateString,
+  weekDatesFromStart,
+  weekStartForDate
+} from "@/lib/dates";
 import { buildHistoryDayRows, studentHistoryScope } from "@/lib/history";
 import { formatScore } from "@/lib/scoring";
 import { requireProfile } from "@/lib/supabase-server";
@@ -109,7 +117,7 @@ export default async function StudentHistoryPage({
                   <h2 className="text-lg font-semibold text-ink">{friendlyDate(day.date)}</h2>
                   {day.checkin ? (
                     <p className="mt-1 text-sm text-stone-600">
-                      Submitted {new Date(day.checkin.submitted_at).toLocaleString()}
+                      Submitted {formatDateTimeInAppTimeZone(day.checkin.submitted_at)}
                     </p>
                   ) : (
                     <p className="mt-1 text-sm text-stone-600">{day.missingMessage}</p>

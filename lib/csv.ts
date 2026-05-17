@@ -1,4 +1,5 @@
 import type { CompletionRow } from "@/lib/types";
+import { formatDateTimeInAppTimeZone } from "@/lib/dates";
 
 const CSV_COLUMNS = [
   "student name",
@@ -43,10 +44,10 @@ export function completionRowsToCsv(rows: CompletionRow[]) {
         row.checkin?.daily_score,
         row.checkin?.earned_weight,
         row.checkin?.total_weight,
-        row.checkin?.submitted_at,
+        formatDateTimeInAppTimeZone(row.checkin?.submitted_at),
         taskBreakdown,
         row.checkin?.note,
-        row.checkin?.updated_at,
+        formatDateTimeInAppTimeZone(row.checkin?.updated_at),
         row.checkin?.updated_by_admin
       ]
         .map(escapeCsv)

@@ -1,6 +1,6 @@
 import AppNav from "@/app/nav";
 import { submitPartnerRecitation } from "@/app/student/actions";
-import { friendlyDate, todayDateString, weekStartForDate } from "@/lib/dates";
+import { formatDateTimeInAppTimeZone, friendlyDate, todayDateString, weekStartForDate } from "@/lib/dates";
 import { buildPartnerRecitationView } from "@/lib/partner-recitations";
 import { requireProfile } from "@/lib/supabase-server";
 import type { PartnerRecitation } from "@/lib/types";
@@ -110,7 +110,7 @@ export default async function PartnerRecitationPage({
                 {round.detail ? <p className="mt-3 text-sm text-stone-600">{round.detail}</p> : null}
                 {round.submittedAt ? (
                   <p className="mt-3 text-sm text-stone-600">
-                    Submitted {new Date(round.submittedAt).toLocaleString()} · {round.points} points
+                    Submitted {formatDateTimeInAppTimeZone(round.submittedAt)} · {round.points} points
                   </p>
                 ) : null}
               </div>

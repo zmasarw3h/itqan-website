@@ -1,5 +1,22 @@
 import { APP_TIME_ZONE, CHECK_IN_RESET_HOUR } from "@/lib/config";
 
+const DATE_TIME_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
+  timeZone: APP_TIME_ZONE,
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true
+};
+
+const DATE_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
+  timeZone: APP_TIME_ZONE,
+  year: "numeric",
+  month: "short",
+  day: "numeric"
+};
+
 function getDatePartsInTimeZone(date: Date, timeZone: string) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -34,6 +51,22 @@ export function todayDateString(
   }
 
   return parts.dateString;
+}
+
+export function formatDateTimeInAppTimeZone(timestamp: string | number | Date | null | undefined) {
+  if (!timestamp) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("en-US", DATE_TIME_FORMAT_OPTIONS).format(new Date(timestamp));
+}
+
+export function formatDateInAppTimeZone(timestamp: string | number | Date | null | undefined) {
+  if (!timestamp) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("en-US", DATE_FORMAT_OPTIONS).format(new Date(timestamp));
 }
 
 export function addDays(dateString: string, days: number) {

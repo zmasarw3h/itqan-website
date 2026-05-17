@@ -1,6 +1,6 @@
 import AppNav from "@/app/nav";
 import WeeklyPlanUploadForm from "@/app/student/weekly-plan/weekly-plan-upload-form";
-import { formatPlanWeekRange, planWeekStartForDate, todayDateString } from "@/lib/dates";
+import { formatDateTimeInAppTimeZone, formatPlanWeekRange, planWeekStartForDate, todayDateString } from "@/lib/dates";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import type { WeeklyPlan } from "@/lib/types";
@@ -75,7 +75,7 @@ export default async function StudentWeeklyPlanPage({
               <div className="space-y-2">
                 <p className="break-words font-medium text-ink">{weeklyPlan.file_name}</p>
                 <p className="text-sm text-stone-600">
-                  Uploaded {new Date(weeklyPlan.uploaded_at).toLocaleString()}
+                  Uploaded {formatDateTimeInAppTimeZone(weeklyPlan.uploaded_at)}
                 </p>
                 {signedUrl ? (
                   <a className="inline-flex font-medium text-moss hover:text-ink" href={signedUrl}>
