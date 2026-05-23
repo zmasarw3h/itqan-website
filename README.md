@@ -144,6 +144,43 @@ SUPABASE_SERVICE_ROLE_KEY=
 
 8. Open `http://localhost:3000/login`.
 
+## E2E Smoke Tests
+
+Playwright is configured for lightweight browser smoke tests.
+
+Install the browser once:
+
+```bash
+npx playwright install chromium
+```
+
+Run the default E2E smoke suite:
+
+```bash
+npm run test:e2e
+```
+
+By default, Playwright starts the app on `http://127.0.0.1:3100` and only verifies that `/login` renders. It does not require Supabase credentials and does not sign in.
+
+To run against an already-running app:
+
+```bash
+E2E_BASE_URL=http://127.0.0.1:3000 npm run test:e2e
+```
+
+Authenticated E2E tests are opt-in and should use a local or staging Supabase project, never production. They are skipped unless all of these environment variables are set:
+
+```bash
+E2E_AUTH_ENABLED=true
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+E2E_TEST_STUDENT_PHONE=
+E2E_TEST_STUDENT_PASSWORD=
+```
+
+Normal CI still runs `npm run check` only. The E2E workflow is manual for now and can be run from GitHub Actions when a browser smoke check is needed.
+
 ## Weekly Plans
 
 Students use the `Weekly Plan` navigation link to upload one plan file for the current halaqa week. Plan weeks run Saturday-Friday, and `week_start` is stored as the Saturday date.
