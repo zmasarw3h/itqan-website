@@ -235,6 +235,10 @@ SUPABASE_SERVICE_ROLE_KEY=
 
 Apply all files in `supabase/migrations` to the production Supabase project before using the deployed app. The weighted checklist migration keeps `public.checkins`, adds aggregate score columns, and stores each submitted task snapshot in `public.checkin_items` so historical labels and weights remain stable.
 
+## CI
+
+GitHub Actions runs `npm run check` on every pull request to `main` and every push to `main`. Every PR must pass this check before merging.
+
 ## Required Checks
 
 Run:
