@@ -223,6 +223,8 @@ Report CSV files include the temporary password for imported users. Keep real im
 
 ## Deployment
 
+See `docs/DEPLOYMENT.md` for the recommended safe deployment model, including Preview deployments, separate staging and production Supabase projects, manual production migrations, and rollback notes.
+
 Deploy to Vercel and configure these environment variables:
 
 ```bash
