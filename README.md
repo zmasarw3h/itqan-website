@@ -181,6 +181,18 @@ E2E_TEST_STUDENT_PASSWORD=
 
 Normal CI still runs `npm run check` only. The E2E workflow is manual for now and can be run from GitHub Actions when a browser smoke check is needed.
 
+## Backup and Restore
+
+Operational backup and restore steps are documented in `docs/BACKUP_RESTORE.md`.
+
+Manual local helpers are available for monthly exports:
+
+```bash
+npm run backup:db
+```
+
+Database restore is manual through Supabase backups. Weekly plan uploaded files are temporary operational files and are not backed up.
+
 ## Weekly Plans
 
 Students use the `Weekly Plan` navigation link to upload one plan file for the current halaqa week. Plan weeks run Saturday-Friday, and `week_start` is stored as the Saturday date.

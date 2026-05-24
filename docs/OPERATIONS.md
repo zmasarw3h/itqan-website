@@ -67,6 +67,18 @@ Manual through Vercel/Git integration:
 
 There is no repo deploy script at this time.
 
+## Backup and Restore
+
+Use `docs/BACKUP_RESTORE.md` for the full backup cadence, manual export scripts, restore process, and verification checklist.
+
+Monthly manual database export:
+
+```bash
+npm run backup:db
+```
+
+Do not automate production restore. Production database restore requires manual approval through Supabase. Weekly plan uploaded files are temporary operational files and are not backed up.
+
 ## Apply Database Migrations
 
 Schema changes must be migration files in `supabase/migrations`.

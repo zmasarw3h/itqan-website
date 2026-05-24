@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "import-users": "tsx scripts/import-users.ts",
+    "backup:db": "bash scripts/backup-db.sh",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint .",
