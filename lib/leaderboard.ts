@@ -19,12 +19,13 @@ type Student = Pick<Profile, "id" | "name" | "email" | "phone">;
 
 function escapeCsv(value: string | number | boolean | null | undefined) {
   const text = value === null || value === undefined ? "" : String(value);
+  const safeText = /^[=+\-@]/.test(text) ? `'${text}` : text;
 
-  if (/[",\n\r]/.test(text)) {
-    return `"${text.replaceAll("\"", "\"\"")}"`;
+  if (/[",\n\r]/.test(safeText)) {
+    return `"${safeText.replaceAll("\"", "\"\"")}"`;
   }
 
-  return text;
+  return safeText;
 }
 
 export function weekIsComplete(weekStart: string, today: string) {

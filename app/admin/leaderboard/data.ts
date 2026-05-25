@@ -9,6 +9,9 @@ import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn, HalaqaGrade, PartnerRecitation, Profile } from "@/lib/types";
 
 type SupabaseClient = Awaited<ReturnType<typeof requireProfile>>["supabase"];
+type LeaderboardCheckIn = Pick<CheckIn, "student_id" | "date" | "daily_score">;
+type LeaderboardPartnerRecitation = Pick<PartnerRecitation, "student_id" | "week_start" | "round" | "points">;
+type LeaderboardHalaqaGrade = Pick<HalaqaGrade, "student_id" | "week_start" | "attendance_points" | "recitation_points">;
 
 export type LeaderboardSearchParams = {
   week?: string;
@@ -32,8 +35,12 @@ function validWeekStart(value: string | undefined, fallback: string) {
   return weekStartForDate(value) === value ? value : fallback;
 }
 
-function groupCheckinsByStudent(checkins: Pick<CheckIn, "student_id" | "date" | "daily_score">[]) {
-  const byStudent = new Map<string, Pick<CheckIn, "student_id" | "date" | "daily_score">[]>();
+function studentWeekKey(studentId: string, weekStart: string) {
+  return `${studentId}:${weekStart}`;
+}
+
+function groupCheckinsByStudent(checkins: LeaderboardCheckIn[]) {
+  const byStudent = new Map<string, LeaderboardCheckIn[]>();
 
   for (const checkin of checkins) {
     byStudent.set(checkin.student_id, [...(byStudent.get(checkin.student_id) ?? []), checkin]);
@@ -42,10 +49,8 @@ function groupCheckinsByStudent(checkins: Pick<CheckIn, "student_id" | "date" | 
   return byStudent;
 }
 
-function groupPartnerRecitationsByStudent(
-  recitations: Pick<PartnerRecitation, "student_id" | "round" | "points">[]
-) {
-  const byStudent = new Map<string, Pick<PartnerRecitation, "student_id" | "round" | "points">[]>();
+function groupPartnerRecitationsByStudent(recitations: Array<Pick<PartnerRecitation, "student_id" | "round" | "points">>) {
+  const byStudent = new Map<string, Array<Pick<PartnerRecitation, "student_id" | "round" | "points">>>();
 
   for (const recitation of recitations) {
     byStudent.set(recitation.student_id, [...(byStudent.get(recitation.student_id) ?? []), recitation]);
@@ -54,9 +59,7 @@ function groupPartnerRecitationsByStudent(
   return byStudent;
 }
 
-function groupHalaqaGradesByStudent(
-  grades: Pick<HalaqaGrade, "student_id" | "attendance_points" | "recitation_points">[]
-) {
+function groupHalaqaGradesByStudent(grades: Array<Pick<HalaqaGrade, "student_id" | "attendance_points" | "recitation_points">>) {
   const byStudent = new Map<string, Pick<HalaqaGrade, "student_id" | "attendance_points" | "recitation_points">>();
 
   for (const grade of grades) {
@@ -64,6 +67,48 @@ function groupHalaqaGradesByStudent(
   }
 
   return byStudent;
+}
+
+function groupCheckinsByStudentWeek(checkins: LeaderboardCheckIn[]) {
+  const byStudentWeek = new Map<string, LeaderboardCheckIn[]>();
+
+  for (const checkin of checkins) {
+    const weekStart = weekStartForDate(checkin.date);
+    const key = studentWeekKey(checkin.student_id, weekStart);
+
+    byStudentWeek.set(key, [...(byStudentWeek.get(key) ?? []), checkin]);
+  }
+
+  return byStudentWeek;
+}
+
+function groupPartnerRecitationsByStudentWeek(recitations: LeaderboardPartnerRecitation[]) {
+  const byStudentWeek = new Map<string, Array<Pick<PartnerRecitation, "student_id" | "round" | "points">>>();
+
+  for (const recitation of recitations) {
+    const key = studentWeekKey(recitation.student_id, recitation.week_start);
+
+    byStudentWeek.set(key, [
+      ...(byStudentWeek.get(key) ?? []),
+      { student_id: recitation.student_id, round: recitation.round, points: recitation.points }
+    ]);
+  }
+
+  return byStudentWeek;
+}
+
+function groupHalaqaGradesByStudentWeek(grades: LeaderboardHalaqaGrade[]) {
+  const byStudentWeek = new Map<string, Pick<HalaqaGrade, "student_id" | "attendance_points" | "recitation_points">>();
+
+  for (const grade of grades) {
+    byStudentWeek.set(studentWeekKey(grade.student_id, grade.week_start), {
+      student_id: grade.student_id,
+      attendance_points: grade.attendance_points,
+      recitation_points: grade.recitation_points
+    });
+  }
+
+  return byStudentWeek;
 }
 
 export async function loadLeaderboardData(
@@ -87,16 +132,19 @@ export async function loadLeaderboardData(
     .from("checkins")
     .select("date")
     .order("date", { ascending: false })
+    .limit(365)
     .returns<Array<{ date: string }>>();
   const { data: partnerWeeks } = await supabase
     .from("partner_recitations")
     .select("week_start")
     .order("week_start", { ascending: false })
+    .limit(104)
     .returns<Array<{ week_start: string }>>();
   const { data: halaqaWeeks } = await supabase
     .from("halaqa_grades")
     .select("week_start")
     .order("week_start", { ascending: false })
+    .limit(104)
     .returns<Array<{ week_start: string }>>();
   const availableWeekStarts = [
     ...new Set([
@@ -117,17 +165,17 @@ export async function loadLeaderboardData(
     .from("checkins")
     .select("student_id,date,daily_score")
     .in("date", allDates)
-    .returns<Array<Pick<CheckIn, "student_id" | "date" | "daily_score">>>();
+    .returns<LeaderboardCheckIn[]>();
   const { data: partnerRecitations } = await supabase
     .from("partner_recitations")
     .select("student_id,week_start,round,points")
     .in("week_start", allWeekStarts)
-    .returns<Array<Pick<PartnerRecitation, "student_id" | "week_start" | "round" | "points">>>();
+    .returns<LeaderboardPartnerRecitation[]>();
   const { data: halaqaGrades } = await supabase
     .from("halaqa_grades")
     .select("student_id,week_start,attendance_points,recitation_points")
     .in("week_start", allWeekStarts)
-    .returns<Array<Pick<HalaqaGrade, "student_id" | "week_start" | "attendance_points" | "recitation_points">>>();
+    .returns<LeaderboardHalaqaGrade[]>();
 
   const selectedWeekDates = new Set(weekDatesFromStart(selectedWeekStart));
   const selectedWeekCheckinsByStudent = groupCheckinsByStudent(
@@ -147,48 +195,32 @@ export async function loadLeaderboardData(
         recitation_points
       }))
   );
+  const checkinsByStudentWeek = groupCheckinsByStudentWeek(checkins ?? []);
+  const partnerRecitationsByStudentWeek = groupPartnerRecitationsByStudentWeek(partnerRecitations ?? []);
+  const halaqaGradesByStudentWeek = groupHalaqaGradesByStudentWeek(halaqaGrades ?? []);
   const streakDataByStudent = new Map<
     string,
     {
-      checkinsByWeek: Map<string, Pick<CheckIn, "student_id" | "date" | "daily_score">[]>;
-      partnerRecitationsByWeek: Map<string, Pick<PartnerRecitation, "student_id" | "round" | "points">[]>;
+      checkinsByWeek: Map<string, LeaderboardCheckIn[]>;
+      partnerRecitationsByWeek: Map<string, Array<Pick<PartnerRecitation, "student_id" | "round" | "points">>>;
       halaqaGradeByWeek: Map<string, Pick<HalaqaGrade, "student_id" | "attendance_points" | "recitation_points"> | null>;
     }
   >();
 
   for (const student of students ?? []) {
-    const checkinsByWeek = new Map<string, Pick<CheckIn, "student_id" | "date" | "daily_score">[]>();
-    const partnerRecitationsByWeek = new Map<string, Pick<PartnerRecitation, "student_id" | "round" | "points">[]>();
+    const checkinsByWeek = new Map<string, LeaderboardCheckIn[]>();
+    const partnerRecitationsByWeek = new Map<string, Array<Pick<PartnerRecitation, "student_id" | "round" | "points">>>();
     const halaqaGradeByWeek = new Map<
       string,
       Pick<HalaqaGrade, "student_id" | "attendance_points" | "recitation_points"> | null
     >();
 
     for (const weekStart of completedWeekStartsDescending) {
-      const weekDates = new Set(weekDatesFromStart(weekStart));
-      checkinsByWeek.set(
-        weekStart,
-        (checkins ?? []).filter((checkin) => checkin.student_id === student.id && weekDates.has(checkin.date))
-      );
-      partnerRecitationsByWeek.set(
-        weekStart,
-        (partnerRecitations ?? [])
-          .filter((recitation) => recitation.student_id === student.id && recitation.week_start === weekStart)
-          .map(({ student_id, round, points }) => ({ student_id, round, points }))
-      );
-      const halaqaGrade = (halaqaGrades ?? []).find(
-        (grade) => grade.student_id === student.id && grade.week_start === weekStart
-      );
-      halaqaGradeByWeek.set(
-        weekStart,
-        halaqaGrade
-          ? {
-              student_id: halaqaGrade.student_id,
-              attendance_points: halaqaGrade.attendance_points,
-              recitation_points: halaqaGrade.recitation_points
-            }
-          : null
-      );
+      const key = studentWeekKey(student.id, weekStart);
+
+      checkinsByWeek.set(weekStart, checkinsByStudentWeek.get(key) ?? []);
+      partnerRecitationsByWeek.set(weekStart, partnerRecitationsByStudentWeek.get(key) ?? []);
+      halaqaGradeByWeek.set(weekStart, halaqaGradesByStudentWeek.get(key) ?? null);
     }
 
     streakDataByStudent.set(student.id, { checkinsByWeek, partnerRecitationsByWeek, halaqaGradeByWeek });

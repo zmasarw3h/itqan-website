@@ -127,6 +127,30 @@ describe("weighted Quran tracker scoring", () => {
     });
   });
 
+  it("returns no daily score percentage when no dates are due", () => {
+    expect(
+      calculateDailyScoreProgress({
+        weekDates: [
+          "2026-06-07",
+          "2026-06-08",
+          "2026-06-09",
+          "2026-06-10",
+          "2026-06-11",
+          "2026-06-12",
+          "2026-06-13"
+        ],
+        dailyScoresByDate: new Map(),
+        today: "2026-06-06"
+      })
+    ).toEqual({
+      earned_points: 0,
+      possible_points: 0,
+      submitted_days: 0,
+      due_days: 0,
+      percentage: null
+    });
+  });
+
   it("detects partner recitation rounds from the effective date", () => {
     expect(partnerRoundForDate("2026-05-10")).toBe("round_1");
     expect(partnerRoundForDate("2026-05-13")).toBe("round_1");
