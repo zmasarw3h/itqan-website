@@ -9,8 +9,13 @@ export const dynamic = "force-dynamic";
 
 function GuidanceVerse() {
   return (
-    <section className="mt-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm md:p-6">
-      <p className="text-sm font-medium text-moss">Surah Aal-Imran 3:8</p>
+    <section
+      aria-labelledby="check-in-guidance-verse-title"
+      className="mt-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm md:p-6"
+    >
+      <h2 id="check-in-guidance-verse-title" className="text-sm font-medium text-moss">
+        Surah Aal-Imran 3:8
+      </h2>
       <p className="mt-3 text-right font-serif text-2xl leading-loose text-ink md:mt-4 md:text-3xl" dir="rtl" lang="ar">
         رَبَّنَا لَا تُزِغْ قُلُوبَنَا بَعْدَ إِذْ هَدَيْتَنَا وَهَبْ لَنَا مِن لَّدُنكَ رَحْمَةً ۚ
         إِنَّكَ أَنتَ الْوَهَّابُ
