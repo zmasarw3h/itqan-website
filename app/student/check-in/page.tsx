@@ -7,6 +7,27 @@ import type { CheckIn, CheckInItem } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
+function GuidanceVerse() {
+  return (
+    <section
+      aria-labelledby="check-in-guidance-verse-title"
+      className="mt-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm md:p-6"
+    >
+      <h2 id="check-in-guidance-verse-title" className="text-sm font-medium text-moss">
+        Surah Aal-Imran 3:8
+      </h2>
+      <p className="mt-3 text-right font-serif text-2xl leading-loose text-ink md:mt-4 md:text-3xl" dir="rtl" lang="ar">
+        رَبَّنَا لَا تُزِغْ قُلُوبَنَا بَعْدَ إِذْ هَدَيْتَنَا وَهَبْ لَنَا مِن لَّدُنكَ رَحْمَةً ۚ
+        إِنَّكَ أَنتَ الْوَهَّابُ
+      </p>
+      <p className="mt-3 text-base leading-7 text-stone-700 md:mt-4">
+        “Our Lord, do not let our hearts deviate after You have guided us, and grant us mercy from Yourself.
+        Indeed, You are the Bestower.”
+      </p>
+    </section>
+  );
+}
+
 export default async function StudentCheckInPage({
   searchParams
 }: {
@@ -71,6 +92,8 @@ export default async function StudentCheckInPage({
             </p>
           ) : null}
         </section>
+
+        <GuidanceVerse />
 
         {alreadySubmitted ? (
           <section className="mt-6 rounded-lg border border-stone-200 bg-white p-6 shadow-sm">
