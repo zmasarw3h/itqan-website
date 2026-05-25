@@ -1,7 +1,9 @@
 import Link from "next/link";
 import AppNav from "@/app/nav";
+import StudentCardGrid, { type StudentCardSummary } from "@/app/admin/student-card-grid";
 import { buildCompletionRows } from "@/lib/checkins";
 import {
+  addDays,
   formatDateTimeInAppTimeZone,
   formatWeekRange,
   friendlyDate,
@@ -10,15 +12,13 @@ import {
   weekDatesFromStart,
   weekStartForDate
 } from "@/lib/dates";
-import { calculateWeeklyScore, formatScore } from "@/lib/scoring";
+import { calculateDailyScoreProgress, formatScore } from "@/lib/scoring";
 import { requireProfile } from "@/lib/supabase-server";
 import type {
   CheckIn,
   CheckInItem,
   CompletionStatus,
   DashboardFilters,
-  HalaqaGrade,
-  PartnerRecitation,
   Profile
 } from "@/lib/types";
 
@@ -69,10 +69,19 @@ function currentWeekHref(filters: DashboardFilters, currentWeekStart: string) {
   return `/admin?${params.toString()}`;
 }
 
+function progressTodayForCard(weekDates: string[], dailyScoresByDate: Map<string, number | null | undefined>, today: string) {
+  if (!weekDates.includes(today) || dailyScoresByDate.has(today)) {
+    return today;
+  }
+
+  return addDays(today, -1);
+}
+
 export default async function AdminPage({ searchParams }: { searchParams: Promise<AdminSearchParams> }) {
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["admin"]);
-  const currentWeekStart = weekStartForDate(todayDateString());
+  const today = todayDateString();
+  const currentWeekStart = weekStartForDate(today);
   const filters = cleanFilters(resolvedSearchParams, currentWeekStart);
   const selectedWeekStart = filters.weekStart ?? currentWeekStart;
   const selectedWeekDates = weekDatesFromStart(selectedWeekStart);
@@ -122,42 +131,36 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     .from("checkins")
     .select("id,student_id,date,completed,note,earned_weight,total_weight,daily_score,submitted_at,updated_at,updated_by_admin")
     .in("date", selectedWeekDates);
-  let partnerQuery = supabase
-    .from("partner_recitations")
-    .select("id,student_id,week_start,round,points,submitted_at")
-    .eq("week_start", selectedWeekStart);
-  let halaqaQuery = supabase
-    .from("halaqa_grades")
-    .select("id,student_id,week_start,attended,attendance_points,recitation_points,notes,graded_by,graded_at,updated_at")
-    .eq("week_start", selectedWeekStart);
 
   if (filters.studentId) {
     scoreCheckinQuery = scoreCheckinQuery.eq("student_id", filters.studentId);
-    partnerQuery = partnerQuery.eq("student_id", filters.studentId);
-    halaqaQuery = halaqaQuery.eq("student_id", filters.studentId);
   }
 
   const { data: scoreCheckins } = await scoreCheckinQuery.returns<CheckIn[]>();
-  const { data: partnerRecitations } = await partnerQuery.returns<PartnerRecitation[]>();
-  const { data: halaqaGrades } = await halaqaQuery.returns<HalaqaGrade[]>();
   const scoreCheckinsByStudent = new Map<string, CheckIn[]>();
-  const partnerRecitationsByStudent = new Map<string, PartnerRecitation[]>();
-  const halaqaGradeByStudent = new Map<string, HalaqaGrade>();
 
   for (const checkin of scoreCheckins ?? []) {
     scoreCheckinsByStudent.set(checkin.student_id, [...(scoreCheckinsByStudent.get(checkin.student_id) ?? []), checkin]);
   }
 
-  for (const recitation of partnerRecitations ?? []) {
-    partnerRecitationsByStudent.set(recitation.student_id, [
-      ...(partnerRecitationsByStudent.get(recitation.student_id) ?? []),
-      recitation
-    ]);
-  }
+  const studentCards = (students ?? [])
+    .filter((student) => !filters.studentId || student.id === filters.studentId)
+    .map<StudentCardSummary>((student) => {
+      const checkinsForStudent = scoreCheckinsByStudent.get(student.id) ?? [];
+      const checkinScoreByDate = new Map(checkinsForStudent.map((checkin) => [checkin.date, checkin.daily_score]));
+      const dailyProgress = calculateDailyScoreProgress({
+        weekDates: selectedWeekDates,
+        dailyScoresByDate: checkinScoreByDate,
+        today: progressTodayForCard(selectedWeekDates, checkinScoreByDate, today)
+      });
 
-  for (const grade of halaqaGrades ?? []) {
-    halaqaGradeByStudent.set(grade.student_id, grade);
-  }
+      return {
+        id: student.id,
+        name: student.name,
+        contact: student.phone || student.email,
+        scoreLabel: dailyProgress.percentage === null ? "No score yet" : formatScore(dailyProgress.percentage)
+      };
+    });
 
   return (
     <>
@@ -246,42 +249,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
           </div>
         </form>
 
-        <section className="mt-8">
-          <h2 className="text-lg font-semibold text-ink">Students</h2>
-          <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {(students ?? []).map((student) => (
-              (() => {
-                const checkinsForStudent = scoreCheckinsByStudent.get(student.id) ?? [];
-                const checkinScoreByDate = new Map(
-                  checkinsForStudent.map((checkin) => [checkin.date, checkin.daily_score])
-                );
-                const weeklyScore = calculateWeeklyScore({
-                  dailyScores: selectedWeekDates.map((date) => checkinScoreByDate.get(date) ?? 0),
-                  partnerRecitations: partnerRecitationsByStudent.get(student.id) ?? [],
-                  halaqaGrade: halaqaGradeByStudent.get(student.id) ?? null
-                });
-
-                return (
-                  <Link
-                    className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm hover:border-moss"
-                    href={`/admin/students/${student.id}`}
-                    key={student.id}
-                  >
-                    <p className="font-medium text-ink">{student.name}</p>
-                    <p className="text-sm text-stone-600">{student.phone || student.email}</p>
-                    <p className="mt-3 text-sm font-medium text-ink">
-                      {weeklyScore.total_points} / 1000 = {weeklyScore.percentage}%
-                    </p>
-                    <p className="mt-1 text-xs text-stone-500">
-                      Daily {weeklyScore.daily_points}/700 · Partner {weeklyScore.partner_points}/150 · Halaqa{" "}
-                      {weeklyScore.halaqa_points}/150
-                    </p>
-                  </Link>
-                );
-              })()
-            ))}
-          </div>
-        </section>
+        <StudentCardGrid students={studentCards} />
 
         <section className="mt-8">
           <h2 className="text-lg font-semibold text-ink">
@@ -294,7 +262,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
                   <th className="px-4 py-3 font-medium">Student</th>
                   <th className="px-4 py-3 font-medium">Date</th>
                   <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium">Score</th>
+                  <th className="px-4 py-3 font-medium">Daily score</th>
                   <th className="px-4 py-3 font-medium">Submitted</th>
                   <th className="px-4 py-3 font-medium">Note</th>
                   <th className="px-4 py-3 font-medium">History</th>

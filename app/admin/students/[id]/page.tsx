@@ -1,18 +1,23 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import AppNav from "@/app/nav";
 import CorrectionForm, { type CorrectionFormCheckIn } from "./correction-form";
 import HalaqaGradeForm from "./halaqa-grade-form";
+import StudentWeekSelector from "./student-week-selector";
 import {
-  currentWeekDates,
+  addDays,
   formatDateTimeInAppTimeZone,
-  formatWeekRange,
   formatPlanWeekRange,
+  formatWeekRange,
   friendlyDate,
+  isValidDateString,
   planWeekStartForDate,
   todayDateString,
+  weekDatesFromStart,
   weekStartForDate
 } from "@/lib/dates";
-import { calculateWeeklyAverage, calculateWeeklyScore, formatScore } from "@/lib/scoring";
+import { PASSING_PERCENTAGE } from "@/lib/leaderboard";
+import { calculateDailyScoreProgress, calculateWeeklyScore, formatScore } from "@/lib/scoring";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn, CheckInItem, HalaqaGrade, PartnerRecitation, Profile, WeeklyPlan } from "@/lib/types";
@@ -20,17 +25,107 @@ import { WEEKLY_PLAN_BUCKET } from "@/lib/weekly-plans";
 
 export const dynamic = "force-dynamic";
 
+type AdminStudentSearchParams = {
+  status?: string;
+  week?: string;
+};
+
+type DayStatus = "submitted" | "missing" | "open" | "upcoming";
+
+function validWeekStart(value: string | undefined, fallback: string) {
+  if (!value || !isValidDateString(value)) {
+    return fallback;
+  }
+
+  return weekStartForDate(value) === value ? value : fallback;
+}
+
+function weekIsComplete(weekStart: string, today: string) {
+  return addDays(weekStart, 6) < today;
+}
+
+function effectiveTodayForDailyProgress(weekDates: string[], checkinByDate: Map<string, CheckIn>, today: string) {
+  if (!weekDates.includes(today) || checkinByDate.has(today)) {
+    return today;
+  }
+
+  return addDays(today, -1);
+}
+
+function dayStatus(date: string, today: string, checkin: CheckIn | undefined): DayStatus {
+  if (checkin) {
+    return "submitted";
+  }
+
+  if (date === today) {
+    return "open";
+  }
+
+  return date < today ? "missing" : "upcoming";
+}
+
+function dayStatusLabel(status: DayStatus) {
+  if (status === "submitted") return "Submitted";
+  if (status === "missing") return "Missing";
+  if (status === "open") return "Open today";
+  return "Upcoming";
+}
+
+function dayStatusClass(status: DayStatus) {
+  if (status === "submitted") return "border-green-200 bg-green-50 text-green-800";
+  if (status === "missing") return "border-amber-200 bg-amber-50 text-amber-800";
+  if (status === "open") return "border-stone-200 bg-stone-50 text-stone-700";
+  return "border-stone-200 bg-stone-50 text-stone-500";
+}
+
+function weeklyStatus(input: { percentage: number; complete: boolean }) {
+  if (!input.complete) {
+    return {
+      label: "In progress",
+      scoreLabel: "Week score so far",
+      className: "bg-stone-100 text-stone-700"
+    };
+  }
+
+  if (input.percentage >= PASSING_PERCENTAGE) {
+    return {
+      label: "Passing",
+      scoreLabel: "Final weekly score",
+      className: "bg-green-50 text-green-700"
+    };
+  }
+
+  return {
+    label: "Below 70%",
+    scoreLabel: "Final weekly score",
+    className: "bg-red-50 text-red-700"
+  };
+}
+
+function partnerRoundLabel(round: PartnerRecitation["round"]) {
+  return round === "round_1" ? "Round 1" : "Round 2";
+}
+
 export default async function AdminStudentPage({
   params,
   searchParams
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<AdminStudentSearchParams>;
 }) {
   const resolvedParams = await params;
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["admin"]);
   const storageSupabase = createSupabaseAdminClient();
+  const today = todayDateString();
+  const currentTrackerWeekStart = weekStartForDate(today);
+  const selectedWeekStart = validWeekStart(resolvedSearchParams.week, currentTrackerWeekStart);
+  const selectedWeekDates = weekDatesFromStart(selectedWeekStart);
+  const selectedWeekDateSet = new Set(selectedWeekDates);
+  const selectedPlanWeekStart = planWeekStartForDate(selectedWeekStart);
+  const selectedWeekComplete = weekIsComplete(selectedWeekStart, today);
+  const correctionInitialDate = selectedWeekDates.includes(today) ? today : selectedWeekDates[0];
+
   const { data: student } = await supabase
     .from("profiles")
     .select("id,name,email,phone,role,active,created_at")
@@ -57,16 +152,50 @@ export default async function AdminStudentPage({
         .order("created_at", { ascending: true })
         .returns<CheckInItem[]>()
     : { data: [] };
+  const { data: partnerWeekRows } = await supabase
+    .from("partner_recitations")
+    .select("week_start")
+    .eq("student_id", student.id)
+    .order("week_start", { ascending: false })
+    .returns<Array<{ week_start: string }>>();
+  const { data: halaqaWeekRows } = await supabase
+    .from("halaqa_grades")
+    .select("week_start")
+    .eq("student_id", student.id)
+    .order("week_start", { ascending: false })
+    .returns<Array<{ week_start: string }>>();
+  const { data: weeklyPlanRows } = await supabase
+    .from("weekly_plans")
+    .select("week_start")
+    .eq("student_id", student.id)
+    .order("week_start", { ascending: false })
+    .returns<Array<{ week_start: string }>>();
+  const availableWeekStarts = [
+    ...new Set([
+      currentTrackerWeekStart,
+      selectedWeekStart,
+      ...(checkins ?? []).map((checkin) => weekStartForDate(checkin.date)),
+      ...(partnerWeekRows ?? []).map((row) => row.week_start),
+      ...(halaqaWeekRows ?? []).map((row) => row.week_start),
+      ...(weeklyPlanRows ?? []).map((row) => weekStartForDate(addDays(row.week_start, 1)))
+    ])
+  ].sort((a, b) => b.localeCompare(a));
   const itemsByCheckInId = new Map<string, CheckInItem[]>();
 
   for (const item of items ?? []) {
     itemsByCheckInId.set(item.checkin_id, [...(itemsByCheckInId.get(item.checkin_id) ?? []), item]);
   }
 
-  const today = todayDateString();
-  const weekDates = currentWeekDates(today);
-  const currentTrackerWeekStart = weekStartForDate(today);
-  const checkinByDate = new Map((checkins ?? []).map((checkin) => [checkin.date, checkin]));
+  const selectedCheckins = (checkins ?? []).filter((checkin) => selectedWeekDateSet.has(checkin.date));
+  const selectedCheckinByDate = new Map(selectedCheckins.map((checkin) => [checkin.date, checkin]));
+  const selectedDailyScoreByDate = new Map(selectedCheckins.map((checkin) => [checkin.date, checkin.daily_score]));
+  const effectiveToday = effectiveTodayForDailyProgress(selectedWeekDates, selectedCheckinByDate, today);
+  const dailyProgress = calculateDailyScoreProgress({
+    weekDates: selectedWeekDates,
+    dailyScoresByDate: selectedDailyScoreByDate,
+    today: effectiveToday
+  });
+  const missingDates = selectedWeekDates.filter((date) => date < today && !selectedCheckinByDate.has(date));
   const correctionCheckIns: CorrectionFormCheckIn[] = (checkins ?? []).map((checkin) => ({
     date: checkin.date,
     status: checkin.completed ? "submitted" : "missing",
@@ -75,46 +204,23 @@ export default async function AdminStudentPage({
       .filter((item) => item.completed)
       .map((item) => item.task_key)
   }));
-  const pastOrCurrentWeekDates = weekDates.filter((date) => date <= today);
-  const currentWeekCheckins = weekDates
-    .map((date) => checkinByDate.get(date))
-    .filter((checkin): checkin is CheckIn => Boolean(checkin));
-  const submittedCheckinsSoFar = pastOrCurrentWeekDates
-    .map((date) => checkinByDate.get(date))
-    .filter((checkin): checkin is CheckIn => Boolean(checkin));
-  const submittedDaysThisWeek = currentWeekCheckins.length;
-  const missingDaysSoFar = pastOrCurrentWeekDates.filter((date) => !checkinByDate.has(date)).length;
-  const averageSoFar = calculateWeeklyAverage(submittedCheckinsSoFar.map((checkin) => checkin.daily_score));
   const { data: partnerRecitations } = await supabase
     .from("partner_recitations")
     .select("id,student_id,week_start,round,points,submitted_at")
     .eq("student_id", student.id)
-    .eq("week_start", currentTrackerWeekStart)
+    .eq("week_start", selectedWeekStart)
     .returns<PartnerRecitation[]>();
   const { data: halaqaGrade } = await supabase
     .from("halaqa_grades")
     .select("id,student_id,week_start,attended,attendance_points,recitation_points,notes,graded_by,graded_at,updated_at")
     .eq("student_id", student.id)
-    .eq("week_start", currentTrackerWeekStart)
+    .eq("week_start", selectedWeekStart)
     .maybeSingle<HalaqaGrade>();
-  const weeklyScore = calculateWeeklyScore({
-    dailyScores: weekDates.map((date) => checkinByDate.get(date)?.daily_score ?? 0),
-    partnerRecitations: partnerRecitations ?? [],
-    halaqaGrade: halaqaGrade ?? null
-  });
-  const latestSubmitted = (checkins ?? []).reduce<CheckIn | null>(
-    (latest, checkin) =>
-      !latest || new Date(checkin.submitted_at).getTime() > new Date(latest.submitted_at).getTime()
-      ? checkin
-      : latest,
-    null
-  );
-  const weekStart = planWeekStartForDate(today);
   const { data: weeklyPlan } = await supabase
     .from("weekly_plans")
     .select("id,student_id,week_start,file_path,file_name,file_type,file_size,uploaded_at")
     .eq("student_id", student.id)
-    .eq("week_start", weekStart)
+    .eq("week_start", selectedPlanWeekStart)
     .maybeSingle<WeeklyPlan>();
   const weeklyPlanUrl = weeklyPlan
     ? (
@@ -123,15 +229,28 @@ export default async function AdminStudentPage({
           .createSignedUrl(weeklyPlan.file_path, 60 * 60, { download: weeklyPlan.file_name })
       ).data?.signedUrl
     : null;
+  const weeklyScore = calculateWeeklyScore({
+    dailyScores: selectedWeekDates.map((date) => selectedCheckinByDate.get(date)?.daily_score ?? 0),
+    partnerRecitations: partnerRecitations ?? [],
+    halaqaGrade: halaqaGrade ?? null
+  });
+  const status = weeklyStatus({ percentage: weeklyScore.percentage, complete: selectedWeekComplete });
+  const partnerRecitationByRound = new Map<PartnerRecitation["round"], PartnerRecitation>();
+
+  for (const recitation of partnerRecitations ?? []) {
+    const existing = partnerRecitationByRound.get(recitation.round);
+
+    if (!existing || Number(recitation.points ?? 0) > Number(existing.points ?? 0)) {
+      partnerRecitationByRound.set(recitation.round, recitation);
+    }
+  }
 
   return (
     <>
       <AppNav role={profile.role} name={profile.name} />
       <main className="mx-auto max-w-5xl px-4 py-8">
         {resolvedSearchParams.status === "corrected" ? (
-          <p className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
-            Correction saved.
-          </p>
+          <p className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">Correction saved.</p>
         ) : null}
         {resolvedSearchParams.status === "correction-error" ? (
           <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -139,123 +258,207 @@ export default async function AdminStudentPage({
           </p>
         ) : null}
         {resolvedSearchParams.status === "grade-saved" ? (
-          <p className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
-            Halaqa grade saved.
-          </p>
+          <p className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">Halaqa grade saved.</p>
         ) : null}
         {resolvedSearchParams.status === "grade-invalid" || resolvedSearchParams.status === "grade-error" ? (
           <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-            Unable to save halaqa grade. If attended is yes, recitation mark must be 2–10.
+            Unable to save halaqa grade. If attended is yes, recitation mark must be 2-10.
           </p>
         ) : null}
 
         <section className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h1 className="text-2xl font-semibold text-ink">{student.name}</h1>
+              <Link className="text-sm font-medium text-moss hover:text-ink" href="/admin">
+                Back to admin
+              </Link>
+              <h1 className="mt-2 text-2xl font-semibold text-ink">{student.name}</h1>
               <p className="mt-1 text-stone-600">{student.phone || student.email}</p>
             </div>
-            <div className="rounded-md bg-stone-50 px-4 py-3 text-right">
-              <p className="text-xs font-medium uppercase text-stone-500">Latest submitted score</p>
-              <p className="text-2xl font-semibold text-ink">{formatScore(latestSubmitted?.daily_score) || "None"}</p>
+            <StudentWeekSelector
+              availableWeekStarts={availableWeekStarts}
+              selectedWeekStart={selectedWeekStart}
+              studentId={student.id}
+            />
+          </div>
+        </section>
+
+        <section className="mt-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-stone-600">{status.scoreLabel}</p>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <p className="text-4xl font-semibold text-ink">{weeklyScore.percentage}%</p>
+                <span className={`rounded-full px-3 py-1 text-sm font-medium ${status.className}`}>
+                  {status.label}
+                </span>
+              </div>
+              <p className="mt-2 text-sm text-stone-600">Week of {formatWeekRange(selectedWeekStart)}</p>
+            </div>
+            <div className="grid w-full gap-3 sm:grid-cols-3 lg:w-auto lg:min-w-[520px]">
+              <div className="rounded-md bg-stone-50 p-4">
+                <p className="text-sm text-stone-600">Daily</p>
+                <p className="mt-1 text-xl font-semibold text-ink">{weeklyScore.daily_points} / 700</p>
+              </div>
+              <div className="rounded-md bg-stone-50 p-4">
+                <p className="text-sm text-stone-600">Partner</p>
+                <p className="mt-1 text-xl font-semibold text-ink">{weeklyScore.partner_points} / 150</p>
+              </div>
+              <div className="rounded-md bg-stone-50 p-4">
+                <p className="text-sm text-stone-600">Halaqa</p>
+                <p className="mt-1 text-xl font-semibold text-ink">{weeklyScore.halaqa_points} / 150</p>
+              </div>
             </div>
           </div>
-          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-md border border-stone-200 p-4">
-              <p className="text-sm text-stone-600">Submitted days this week</p>
-              <p className="mt-1 text-2xl font-semibold text-ink">{submittedDaysThisWeek}</p>
-            </div>
-            <div className="rounded-md border border-stone-200 p-4">
-              <p className="text-sm text-stone-600">Missing days so far</p>
-              <p className="mt-1 text-2xl font-semibold text-ink">{missingDaysSoFar}</p>
-            </div>
-            <div className="rounded-md border border-stone-200 p-4">
-              <p className="text-sm text-stone-600">Average so far</p>
-              <p className="mt-1 text-2xl font-semibold text-ink">{formatScore(averageSoFar) || "None"}</p>
-            </div>
-            <div className="rounded-md border border-stone-200 p-4">
-              <p className="text-sm text-stone-600">Weekly score</p>
-              <p className="mt-1 text-2xl font-semibold text-ink">
-                {weeklyScore.total_points} / {weeklyScore.total_possible}
+          <div className="mt-5 rounded-md border border-stone-200 p-4 text-sm text-stone-700">
+            <p>
+              Daily check-ins:{" "}
+              <span className="font-semibold text-ink">
+                {dailyProgress.submitted_days} / {dailyProgress.due_days}
+              </span>{" "}
+              due submitted
+            </p>
+            {missingDates.length ? (
+              <p className="mt-1">
+                Missing: <span className="font-medium text-amber-800">{missingDates.map(friendlyDate).join(", ")}</span>
               </p>
-              <p className="text-sm text-stone-600">{weeklyScore.percentage}%</p>
-            </div>
+            ) : (
+              <p className="mt-1 text-stone-600">No missing due days for this selected week.</p>
+            )}
           </div>
         </section>
 
         <section className="mt-8">
-          <h2 className="text-lg font-semibold text-ink">Current Week</h2>
-          <div className="mt-3 overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm">
-            <div className="divide-y divide-stone-200">
-              {weekDates.map((date) => {
-                const checkin = checkinByDate.get(date);
-                const isFuture = date > today;
-
-                return (
-                  <div className="grid gap-3 px-4 py-3 md:grid-cols-[1.2fr_1fr_1fr]" key={date}>
-                    <div>
-                      <p className="font-medium text-ink">{friendlyDate(date)}</p>
-                    </div>
-                    <div>
-                      <span
-                        className={
-                          checkin
-                            ? "font-medium text-green-700"
-                            : isFuture
-                              ? "font-medium text-stone-500"
-                              : "font-medium text-amber-700"
-                        }
-                      >
-                        {checkin ? `Submitted - ${formatScore(checkin.daily_score)}` : isFuture ? "Upcoming" : "Missing"}
-                      </span>
-                    </div>
-                    <div className="text-stone-600">
-                      {checkin ? `${checkin.earned_weight ?? 0}/${checkin.total_weight ?? 0}` : isFuture ? "Not due" : ""}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-
-        <section className="mt-8 rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-ink">Weekly Score</h2>
-              <p className="mt-1 text-sm text-stone-600">Week of {formatWeekRange(currentTrackerWeekStart)}</p>
-            </div>
-            <p className="text-2xl font-semibold text-ink">
-              {weeklyScore.total_points} / 1000 = {weeklyScore.percentage}%
+          <div>
+            <h2 className="text-lg font-semibold text-ink">Selected Week Activity</h2>
+            <p className="mt-1 text-sm text-stone-600">
+              Submitted, missing, and upcoming check-ins for {formatWeekRange(selectedWeekStart)}.
             </p>
           </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <div className="rounded-md bg-stone-50 p-4">
-              <p className="text-sm text-stone-600">Daily checklist</p>
-              <p className="mt-1 text-xl font-semibold text-ink">{weeklyScore.daily_points} / 700</p>
-            </div>
-            <div className="rounded-md bg-stone-50 p-4">
-              <p className="text-sm text-stone-600">Partner recitation</p>
-              <p className="mt-1 text-xl font-semibold text-ink">{weeklyScore.partner_points} / 150</p>
-            </div>
-            <div className="rounded-md bg-stone-50 p-4">
-              <p className="text-sm text-stone-600">Halaqa grade</p>
-              <p className="mt-1 text-xl font-semibold text-ink">{weeklyScore.halaqa_points} / 150</p>
-            </div>
+          <div className="mt-3 space-y-3">
+            {selectedWeekDates.map((date) => {
+              const checkin = selectedCheckinByDate.get(date);
+              const statusForDay = dayStatus(date, today, checkin);
+              const checkinItems = checkin ? itemsByCheckInId.get(checkin.id) ?? [] : [];
+              const completedItems = checkinItems.filter((item) => item.completed);
+              const missedItems = checkinItems.filter((item) => !item.completed);
+
+              return (
+                <details
+                  className={`rounded-lg border bg-white shadow-sm ${dayStatusClass(statusForDay)}`}
+                  key={date}
+                  open={statusForDay === "missing"}
+                >
+                  <summary className="cursor-pointer list-none px-4 py-3">
+                    <div className="grid items-center gap-3 md:grid-cols-[1.2fr_1fr_1fr]">
+                      <p className="font-medium text-ink">{friendlyDate(date)}</p>
+                      <span className="font-medium">{dayStatusLabel(statusForDay)}</span>
+                      <span className="text-sm text-stone-700">
+                        {checkin ? formatScore(checkin.daily_score) : statusForDay === "upcoming" ? "Not due" : ""}
+                      </span>
+                    </div>
+                  </summary>
+                  <div className="border-t border-stone-200 bg-white px-4 py-4 text-sm text-stone-700">
+                    {checkin ? (
+                      <>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="font-medium text-ink">Submitted {formatDateTimeInAppTimeZone(checkin.submitted_at)}</p>
+                            {checkin.note ? <p className="mt-1">Note: {checkin.note}</p> : null}
+                          </div>
+                          <p className="font-medium text-ink">
+                            {checkin.earned_weight ?? 0}/{checkin.total_weight ?? 0} checklist points
+                          </p>
+                        </div>
+                        <div className="mt-4 grid gap-3 md:grid-cols-2">
+                          <div>
+                            <p className="font-medium text-green-700">Completed</p>
+                            <div className="mt-2 space-y-2">
+                              {completedItems.length ? (
+                                completedItems.map((item) => (
+                                  <div className="rounded-md bg-green-50 px-3 py-2" key={item.id}>
+                                    {item.task_label} <span className="text-stone-600">({item.weight})</span>
+                                  </div>
+                                ))
+                              ) : (
+                                <p className="rounded-md bg-stone-50 px-3 py-2 text-stone-600">No completed tasks.</p>
+                              )}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="font-medium text-amber-700">Missed</p>
+                            <div className="mt-2 space-y-2">
+                              {missedItems.length ? (
+                                missedItems.map((item) => (
+                                  <div className="rounded-md bg-amber-50 px-3 py-2" key={item.id}>
+                                    {item.task_label} <span className="text-stone-600">({item.weight})</span>
+                                  </div>
+                                ))
+                              ) : (
+                                <p className="rounded-md bg-stone-50 px-3 py-2 text-stone-600">No missed tasks.</p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <p>
+                        {statusForDay === "upcoming"
+                          ? "This day is not due yet."
+                          : statusForDay === "open"
+                            ? "No check-in submitted yet today."
+                            : "No check-in submitted for this day."}
+                      </p>
+                    )}
+                  </div>
+                </details>
+              );
+            })}
           </div>
         </section>
 
         <section className="mt-8 rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
-          <h2 className="text-lg font-semibold text-ink">Halaqa Grade</h2>
-          <p className="mt-1 text-sm text-stone-600">Saturday grade for {formatWeekRange(currentTrackerWeekStart)}</p>
-          <HalaqaGradeForm grade={halaqaGrade ?? null} studentId={student.id} weekStart={currentTrackerWeekStart} />
+          <div>
+            <h2 className="text-lg font-semibold text-ink">Weekly Requirements</h2>
+            <p className="mt-1 text-sm text-stone-600">Partner recitation and halaqa grade for the selected week.</p>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            {(["round_1", "round_2"] as PartnerRecitation["round"][]).map((round) => {
+              const recitation = partnerRecitationByRound.get(round);
+
+              return (
+                <div className="rounded-md border border-stone-200 p-4" key={round}>
+                  <p className="text-sm font-medium text-ink">{partnerRoundLabel(round)}</p>
+                  <p className={recitation ? "mt-1 text-sm text-green-700" : "mt-1 text-sm text-stone-600"}>
+                    {recitation ? "Submitted" : "No submission"}
+                  </p>
+                  <p className="mt-2 text-xl font-semibold text-ink">{recitation?.points ?? 0} / 75</p>
+                  {recitation ? (
+                    <p className="mt-1 text-xs text-stone-500">
+                      Submitted {formatDateTimeInAppTimeZone(recitation.submitted_at)}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-6 border-t border-stone-200 pt-4">
+            <h3 className="font-semibold text-ink">Halaqa Grade</h3>
+            <p className="mt-1 text-sm text-stone-600">Saturday grade for {formatWeekRange(selectedWeekStart)}</p>
+            <HalaqaGradeForm
+              grade={halaqaGrade ?? null}
+              key={selectedWeekStart}
+              studentId={student.id}
+              weekStart={selectedWeekStart}
+            />
+          </div>
         </section>
 
         <section className="mt-8 rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold text-ink">Weekly Plan</h2>
-              <p className="mt-1 text-sm text-stone-600">{formatPlanWeekRange(weekStart)}</p>
+              <p className="mt-1 text-sm text-stone-600">{formatPlanWeekRange(selectedPlanWeekStart)}</p>
             </div>
             {weeklyPlanUrl ? (
               <a
@@ -278,52 +481,16 @@ export default async function AdminStudentPage({
           )}
         </section>
 
-        <section className="mt-8">
-          <h2 className="text-lg font-semibold text-ink">History</h2>
-          <div className="mt-3 space-y-4">
-            {(checkins ?? []).map((checkin) => (
-              <article className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm" key={checkin.id}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold text-ink">{friendlyDate(checkin.date)}</h3>
-                    <p className="mt-1 text-sm text-stone-600">
-                      Submitted {formatDateTimeInAppTimeZone(checkin.submitted_at)}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-lg font-semibold text-ink">{formatScore(checkin.daily_score)}</p>
-                    <p className="text-sm text-stone-600">
-                      {checkin.earned_weight ?? 0}/{checkin.total_weight ?? 0}
-                    </p>
-                  </div>
-                </div>
-                {checkin.note ? <p className="mt-3 text-sm text-stone-700">Note: {checkin.note}</p> : null}
-                <div className="mt-4 grid gap-2 md:grid-cols-2">
-                  {(itemsByCheckInId.get(checkin.id) ?? []).map((item) => (
-                    <div
-                      className="flex items-start justify-between gap-4 rounded-md bg-stone-50 px-3 py-2 text-sm"
-                      key={item.id}
-                    >
-                      <span className={item.completed ? "text-ink" : "text-stone-500"}>
-                        {item.completed ? "Done" : "Missed"}: {item.task_label}
-                      </span>
-                      <span className="shrink-0 text-stone-600">{item.weight}</span>
-                    </div>
-                  ))}
-                </div>
-              </article>
-            ))}
-            {checkins?.length ? null : (
-              <div className="rounded-lg border border-stone-200 bg-white p-6 text-stone-600 shadow-sm">
-                No check-ins yet.
-              </div>
-            )}
-          </div>
-        </section>
-
         <section className="mt-8 rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-semibold text-ink">Manual Correction</h2>
-          <CorrectionForm existingCheckIns={correctionCheckIns} studentId={student.id} today={today} />
+          <p className="mt-1 text-sm text-stone-600">Correct a daily check-in for the selected week.</p>
+          <CorrectionForm
+            existingCheckIns={correctionCheckIns}
+            initialDate={correctionInitialDate}
+            key={selectedWeekStart}
+            redirectWeek={selectedWeekStart}
+            studentId={student.id}
+          />
         </section>
       </main>
     </>

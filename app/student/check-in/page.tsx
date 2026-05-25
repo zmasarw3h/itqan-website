@@ -84,7 +84,7 @@ export default async function StudentCheckInPage({
               <div className="rounded-md bg-stone-50 px-4 py-3 text-right">
                 <p className="text-3xl font-semibold text-ink">{formatScore(checkin?.daily_score)}</p>
                 <p className="text-sm text-stone-600">
-                  {checkin?.earned_weight ?? 0}/{checkin?.total_weight ?? 0}
+                  {checkin?.earned_weight ?? 0}/{checkin?.total_weight ?? 0} checklist points
                 </p>
               </div>
             </div>

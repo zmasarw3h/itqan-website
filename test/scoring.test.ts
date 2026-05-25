@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   calculateDailySubmission,
+  calculateDailyScoreProgress,
   calculateHalaqaGrade,
   calculateWeeklyAverage,
   calculateWeeklyScore,
@@ -97,6 +98,33 @@ describe("weighted Quran tracker scoring", () => {
 
   it("calculates weekly average across seven daily percentages", () => {
     expect(calculateWeeklyAverage([100, 50, 75, 0, 100, 80, 95])).toBe(71.43);
+  });
+
+  it("calculates daily score progress only through due dates", () => {
+    expect(
+      calculateDailyScoreProgress({
+        weekDates: [
+          "2026-05-24",
+          "2026-05-25",
+          "2026-05-26",
+          "2026-05-27",
+          "2026-05-28",
+          "2026-05-29",
+          "2026-05-30"
+        ],
+        dailyScoresByDate: new Map([
+          ["2026-05-24", 100],
+          ["2026-05-25", 80]
+        ]),
+        today: "2026-05-26"
+      })
+    ).toEqual({
+      earned_points: 180,
+      possible_points: 300,
+      submitted_days: 2,
+      due_days: 3,
+      percentage: 60
+    });
   });
 
   it("detects partner recitation rounds from the effective date", () => {
