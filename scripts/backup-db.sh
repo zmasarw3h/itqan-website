@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+umask 077
+
 backup_root="${BACKUP_ROOT:-backups/database}"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 output_dir="${backup_root}/${timestamp}"
@@ -10,16 +12,19 @@ if ! command -v supabase >/dev/null 2>&1; then
   exit 1
 fi
 
-mkdir -p "${output_dir}"
+mkdir -p -m 700 "${output_dir}"
+chmod 700 "${output_dir}"
 
 schema_file="${output_dir}/itqan-lite-schema-${timestamp}.sql"
 data_file="${output_dir}/itqan-lite-public-data-${timestamp}.sql"
 
 echo "Writing schema dump to ${schema_file}"
 supabase db dump --linked --file "${schema_file}"
+chmod 600 "${schema_file}"
 
 echo "Writing public data dump to ${data_file}"
 supabase db dump --linked --data-only --use-copy --schema public --file "${data_file}"
+chmod 600 "${data_file}"
 
 cat <<EOF
 Database logical export complete.
