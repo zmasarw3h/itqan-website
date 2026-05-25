@@ -23,19 +23,21 @@ function completedKeysForDate(date: string, existing: CorrectionFormCheckIn | un
 
 export default function CorrectionForm({
   studentId,
-  today,
+  initialDate,
+  redirectWeek,
   existingCheckIns
 }: {
   studentId: string;
-  today: string;
+  initialDate: string;
+  redirectWeek: string;
   existingCheckIns: CorrectionFormCheckIn[];
 }) {
-  const initialExisting = existingCheckIns.find((checkin) => checkin.date === today);
-  const [selectedDate, setSelectedDate] = useState(today);
+  const initialExisting = existingCheckIns.find((checkin) => checkin.date === initialDate);
+  const [selectedDate, setSelectedDate] = useState(initialDate);
   const [status, setStatus] = useState<"submitted" | "missing">(initialExisting?.status ?? "submitted");
   const [note, setNote] = useState(initialExisting?.note ?? "");
   const [completedTaskKeys, setCompletedTaskKeys] = useState<string[]>(
-    completedKeysForDate(today, initialExisting)
+    completedKeysForDate(initialDate, initialExisting)
   );
   const existingByDate = useMemo(
     () => new Map(existingCheckIns.map((checkin) => [checkin.date, checkin])),
@@ -65,6 +67,7 @@ export default function CorrectionForm({
   return (
     <form action={correctCheckIn} className="mt-4 grid gap-4 md:grid-cols-4">
       <input name="student_id" type="hidden" value={studentId} />
+      <input name="redirect_week" type="hidden" value={redirectWeek} />
       <label className="block">
         <span className="text-sm font-medium text-ink">Date</span>
         <input

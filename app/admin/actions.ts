@@ -4,10 +4,20 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { buildAdminStudentCreateInput } from "@/lib/admin-students";
 import { adminCorrectionPayload, checkInItemPayloads, normalizeNote } from "@/lib/checkins";
-import { calculateDailySubmission, calculateHalaqaGrade } from "@/lib/scoring";
+import { calculateDailySubmission, HALAQA_ATTENDANCE_POINTS } from "@/lib/scoring";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn } from "@/lib/types";
+
+function adminStudentStatusPath(studentId: string, status: string, weekStart?: string) {
+  const params = new URLSearchParams({ status });
+
+  if (weekStart) {
+    params.set("week", weekStart);
+  }
+
+  return `/admin/students/${studentId}?${params.toString()}`;
+}
 
 export async function createStudent(formData: FormData) {
   const { supabase } = await requireProfile(["admin"]);
@@ -70,6 +80,7 @@ export async function correctCheckIn(formData: FormData) {
   const studentId = String(formData.get("student_id") ?? "");
   const date = String(formData.get("date") ?? "");
   const status = String(formData.get("status") ?? "submitted");
+  const redirectWeek = String(formData.get("redirect_week") ?? "");
   const note = normalizeNote(formData.get("note"));
   const completedTaskKeys = formData.getAll("task_keys").filter((value): value is string => typeof value === "string");
 
@@ -81,12 +92,12 @@ export async function correctCheckIn(formData: FormData) {
     const { error } = await supabase.from("checkins").delete().eq("student_id", studentId).eq("date", date);
 
     if (error) {
-      redirect(`/admin/students/${studentId}?status=correction-error`);
+      redirect(adminStudentStatusPath(studentId, "correction-error", redirectWeek));
     }
 
     revalidatePath("/admin");
     revalidatePath(`/admin/students/${studentId}`);
-    redirect(`/admin/students/${studentId}?status=corrected`);
+    redirect(adminStudentStatusPath(studentId, "corrected", redirectWeek));
   }
 
   const submission = calculateDailySubmission(date, completedTaskKeys);
@@ -110,13 +121,13 @@ export async function correctCheckIn(formData: FormData) {
     .single<CheckIn>();
 
   if (error || !checkin) {
-    redirect(`/admin/students/${studentId}?status=correction-error`);
+    redirect(adminStudentStatusPath(studentId, "correction-error", redirectWeek));
   }
 
   const { error: deleteItemsError } = await supabase.from("checkin_items").delete().eq("checkin_id", checkin.id);
 
   if (deleteItemsError) {
-    redirect(`/admin/students/${studentId}?status=correction-error`);
+    redirect(adminStudentStatusPath(studentId, "correction-error", redirectWeek));
   }
 
   const { error: insertItemsError } = await supabase
@@ -131,36 +142,36 @@ export async function correctCheckIn(formData: FormData) {
     );
 
   if (insertItemsError) {
-    redirect(`/admin/students/${studentId}?status=correction-error`);
+    redirect(adminStudentStatusPath(studentId, "correction-error", redirectWeek));
   }
 
   revalidatePath("/admin");
   revalidatePath(`/admin/students/${studentId}`);
-  redirect(`/admin/students/${studentId}?status=corrected`);
+  redirect(adminStudentStatusPath(studentId, "corrected", redirectWeek));
 }
 
 export async function saveHalaqaGrade(formData: FormData) {
   const { supabase, profile } = await requireProfile(["admin"]);
   const studentId = String(formData.get("student_id") ?? "");
   const weekStart = String(formData.get("week_start") ?? "");
+  const redirectWeek = String(formData.get("redirect_week") ?? "");
   const attended = formData.get("attended") === "true";
-  const recitationMarkValue = Number(formData.get("recitation_mark_out_of_10") ?? 0);
+  const recitationPointsValue = Number(formData.get("recitation_points") ?? 0);
   const notes = normalizeNote(formData.get("notes"));
 
   if (!studentId || !weekStart) {
     redirect("/admin?status=invalid-grade");
   }
 
-  let grade: ReturnType<typeof calculateHalaqaGrade>;
-
-  try {
-    grade = calculateHalaqaGrade({
-      attended,
-      recitationMarkOutOf10: attended ? recitationMarkValue : 0
-    });
-  } catch {
-    redirect(`/admin/students/${studentId}?status=grade-invalid`);
+  if (attended && (!Number.isFinite(recitationPointsValue) || recitationPointsValue < 10 || recitationPointsValue > 50)) {
+    redirect(adminStudentStatusPath(studentId, "grade-invalid", redirectWeek || weekStart));
   }
+
+  const grade = {
+    attended,
+    attendance_points: attended ? HALAQA_ATTENDANCE_POINTS : 0,
+    recitation_points: attended ? recitationPointsValue : 0
+  };
 
   const now = new Date().toISOString();
   const { error } = await supabase.from("halaqa_grades").upsert(
@@ -179,10 +190,10 @@ export async function saveHalaqaGrade(formData: FormData) {
   );
 
   if (error) {
-    redirect(`/admin/students/${studentId}?status=grade-error`);
+    redirect(adminStudentStatusPath(studentId, "grade-error", redirectWeek || weekStart));
   }
 
   revalidatePath("/admin");
   revalidatePath(`/admin/students/${studentId}`);
-  redirect(`/admin/students/${studentId}?status=grade-saved`);
+  redirect(adminStudentStatusPath(studentId, "grade-saved", redirectWeek || weekStart));
 }

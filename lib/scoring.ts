@@ -29,6 +29,14 @@ export type WeeklyScore = {
   percentage: number;
 };
 
+export type DailyScoreProgress = {
+  earned_points: number;
+  possible_points: number;
+  submitted_days: number;
+  due_days: number;
+  percentage: number | null;
+};
+
 export const DAILY_WEEKLY_POINTS = 700;
 export const PARTNER_RECITATION_POINTS_PER_ROUND = 75;
 export const PARTNER_RECITATION_WEEKLY_POINTS = 150;
@@ -157,6 +165,25 @@ export function calculateWeeklyAverage(dailyScores: Iterable<number | null | und
   }
 
   return roundScore(scores.reduce((sum, score) => sum + score, 0) / scores.length);
+}
+
+export function calculateDailyScoreProgress(input: {
+  weekDates: string[];
+  dailyScoresByDate: Map<string, number | null | undefined>;
+  today: string;
+}): DailyScoreProgress {
+  const dueDates = input.weekDates.filter((date) => date <= input.today);
+  const earnedPoints = dueDates.reduce((sum, date) => sum + Number(input.dailyScoresByDate.get(date) ?? 0), 0);
+  const possiblePoints = dueDates.length * 100;
+  const submittedDays = dueDates.filter((date) => input.dailyScoresByDate.has(date)).length;
+
+  return {
+    earned_points: roundScore(earnedPoints),
+    possible_points: possiblePoints,
+    submitted_days: submittedDays,
+    due_days: dueDates.length,
+    percentage: possiblePoints > 0 ? roundScore((earnedPoints / possiblePoints) * 100) : null
+  };
 }
 
 export function partnerRoundForDate(dateString: string): PartnerRound {

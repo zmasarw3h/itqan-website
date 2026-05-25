@@ -1,6 +1,7 @@
 import AppNav from "@/app/nav";
 import { formatWeekRange, isValidDateString, todayDateString, weekDatesFromStart, weekStartForDate } from "@/lib/dates";
 import { buildHalaqaFeedbackDisplay, buildWeeklyGradeBreakdown, studentGradesScope } from "@/lib/grades";
+import { calculateDailyScoreProgress } from "@/lib/scoring";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn, HalaqaGrade, PartnerRecitation } from "@/lib/types";
 
@@ -25,7 +26,8 @@ export default async function StudentGradesPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["student"]);
-  const currentWeekStart = weekStartForDate(todayDateString());
+  const today = todayDateString();
+  const currentWeekStart = weekStartForDate(today);
   const selectedWeekStart = validWeekStart(resolvedSearchParams.week, currentWeekStart);
   const selectedWeekDates = weekDatesFromStart(selectedWeekStart);
   const scope = studentGradesScope(profile.id, selectedWeekStart, selectedWeekDates);
@@ -82,6 +84,12 @@ export default async function StudentGradesPage({
     partnerRecitations: partnerRecitations ?? [],
     halaqaGrade: halaqaGrade ?? null
   });
+  const dailyScoreByDate = new Map((checkins ?? []).map((checkin) => [checkin.date, checkin.daily_score]));
+  const dailyProgress = calculateDailyScoreProgress({
+    weekDates: scope.weekDates,
+    dailyScoresByDate: dailyScoreByDate,
+    today
+  });
   const halaqaDisplay = buildHalaqaFeedbackDisplay(halaqaGrade ?? null);
 
   return (
@@ -115,12 +123,25 @@ export default async function StudentGradesPage({
             </form>
           </div>
 
-          <div className="mt-6 rounded-lg bg-stone-50 p-5">
-            <p className="text-sm font-medium uppercase text-stone-500">Total score</p>
-            <p className="mt-2 text-4xl font-semibold text-ink">
-              {weeklyScore.total_points} / {weeklyScore.total_possible}
-            </p>
-            <p className="mt-1 text-lg text-stone-700">{weeklyScore.percentage}%</p>
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <div className="rounded-lg bg-stone-50 p-5">
+              <p className="text-sm font-medium uppercase text-stone-500">Daily progress so far</p>
+              <p className="mt-2 text-4xl font-semibold text-ink">
+                {dailyProgress.possible_points > 0
+                  ? `${dailyProgress.earned_points} / ${dailyProgress.possible_points}`
+                  : "Not due"}
+              </p>
+              <p className="mt-1 text-lg text-stone-700">
+                {dailyProgress.percentage === null ? "No daily checklist is due yet" : `${dailyProgress.percentage}%`}
+              </p>
+            </div>
+            <div className="rounded-lg bg-stone-50 p-5">
+              <p className="text-sm font-medium uppercase text-stone-500">Full weekly score</p>
+              <p className="mt-2 text-4xl font-semibold text-ink">
+                {weeklyScore.total_points} / {weeklyScore.total_possible}
+              </p>
+              <p className="mt-1 text-lg text-stone-700">{weeklyScore.percentage}% in progress</p>
+            </div>
           </div>
 
           <div className="mt-6 grid gap-3 md:grid-cols-3">

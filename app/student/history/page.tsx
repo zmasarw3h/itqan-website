@@ -127,7 +127,7 @@ export default async function StudentHistoryPage({
                   <div className="rounded-md bg-stone-50 px-4 py-3 text-right">
                     <p className="text-xl font-semibold text-ink">{formatScore(day.checkin.daily_score)}</p>
                     <p className="text-sm text-stone-600">
-                      {day.checkin.earned_weight ?? 0}/{day.checkin.total_weight ?? 0}
+                      {day.checkin.earned_weight ?? 0}/{day.checkin.total_weight ?? 0} checklist points
                     </p>
                   </div>
                 ) : (
