@@ -6,11 +6,13 @@ import { formatWeekRange } from "@/lib/dates";
 export default function LeaderboardFilters({
   availableWeekStarts,
   selectedWeekStart,
-  below70Only
+  below70Only,
+  basePath = "/admin"
 }: {
   availableWeekStarts: string[];
   selectedWeekStart: string;
   below70Only: boolean;
+  basePath?: string;
 }) {
   const router = useRouter();
 
@@ -23,7 +25,7 @@ export default function LeaderboardFilters({
       params.set("below70", "1");
     }
 
-    router.replace(`/admin/leaderboard?${params.toString()}`);
+    router.replace(`${basePath}?${params.toString()}`);
   }
 
   return (

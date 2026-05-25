@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { buildAdminStudentCreateInput } from "@/lib/admin-students";
 import { adminCorrectionPayload, checkInItemPayloads, normalizeNote } from "@/lib/checkins";
-import { calculateDailySubmission, calculateHalaqaGrade } from "@/lib/scoring";
+import { calculateDailySubmission, HALAQA_ATTENDANCE_POINTS } from "@/lib/scoring";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn } from "@/lib/types";
@@ -156,23 +156,22 @@ export async function saveHalaqaGrade(formData: FormData) {
   const weekStart = String(formData.get("week_start") ?? "");
   const redirectWeek = String(formData.get("redirect_week") ?? "");
   const attended = formData.get("attended") === "true";
-  const recitationMarkValue = Number(formData.get("recitation_mark_out_of_10") ?? 0);
+  const recitationPointsValue = Number(formData.get("recitation_points") ?? 0);
   const notes = normalizeNote(formData.get("notes"));
 
   if (!studentId || !weekStart) {
     redirect("/admin?status=invalid-grade");
   }
 
-  let grade: ReturnType<typeof calculateHalaqaGrade>;
-
-  try {
-    grade = calculateHalaqaGrade({
-      attended,
-      recitationMarkOutOf10: attended ? recitationMarkValue : 0
-    });
-  } catch {
+  if (attended && (!Number.isFinite(recitationPointsValue) || recitationPointsValue < 10 || recitationPointsValue > 50)) {
     redirect(adminStudentStatusPath(studentId, "grade-invalid", redirectWeek || weekStart));
   }
+
+  const grade = {
+    attended,
+    attendance_points: attended ? HALAQA_ATTENDANCE_POINTS : 0,
+    recitation_points: attended ? recitationPointsValue : 0
+  };
 
   const now = new Date().toISOString();
   const { error } = await supabase.from("halaqa_grades").upsert(

@@ -262,7 +262,7 @@ export default async function AdminStudentPage({
         ) : null}
         {resolvedSearchParams.status === "grade-invalid" || resolvedSearchParams.status === "grade-error" ? (
           <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-            Unable to save halaqa grade. If attended is yes, recitation mark must be 2-10.
+            Unable to save halaqa grade. If attended is yes, recitation points must be 10-50.
           </p>
         ) : null}
 

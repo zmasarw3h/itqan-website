@@ -1,28 +1,18 @@
-import { NextResponse } from "next/server";
-import { leaderboardRowsToCsv } from "@/lib/leaderboard";
-import { getCurrentProfile } from "@/lib/supabase-server";
-import { loadLeaderboardData } from "../data";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const { supabase, profile } = await getCurrentProfile();
+  const url = new URL(request.url);
+  const params = new URLSearchParams();
 
-  if (!profile || profile.role !== "admin") {
-    return new NextResponse("Not found", { status: 404 });
+  if (url.searchParams.get("week")) {
+    params.set("week", String(url.searchParams.get("week")));
   }
 
-  const url = new URL(request.url);
-  const data = await loadLeaderboardData(supabase, {
-    week: url.searchParams.get("week") ?? undefined,
-    below70: url.searchParams.get("below70") ?? undefined
-  });
-  const csv = leaderboardRowsToCsv(data.rows);
+  if (url.searchParams.get("below70")) {
+    params.set("below70", String(url.searchParams.get("below70")));
+  }
 
-  return new NextResponse(csv, {
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": 'attachment; filename="itqan-leaderboard.csv"'
-    }
-  });
+  redirect(params.size ? `/admin/export?${params.toString()}` : "/admin/export");
 }
