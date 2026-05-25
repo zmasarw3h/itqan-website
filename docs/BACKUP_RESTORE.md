@@ -56,10 +56,10 @@ backups/database/
 
 It creates:
 
-- A schema dump with `supabase db dump --linked`.
-- A `public` data dump with `supabase db dump --linked --data-only --use-copy --schema public`.
+- `itqan-lite-schema-<timestamp>.sql`: schema-only dump from the linked Supabase project, created with `supabase db dump --linked --file <path>`. The Supabase CLI default for `db dump` is schema output when `--data-only` is not passed.
+- `itqan-lite-public-data-<timestamp>.sql`: `public` schema table data only, created with `supabase db dump --linked --data-only --use-copy --schema public --file <path>`.
 
-Keep generated dump files encrypted and off-repo. The repo ignores `backups/`.
+The script sets `umask 077`, creates the timestamped output directory with owner-only permissions, and chmods generated dump files to `600`. Keep generated dump files encrypted and off-repo. The repo ignores `backups/`.
 
 Notes:
 
