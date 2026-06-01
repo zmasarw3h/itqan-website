@@ -1,4 +1,4 @@
-import { calculateDailySubmission } from "@/lib/scoring";
+import { calculateDailySubmission, tasksForDate, type CheckInTask } from "@/lib/scoring";
 import { todayDateString } from "@/lib/dates";
 import type { CheckIn, CheckInItem, CompletionRow, CompletionStatus, DashboardFilters, Profile } from "@/lib/types";
 
@@ -40,6 +40,55 @@ export function checkInItemPayloads(input: {
     weight: item.weight,
     completed: item.completed
   }));
+}
+
+export function taskForDateOrThrow(date: string, taskKey: string): CheckInTask {
+  const task = tasksForDate(date).find((candidate) => candidate.key === taskKey);
+
+  if (!task) {
+    throw new Error("Invalid checklist task.");
+  }
+
+  return task;
+}
+
+export function blankCheckInItemPayloads(input: { checkinId: string; studentId: string; date: string }) {
+  return tasksForDate(input.date).map((task) => ({
+    checkin_id: input.checkinId,
+    student_id: input.studentId,
+    date: input.date,
+    task_key: task.key,
+    task_label: task.label,
+    weight: task.weight,
+    completed: false
+  }));
+}
+
+export function completedTaskKeysAfterToggle(input: {
+  items: Pick<CheckInItem, "task_key" | "completed">[];
+  taskKey: string;
+  completed: boolean;
+}) {
+  const completedTaskKeys = new Set(input.items.filter((item) => item.completed).map((item) => item.task_key));
+
+  if (input.completed) {
+    completedTaskKeys.add(input.taskKey);
+  } else {
+    completedTaskKeys.delete(input.taskKey);
+  }
+
+  return [...completedTaskKeys];
+}
+
+export function calculateTotalsFromCompletedKeys(date: string, completedTaskKeys: Iterable<string>) {
+  const submission = calculateDailySubmission(date, completedTaskKeys);
+
+  return {
+    completedTaskKeys: submission.items.filter((item) => item.completed).map((item) => item.key),
+    earnedWeight: submission.earnedWeight,
+    totalWeight: submission.totalWeight,
+    dailyScore: submission.dailyScore
+  };
 }
 
 export function groupCheckInItemsByCheckInId(items: CheckInItem[]) {

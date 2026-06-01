@@ -88,7 +88,7 @@ export default function CorrectionForm({
           onChange={(event) => setStatus(event.target.value as "submitted" | "missing")}
           value={status}
         >
-          <option value="submitted">Submitted</option>
+          <option value="submitted">Saved</option>
           <option value="missing">Missing</option>
         </select>
       </label>

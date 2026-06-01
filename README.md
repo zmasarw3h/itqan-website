@@ -4,7 +4,7 @@ Emergency lightweight check-in system for one masjid while Canvas is unavailable
 
 ## What This App Does
 
-- Students sign in, submit one weighted daily Quran checklist, confirm partner recitation rounds, view weekly grades, see today's submitted checklist and score, and view their own history.
+- Students sign in, autosave one weighted daily Quran checklist throughout the day, confirm partner recitation rounds, view weekly grades, see today's saved checklist and score, and view their own history.
 - Students upload one weekly plan image/PDF for the current Saturday-Friday halaqa week.
 - Admins sign in, add students, view all active students, review weekly/date submission scores, filter by student/date/status, correct check-ins, enter Saturday halaqa grades, and export CSV.
 - Admins can view/download a student's uploaded weekly plan from that student's admin screen.
@@ -193,6 +193,12 @@ npm run backup:db
 
 Database restore is manual through Supabase backups. Weekly plan uploaded files are temporary operational files and are not backed up.
 
+## Daily Check-In
+
+Students use `Today's Check-In` to save weighted Quran checklist tasks throughout the day. There is no final submit button: each checkbox toggle saves immediately, updates the live daily score, and remains checked after refresh or returning from another device. Opening the page alone does not create a daily record; the row is created on the first checkbox save or note save.
+
+Admins, history, grades, and leaderboard views continue to use the latest saved `checkins.daily_score` after refresh.
+
 ## Weekly Plans
 
 Students use the `Weekly Plan` navigation link to upload one plan file for the current halaqa week. Plan weeks run Saturday-Friday, and `week_start` is stored as the Saturday date.
@@ -284,7 +290,7 @@ SUPABASE_SERVICE_ROLE_KEY=
 
 `SUPABASE_SERVICE_ROLE_KEY` must stay server-only. Database page and action behavior uses the signed-in user's Supabase session and RLS. Private weekly-plan file upload, replacement cleanup, and signed URL creation use the service-role key only on the server.
 
-Apply all files in `supabase/migrations` to the production Supabase project before using the deployed app. The weighted checklist migration keeps `public.checkins`, adds aggregate score columns, and stores each submitted task snapshot in `public.checkin_items` so historical labels and weights remain stable.
+Apply all files in `supabase/migrations` to the production Supabase project before using the deployed app. The weighted checklist migration keeps `public.checkins`, adds aggregate score columns, and stores each saved task snapshot in `public.checkin_items` so historical labels and weights remain stable.
 
 ## CI
 

@@ -65,7 +65,7 @@ function dayStatus(date: string, today: string, checkin: CheckIn | undefined): D
 }
 
 function dayStatusLabel(status: DayStatus) {
-  if (status === "submitted") return "Submitted";
+  if (status === "submitted") return "Saved";
   if (status === "missing") return "Missing";
   if (status === "open") return "Open today";
   return "Upcoming";
@@ -316,7 +316,7 @@ export default async function AdminStudentPage({
               <span className="font-semibold text-ink">
                 {dailyProgress.submitted_days} / {dailyProgress.due_days}
               </span>{" "}
-              due submitted
+              due saved
             </p>
             {missingDates.length ? (
               <p className="mt-1">
@@ -332,7 +332,7 @@ export default async function AdminStudentPage({
           <div>
             <h2 className="text-lg font-semibold text-ink">Selected Week Activity</h2>
             <p className="mt-1 text-sm text-stone-600">
-              Submitted, missing, and upcoming check-ins for {formatWeekRange(selectedWeekStart)}.
+              Saved, missing, and upcoming check-ins for {formatWeekRange(selectedWeekStart)}.
             </p>
           </div>
           <div className="mt-3 space-y-3">
@@ -363,7 +363,9 @@ export default async function AdminStudentPage({
                       <>
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
-                            <p className="font-medium text-ink">Submitted {formatDateTimeInAppTimeZone(checkin.submitted_at)}</p>
+                            <p className="font-medium text-ink">
+                              Saved {formatDateTimeInAppTimeZone(checkin.updated_at ?? checkin.submitted_at)}
+                            </p>
                             {checkin.note ? <p className="mt-1">Note: {checkin.note}</p> : null}
                           </div>
                           <p className="font-medium text-ink">
@@ -406,8 +408,8 @@ export default async function AdminStudentPage({
                         {statusForDay === "upcoming"
                           ? "This day is not due yet."
                           : statusForDay === "open"
-                            ? "No check-in submitted yet today."
-                            : "No check-in submitted for this day."}
+                            ? "No checklist saved yet today."
+                            : "No checklist saved for this day."}
                       </p>
                     )}
                   </div>

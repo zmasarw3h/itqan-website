@@ -117,7 +117,7 @@ export default async function StudentHistoryPage({
                   <h2 className="text-lg font-semibold text-ink">{friendlyDate(day.date)}</h2>
                   {day.checkin ? (
                     <p className="mt-1 text-sm text-stone-600">
-                      Submitted {formatDateTimeInAppTimeZone(day.checkin.submitted_at)}
+                      Saved {formatDateTimeInAppTimeZone(day.checkin.updated_at ?? day.checkin.submitted_at)}
                     </p>
                   ) : (
                     <p className="mt-1 text-sm text-stone-600">{day.missingMessage}</p>
