@@ -52,7 +52,7 @@ describe("student history", () => {
     });
   });
 
-  it("shows a missing day message when no check-in exists", () => {
+  it("shows a missing day message when no checklist is saved", () => {
     const [row] = buildHistoryDayRows({
       weekDates: ["2026-05-11"],
       checkins: [],
@@ -66,7 +66,7 @@ describe("student history", () => {
       completedItems: [],
       missedItems: [],
       isFuture: false,
-      missingMessage: "No check-in submitted."
+      missingMessage: "No checklist saved."
     });
   });
 

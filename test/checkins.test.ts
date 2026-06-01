@@ -2,10 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   adminCorrectionPayload,
   assertNoDuplicateCheckIn,
-  buildCompletionRows
+  blankCheckInItemPayloads,
+  buildCompletionRows,
+  calculateTotalsFromCompletedKeys,
+  checkInItemPayloads,
+  completedTaskKeysAfterToggle,
+  taskForDateOrThrow
 } from "@/lib/checkins";
 import { assertNoDuplicatePartnerRecitation } from "@/lib/partner-recitations";
-import type { CheckIn, Profile } from "@/lib/types";
+import type { CheckIn, CheckInItem, Profile } from "@/lib/types";
 
 const students: Profile[] = [
   {
@@ -41,6 +46,21 @@ const checkins: CheckIn[] = [
     updated_by_admin: null
   }
 ];
+
+function checkinItem(overrides: Partial<CheckInItem>): CheckInItem {
+  return {
+    id: "item-1",
+    checkin_id: "checkin-1",
+    student_id: "student-1",
+    date: "2026-05-10",
+    task_key: "revise_old",
+    task_label: "Revise old",
+    weight: 40,
+    completed: false,
+    created_at: "2026-05-10T12:00:00.000Z",
+    ...overrides
+  };
+}
 
 describe("check-in rules", () => {
   it("blocks duplicate check-ins for the same student and date", () => {
@@ -112,5 +132,63 @@ describe("check-in rules", () => {
       updated_at: "2026-05-08T15:30:00.000Z",
       updated_by_admin: "admin-1"
     });
+  });
+
+  it("builds one blank item payload per task for first autosave initialization", () => {
+    const payloads = blankCheckInItemPayloads({
+      checkinId: "checkin-1",
+      studentId: "student-1",
+      date: "2026-05-10"
+    });
+
+    expect(payloads).toHaveLength(6);
+    expect(new Set(payloads.map((payload) => payload.task_key)).size).toBe(payloads.length);
+    expect(payloads.every((payload) => payload.completed === false)).toBe(true);
+    expect(payloads.every((payload) => payload.checkin_id === "checkin-1")).toBe(true);
+    expect(payloads.every((payload) => payload.student_id === "student-1")).toBe(true);
+  });
+
+  it("keeps one item payload per task when building a saved checklist snapshot", () => {
+    const payloads = checkInItemPayloads({
+      checkinId: "checkin-1",
+      studentId: "student-1",
+      date: "2026-05-10",
+      completedTaskKeys: ["revise_old", "tafsir", "revise_old"]
+    });
+
+    expect(payloads).toHaveLength(6);
+    expect(new Set(payloads.map((payload) => payload.task_key)).size).toBe(payloads.length);
+    expect(payloads.find((payload) => payload.task_key === "revise_old")?.completed).toBe(true);
+    expect(payloads.find((payload) => payload.task_key === "tafsir")?.completed).toBe(true);
+  });
+
+  it("checking and unchecking one task changes the saved daily score", () => {
+    const checkedTotals = calculateTotalsFromCompletedKeys("2026-05-10", ["revise_old"]);
+    const uncheckedTotals = calculateTotalsFromCompletedKeys("2026-05-10", []);
+
+    expect(checkedTotals).toMatchObject({
+      completedTaskKeys: ["revise_old"],
+      earnedWeight: 40,
+      totalWeight: 100,
+      dailyScore: 40
+    });
+    expect(uncheckedTotals.dailyScore).toBeLessThan(checkedTotals.dailyScore);
+  });
+
+  it("merges a targeted checkbox toggle without changing unrelated saved items", () => {
+    const items = [
+      checkinItem({ task_key: "revise_old", completed: true }),
+      checkinItem({ id: "item-2", task_key: "tafsir", completed: false })
+    ];
+
+    expect(completedTaskKeysAfterToggle({ items, taskKey: "tafsir", completed: true }).sort()).toEqual([
+      "revise_old",
+      "tafsir"
+    ]);
+    expect(completedTaskKeysAfterToggle({ items, taskKey: "revise_old", completed: false })).toEqual([]);
+  });
+
+  it("rejects task keys that are not part of the selected day", () => {
+    expect(() => taskForDateOrThrow("2026-05-10", "not-a-real-task")).toThrow("Invalid checklist task");
   });
 });

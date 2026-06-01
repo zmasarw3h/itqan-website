@@ -51,7 +51,7 @@ export function buildHistoryDayRows(input: {
       completedItems: checkinItems.filter((item) => item.completed),
       missedItems: checkinItems.filter((item) => !item.completed),
       isFuture,
-      missingMessage: checkin ? null : isFuture ? "Not due yet." : "No check-in submitted."
+      missingMessage: checkin ? null : isFuture ? "Not due yet." : "No checklist saved."
     };
   });
 }

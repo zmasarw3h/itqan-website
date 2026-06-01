@@ -2,73 +2,292 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { assertNoDuplicateCheckIn, checkInItemPayloads, normalizeNote } from "@/lib/checkins";
+import {
+  blankCheckInItemPayloads,
+  calculateTotalsFromCompletedKeys,
+  completedTaskKeysAfterToggle,
+  normalizeNote,
+  taskForDateOrThrow
+} from "@/lib/checkins";
 import { todayDateString, weekStartForDate } from "@/lib/dates";
 import { assertNoDuplicatePartnerRecitation } from "@/lib/partner-recitations";
-import { calculateDailySubmission, partnerRoundForDate, PARTNER_RECITATION_POINTS_PER_ROUND } from "@/lib/scoring";
+import { partnerRoundForDate, PARTNER_RECITATION_POINTS_PER_ROUND, tasksForDate } from "@/lib/scoring";
 import { requireProfile } from "@/lib/supabase-server";
-import type { CheckIn, PartnerRecitation } from "@/lib/types";
+import type { CheckIn, CheckInItem, PartnerRecitation } from "@/lib/types";
 
-export async function submitTodayCheckIn(formData: FormData) {
+type SaveTodayChecklistResult =
+  | {
+      ok: true;
+      completedTaskKeys: string[];
+      earnedWeight: number;
+      totalWeight: number;
+      dailyScore: number;
+      savedAt: string;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
+
+type SaveTodayNoteResult =
+  | {
+      ok: true;
+      note: string | null;
+      completedTaskKeys: string[];
+      earnedWeight: number;
+      totalWeight: number;
+      dailyScore: number;
+      savedAt: string;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
+
+function checkInSelect() {
+  return "id,student_id,date,completed,note,earned_weight,total_weight,daily_score,submitted_at,updated_at,updated_by_admin";
+}
+
+async function findOrCreateTodayCheckIn() {
   const { supabase, profile } = await requireProfile(["student"]);
   const today = todayDateString();
-  const note = normalizeNote(formData.get("note"));
-  const completedTaskKeys = formData.getAll("task_keys").filter((value): value is string => typeof value === "string");
-  const submission = calculateDailySubmission(today, completedTaskKeys);
+  const totalWeight = tasksForDate(today).reduce((sum, task) => sum + task.weight, 0);
 
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from("checkins")
-    .select("student_id,date")
+    .select(checkInSelect())
     .eq("student_id", profile.id)
     .eq("date", today)
-    .maybeSingle<Pick<CheckIn, "student_id" | "date">>();
+    .maybeSingle<CheckIn>();
 
-  try {
-    assertNoDuplicateCheckIn(existing ?? null);
-  } catch {
-    redirect("/student/check-in?status=duplicate");
+  if (existingError) {
+    throw new Error("Unable to load today's checklist.");
   }
 
-  const { data: checkin, error } = await supabase
+  if (existing) {
+    return { supabase, profile, today, checkin: existing };
+  }
+
+  const savedAt = new Date().toISOString();
+  const { data: created, error: createError } = await supabase
     .from("checkins")
     .insert({
       student_id: profile.id,
       date: today,
       completed: true,
-      note,
-      earned_weight: submission.earnedWeight,
-      total_weight: submission.totalWeight,
-      daily_score: submission.dailyScore
+      note: null,
+      earned_weight: 0,
+      total_weight: totalWeight,
+      daily_score: 0,
+      updated_at: savedAt
     })
-    .select("id,student_id,date,completed,note,earned_weight,total_weight,daily_score,submitted_at,updated_at,updated_by_admin")
+    .select(checkInSelect())
     .single<CheckIn>();
 
-  if (error?.code === "23505") {
-    redirect("/student/check-in?status=duplicate");
+  if (createError?.code === "23505") {
+    const { data: racedExisting, error: racedExistingError } = await supabase
+      .from("checkins")
+      .select(checkInSelect())
+      .eq("student_id", profile.id)
+      .eq("date", today)
+      .single<CheckIn>();
+
+    if (racedExistingError || !racedExisting) {
+      throw new Error("Unable to load today's checklist.");
+    }
+
+    return { supabase, profile, today, checkin: racedExisting };
   }
 
-  if (error) {
-    redirect("/student/check-in?status=error");
+  if (createError || !created) {
+    throw new Error("Unable to create today's checklist.");
   }
 
-  const { error: itemsError } = await supabase
+  return { supabase, profile, today, checkin: created };
+}
+
+async function ensureTodayCheckInItems(input: {
+  supabase: Awaited<ReturnType<typeof requireProfile>>["supabase"];
+  checkin: CheckIn;
+  studentId: string;
+  date: string;
+}) {
+  const { data: existingItems, error: existingItemsError } = await input.supabase
     .from("checkin_items")
-    .insert(
-      checkInItemPayloads({
-        checkinId: checkin.id,
-        studentId: profile.id,
-        date: today,
-        completedTaskKeys
-      })
-    );
+    .select("id,checkin_id,student_id,date,task_key,task_label,weight,completed,created_at")
+    .eq("checkin_id", input.checkin.id)
+    .returns<CheckInItem[]>();
+
+  if (existingItemsError) {
+    throw new Error("Unable to load checklist items.");
+  }
+
+  const existingTaskKeys = new Set((existingItems ?? []).map((item) => item.task_key));
+  const missingPayloads = blankCheckInItemPayloads({
+    checkinId: input.checkin.id,
+    studentId: input.studentId,
+    date: input.date
+  }).filter((payload) => !existingTaskKeys.has(payload.task_key));
+
+  if (missingPayloads.length) {
+    const { error: upsertError } = await input.supabase
+      .from("checkin_items")
+      .upsert(missingPayloads, { onConflict: "checkin_id,task_key", ignoreDuplicates: true });
+
+    if (upsertError) {
+      throw new Error("Unable to initialize checklist items.");
+    }
+  }
+
+  if (!missingPayloads.length) {
+    return existingItems ?? [];
+  }
+
+  const { data: items, error: itemsError } = await input.supabase
+    .from("checkin_items")
+    .select("id,checkin_id,student_id,date,task_key,task_label,weight,completed,created_at")
+    .eq("checkin_id", input.checkin.id)
+    .returns<CheckInItem[]>();
 
   if (itemsError) {
-    redirect("/student/check-in?status=error");
+    throw new Error("Unable to load checklist items.");
   }
 
-  revalidatePath("/student/check-in");
-  revalidatePath("/student/history");
-  redirect("/student/check-in?status=submitted");
+  return items ?? [];
+}
+
+export async function saveTodayChecklistItem(input: {
+  taskKey: string;
+  completed: boolean;
+}): Promise<SaveTodayChecklistResult> {
+  try {
+    if (!input || typeof input.taskKey !== "string" || typeof input.completed !== "boolean") {
+      return { ok: false, error: "Invalid checklist update." };
+    }
+
+    const { supabase, profile, today, checkin } = await findOrCreateTodayCheckIn();
+    taskForDateOrThrow(today, input.taskKey);
+    await ensureTodayCheckInItems({
+      supabase,
+      checkin,
+      studentId: profile.id,
+      date: today
+    });
+
+    const { error: itemUpdateError } = await supabase
+      .from("checkin_items")
+      .update({
+        completed: input.completed
+      })
+      .eq("checkin_id", checkin.id)
+      .eq("task_key", input.taskKey);
+
+    if (itemUpdateError) {
+      throw new Error("Unable to save checklist item.");
+    }
+
+    const { data: currentItems, error: currentItemsError } = await supabase
+      .from("checkin_items")
+      .select("id,checkin_id,student_id,date,task_key,task_label,weight,completed,created_at")
+      .eq("checkin_id", checkin.id)
+      .returns<CheckInItem[]>();
+
+    if (currentItemsError) {
+      throw new Error("Unable to load saved checklist items.");
+    }
+
+    const completedTaskKeys = completedTaskKeysAfterToggle({
+      items: currentItems ?? [],
+      taskKey: input.taskKey,
+      completed: input.completed
+    });
+    const totals = calculateTotalsFromCompletedKeys(today, completedTaskKeys);
+    const savedAt = new Date().toISOString();
+    const { error: checkinUpdateError } = await supabase
+      .from("checkins")
+      .update({
+        earned_weight: totals.earnedWeight,
+        total_weight: totals.totalWeight,
+        daily_score: totals.dailyScore,
+        updated_at: savedAt
+      })
+      .eq("id", checkin.id)
+      .eq("student_id", profile.id);
+
+    if (checkinUpdateError) {
+      throw new Error("Unable to save checklist score.");
+    }
+
+    revalidatePath("/student/check-in");
+    revalidatePath("/student/history");
+
+    return {
+      ok: true,
+      completedTaskKeys: totals.completedTaskKeys,
+      earnedWeight: totals.earnedWeight,
+      totalWeight: totals.totalWeight,
+      dailyScore: totals.dailyScore,
+      savedAt
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Unable to save checklist item."
+    };
+  }
+}
+
+export async function saveTodayCheckInNote(input: { note: string }): Promise<SaveTodayNoteResult> {
+  try {
+    if (!input || typeof input.note !== "string") {
+      return { ok: false, error: "Invalid note." };
+    }
+
+    const { supabase, profile, today, checkin } = await findOrCreateTodayCheckIn();
+    const items = await ensureTodayCheckInItems({
+      supabase,
+      checkin,
+      studentId: profile.id,
+      date: today
+    });
+    const completedTaskKeys = items.filter((item) => item.completed).map((item) => item.task_key);
+    const totals = calculateTotalsFromCompletedKeys(today, completedTaskKeys);
+    const note = normalizeNote(input.note);
+    const savedAt = new Date().toISOString();
+    const { error } = await supabase
+      .from("checkins")
+      .update({
+        note,
+        earned_weight: totals.earnedWeight,
+        total_weight: totals.totalWeight,
+        daily_score: totals.dailyScore,
+        updated_at: savedAt
+      })
+      .eq("id", checkin.id)
+      .eq("student_id", profile.id);
+
+    if (error) {
+      throw new Error("Unable to save note.");
+    }
+
+    revalidatePath("/student/check-in");
+    revalidatePath("/student/history");
+
+    return {
+      ok: true,
+      note,
+      completedTaskKeys: totals.completedTaskKeys,
+      earnedWeight: totals.earnedWeight,
+      totalWeight: totals.totalWeight,
+      dailyScore: totals.dailyScore,
+      savedAt
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Unable to save note."
+    };
+  }
 }
 
 export async function submitPartnerRecitation() {
