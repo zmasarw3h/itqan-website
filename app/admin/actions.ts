@@ -8,6 +8,7 @@ import { calculateDailySubmission, HALAQA_ATTENDANCE_POINTS } from "@/lib/scorin
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn } from "@/lib/types";
+import { WEEKLY_PLAN_BUCKET } from "@/lib/weekly-plans";
 
 function adminStudentStatusPath(studentId: string, status: string, weekStart?: string) {
   const params = new URLSearchParams({ status });
@@ -203,4 +204,54 @@ export async function saveHalaqaGrade(formData: FormData) {
   revalidatePath("/admin");
   revalidatePath(`/admin/students/${studentId}`);
   redirect(adminStudentStatusPath(studentId, "grade-saved", redirectWeek || weekStart));
+}
+
+export async function deleteStudent(formData: FormData) {
+  const { supabase } = await requireProfile(["admin"]);
+  const studentId = String(formData.get("student_id") ?? "");
+  const confirmationName = String(formData.get("confirmation_name") ?? "").trim();
+
+  if (!studentId || !confirmationName) {
+    redirect("/admin?status=invalid-delete");
+  }
+
+  const { data: student } = await supabase
+    .from("profiles")
+    .select("id,name,role")
+    .eq("id", studentId)
+    .eq("role", "student")
+    .maybeSingle<{ id: string; name: string; role: "student" }>();
+
+  if (!student) {
+    redirect("/admin?status=student-delete-missing");
+  }
+
+  if (confirmationName !== student.name) {
+    redirect(`/admin/students/${student.id}?status=delete-name-mismatch`);
+  }
+
+  const adminSupabase = createSupabaseAdminClient();
+  const { data: weeklyPlans } = await adminSupabase
+    .from("weekly_plans")
+    .select("file_path")
+    .eq("student_id", student.id)
+    .returns<Array<{ file_path: string }>>();
+  const weeklyPlanPaths = [...new Set((weeklyPlans ?? []).map((plan) => plan.file_path).filter(Boolean))];
+
+  if (weeklyPlanPaths.length) {
+    const { error: storageError } = await adminSupabase.storage.from(WEEKLY_PLAN_BUCKET).remove(weeklyPlanPaths);
+
+    if (storageError) {
+      redirect(`/admin/students/${student.id}?status=student-delete-error`);
+    }
+  }
+
+  const { error } = await adminSupabase.auth.admin.deleteUser(student.id);
+
+  if (error) {
+    redirect(`/admin/students/${student.id}?status=student-delete-error`);
+  }
+
+  revalidatePath("/admin");
+  redirect("/admin?status=student-deleted");
 }
