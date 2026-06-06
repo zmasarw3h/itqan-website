@@ -2,15 +2,16 @@
 
 This guide covers routine manual operations for ITQAN Lite.
 
-## Add One Student
+## Add One User
 
 Manual in the app:
 
 1. Sign in as an admin.
-2. Open `Admin Dashboard -> Add Student`.
-3. Enter the student's name and phone number.
-4. Share the temporary password shown by the app flow: `itqan2026`.
-5. Ask the student to change their password after first sign-in.
+2. Open `Admin Dashboard -> Add User`.
+3. Enter the user's name and phone number.
+4. Choose Student or Admin.
+5. Share the temporary password shown by the app flow: `itqan2026`.
+6. Ask the user to change their password after first sign-in.
 
 The app creates the Supabase Auth user and matching active `public.profiles` row.
 
