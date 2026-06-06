@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { buildAdminStudentCreateInput } from "@/lib/admin-students";
+import { buildAdminUserCreateInput } from "@/lib/admin-users";
 import { adminCorrectionPayload, checkInItemPayloads, normalizeNote } from "@/lib/checkins";
 import { calculateDailySubmission, HALAQA_ATTENDANCE_POINTS } from "@/lib/scoring";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -19,15 +19,16 @@ function adminStudentStatusPath(studentId: string, status: string, weekStart?: s
   return `/admin/students/${studentId}?${params.toString()}`;
 }
 
-export async function createStudent(formData: FormData) {
+export async function createUser(formData: FormData) {
   const { supabase } = await requireProfile(["admin"]);
 
-  let input: ReturnType<typeof buildAdminStudentCreateInput>;
+  let input: ReturnType<typeof buildAdminUserCreateInput>;
 
   try {
-    input = buildAdminStudentCreateInput({
+    input = buildAdminUserCreateInput({
       name: formData.get("name"),
-      phone: formData.get("phone")
+      phone: formData.get("phone"),
+      role: formData.get("role")
     });
   } catch {
     redirect("/admin/students/new?status=invalid");
@@ -72,7 +73,13 @@ export async function createStudent(formData: FormData) {
   }
 
   revalidatePath("/admin");
-  redirect(`/admin/students/new?status=created&student=${authData.user.id}`);
+  const params = new URLSearchParams({ status: "created", role: input.role });
+
+  if (input.role === "student") {
+    params.set("student", authData.user.id);
+  }
+
+  redirect(`/admin/students/new?${params.toString()}`);
 }
 
 export async function correctCheckIn(formData: FormData) {

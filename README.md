@@ -125,7 +125,7 @@ SUPABASE_SERVICE_ROLE_KEY=
 
    Each profile `id` must equal the Auth user UUID. `profiles.email` stores the synthetic auth email. `profiles.phone` is optional display-only data shown to admins.
 
-   After an admin can log in, they can add students from `Admin Dashboard -> Add Student`. The app normalizes the phone number, creates a Supabase Auth user with the synthetic auth email and password `itqan2026`, confirms the email, and creates the matching active student profile. The service-role key is used only in server code.
+   After an admin can log in, they can add students and admins from `Admin Dashboard -> Add User`. The app normalizes the phone number, creates a Supabase Auth user with the synthetic auth email and password `itqan2026`, confirms the email, and creates the matching active profile. The service-role key is used only in server code.
 
    Example profile data is in `docs/SEED_DATA.md`:
 

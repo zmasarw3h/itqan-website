@@ -127,9 +127,9 @@ Admin can:
 
 ### `/admin/students/new`
 
-Allows admins to add a student.
+Allows admins to add a student or admin.
 
-The app normalizes the phone number, creates a Supabase Auth user with a synthetic auth email, sets the temporary password, confirms the email, and creates a matching active student profile.
+The app normalizes the phone number, creates a Supabase Auth user with a synthetic auth email, sets the temporary password, confirms the email, and creates a matching active profile.
 
 ### `/admin/students/[id]`
 

@@ -9,7 +9,7 @@ export default function AppNav({ role, name }: { role: Role; name: string }) {
           { href: "/admin", label: "Admin" },
           { href: "/admin/incentives", label: "Incentives" },
           { href: "/admin/rewards", label: "Rewards" },
-          { href: "/admin/students/new", label: "Add Student" },
+          { href: "/admin/students/new", label: "Add User" },
           { href: "/account/change-password", label: "Password" }
         ]
       : [
