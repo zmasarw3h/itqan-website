@@ -84,7 +84,7 @@ Do not add unrelated features such as:
 - Plan approval workflow
 - Plan comments
 - Plan parsing/OCR
-- Sadaqa calculation
+- Standalone sadaqa calculation outside accountability obligations
 - Announcements
 - Multi-masjid support
 - Payments

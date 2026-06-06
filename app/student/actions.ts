@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { canStudentAttestAccountabilityPaid } from "@/lib/accountability";
 import {
   blankCheckInItemPayloads,
   calculateTotalsFromCompletedKeys,
@@ -12,8 +13,49 @@ import {
 import { todayDateString, weekStartForDate } from "@/lib/dates";
 import { assertNoDuplicatePartnerRecitation } from "@/lib/partner-recitations";
 import { partnerRoundForDate, PARTNER_RECITATION_POINTS_PER_ROUND, tasksForDate } from "@/lib/scoring";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
-import type { CheckIn, CheckInItem, PartnerRecitation } from "@/lib/types";
+import { findOrCreateBlockingAccountabilityObligation } from "@/lib/weekly-incentives";
+import type { AccountabilityObligation, CheckIn, CheckInItem, PartnerRecitation } from "@/lib/types";
+
+export async function attestAccountabilityPaid(obligationId: string) {
+  const { supabase, profile } = await requireProfile(["student"]);
+
+  if (!obligationId) {
+    redirect("/student/check-in?status=accountability-error");
+  }
+
+  const { data: obligation } = await supabase
+    .from("accountability_obligations")
+    .select("id,student_id,week_start,weekly_percentage,amount_cents,status")
+    .eq("id", obligationId)
+    .eq("student_id", profile.id)
+    .eq("status", "pending")
+    .maybeSingle<Pick<AccountabilityObligation, "id" | "student_id" | "week_start" | "weekly_percentage" | "amount_cents" | "status">>();
+
+  if (!canStudentAttestAccountabilityPaid(profile, obligation ?? null)) {
+    redirect("/student/check-in?status=accountability-error");
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("accountability_obligations")
+    .update({
+      status: "attested_paid",
+      attested_paid_at: now,
+      updated_at: now
+    })
+    .eq("id", obligationId)
+    .eq("student_id", profile.id)
+    .eq("status", "pending");
+
+  if (error) {
+    redirect("/student/check-in?status=accountability-error");
+  }
+
+  revalidatePath("/student/check-in");
+  redirect("/student/check-in?status=accountability-attested");
+}
 
 type SaveTodayChecklistResult =
   | {
@@ -51,6 +93,17 @@ function checkInSelect() {
 async function findOrCreateTodayCheckIn() {
   const { supabase, profile } = await requireProfile(["student"]);
   const today = todayDateString();
+  const adminSupabase = createSupabaseAdminClient();
+  const blockingObligation = await findOrCreateBlockingAccountabilityObligation({
+    supabase: adminSupabase,
+    studentId: profile.id,
+    today
+  });
+
+  if (blockingObligation) {
+    throw new Error("Confirm the required sadaqa before opening today's checklist.");
+  }
+
   const totalWeight = tasksForDate(today).reduce((sum, task) => sum + task.weight, 0);
 
   const { data: existing, error: existingError } = await supabase

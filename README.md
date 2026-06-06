@@ -8,7 +8,7 @@ Emergency lightweight check-in system for one masjid while Canvas is unavailable
 - Students upload one weekly plan image/PDF for the current Saturday-Friday halaqa week.
 - Admins sign in, add students, view all active students, review weekly/date submission scores, filter by student/date/status, correct check-ins, enter Saturday halaqa grades, and export CSV.
 - Admins can view/download a student's uploaded weekly plan from that student's admin screen.
-- The app intentionally excludes teacher roles, plan approval, comments, plan parsing/OCR, sadaqa, announcements, payments, booking, parent accounts, multi-masjid support, and Quran selection.
+- The app intentionally excludes teacher roles, plan approval, comments, plan parsing/OCR, announcements, payments, booking, parent accounts, multi-masjid support, and Quran selection.
 
 ## Stack
 
@@ -225,6 +225,8 @@ Weekly scoring totals 1000 points:
 Students use `Partner Recitation` to confirm the currently open round. The server determines the round from the same 1:00 AM effective date used by daily check-ins, and the database prevents duplicate submissions for the same student, week, and round. Students use `Grades` to view their read-only weekly total and breakdown.
 
 Admins enter halaqa grades from `/admin/students/[id]`. If a student did not attend, both attendance and recitation points are stored as 0. If they attended, recitation mark must be 2-10. Students use `Grades` to view attendance, recitation mark, stored recitation points, total halaqa points, and feedback entered in the grade notes field.
+
+Completed weeks below 70% create self-attested required sadaqa obligations when the student check-in gate evaluates prior scores; the app does not process payments, collect card details, or integrate with payment providers. Completed weeks above 90% count toward badge awards automatically. Students can view accumulated badges from `Rewards`, and admins can view weekly incentive reports plus a monthly badge leaderboard.
 
 ## Import Users From CSV
 
