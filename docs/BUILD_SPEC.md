@@ -378,7 +378,7 @@ Do not add unrelated features such as:
 - Plan approval workflow
 - Plan comments
 - Plan parsing/OCR
-- Sadaqa
+- Standalone sadaqa features outside accountability obligations
 - Announcements
 - Payments
 - Booking/scheduling

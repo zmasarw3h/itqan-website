@@ -71,6 +71,40 @@ export type HalaqaGrade = {
   updated_at: string | null;
 };
 
+export type WeeklyIncentiveRun = {
+  id: string;
+  week_start: string;
+  processed_at: string;
+  processed_by: string | null;
+  created_at: string;
+};
+
+export type AccountabilityObligationStatus = "pending" | "attested_paid" | "waived";
+
+export type AccountabilityObligation = {
+  id: string;
+  student_id: string;
+  week_start: string;
+  weekly_percentage: number;
+  amount_cents: number;
+  status: AccountabilityObligationStatus;
+  attested_paid_at: string | null;
+  waived_at: string | null;
+  waived_by: string | null;
+  admin_note: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type BadgeAward = {
+  id: string;
+  student_id: string;
+  week_start: string;
+  weekly_percentage: number;
+  badges_awarded: number;
+  created_at: string;
+};
+
 export type CompletionStatus = "submitted" | "missing" | "upcoming";
 
 export type CompletionRow = {
