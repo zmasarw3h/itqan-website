@@ -4,7 +4,7 @@ Emergency lightweight check-in system for one masjid while Canvas is unavailable
 
 ## What This App Does
 
-- Students sign in, autosave one weighted daily Quran checklist throughout the day, confirm partner recitation rounds, view weekly grades, see today's saved checklist and score, and view their own history.
+- Students sign in, autosave one weighted daily Quran checklist throughout the day, confirm partner recitation rounds, view weekly grades, see a student-facing leaderboard, see today's saved checklist and score, and view their own history.
 - Students upload one weekly plan image/PDF for the current Saturday-Friday halaqa week.
 - Admins sign in, add students, view all active students, review weekly/date submission scores, filter by student/date/status, correct check-ins, enter Saturday halaqa grades, and export CSV.
 - Admins can view/download a student's uploaded weekly plan from that student's admin screen.
@@ -125,7 +125,7 @@ SUPABASE_SERVICE_ROLE_KEY=
 
    Each profile `id` must equal the Auth user UUID. `profiles.email` stores the synthetic auth email. `profiles.phone` is optional display-only data shown to admins.
 
-   After an admin can log in, they can add students from `Admin Dashboard -> Add Student`. The app normalizes the phone number, creates a Supabase Auth user with the synthetic auth email and password `itqan2026`, confirms the email, and creates the matching active student profile. The service-role key is used only in server code.
+   After an admin can log in, they can add students and admins from `Admin Dashboard -> Add User`. The app normalizes the phone number, creates a Supabase Auth user with the synthetic auth email and password `itqan2026`, confirms the email, and creates the matching active profile. The service-role key is used only in server code.
 
    Example profile data is in `docs/SEED_DATA.md`:
 
@@ -222,7 +222,7 @@ Weekly scoring totals 1000 points:
 - Partner recitation: Round 1 is Sunday-Wednesday for 75 points; Round 2 is Thursday-Saturday for 75 points.
 - Saturday halaqa grade: 100 attendance points plus an admin-entered recitation mark out of 10. The app stores that mark as 10-50 recitation points by multiplying by 5, for 150 max.
 
-Students use `Partner Recitation` to confirm the currently open round. The server determines the round from the same 1:00 AM effective date used by daily check-ins, and the database prevents duplicate submissions for the same student, week, and round. Students use `Grades` to view their read-only weekly total and breakdown.
+Students use `Partner Recitation` to confirm the currently open round. The server determines the round from the same 1:00 AM effective date used by daily check-ins, and the database prevents duplicate submissions for the same student, week, and round. Students use `Grades` to view their read-only weekly total and breakdown. Students use `Leaderboard` to view sanitized weekly rankings for active students, including their own rank, weekly score, rank change from the previous tracker week, and points behind the next rank.
 
 Admins enter halaqa grades from `/admin/students/[id]`. If a student did not attend, both attendance and recitation points are stored as 0. If they attended, recitation mark must be 2-10. Students use `Grades` to view attendance, recitation mark, stored recitation points, total halaqa points, and feedback entered in the grade notes field.
 
@@ -290,7 +290,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY` must stay server-only. Database page and action behavior uses the signed-in user's Supabase session and RLS. Private weekly-plan file upload, replacement cleanup, and signed URL creation use the service-role key only on the server.
+`SUPABASE_SERVICE_ROLE_KEY` must stay server-only. Database page and action behavior uses the signed-in user's Supabase session and RLS where students read or write their own records. Private weekly-plan file upload, replacement cleanup, signed URL creation, and the sanitized student leaderboard read model use the service-role key only on the server after role checks.
 
 Apply all files in `supabase/migrations` to the production Supabase project before using the deployed app. The weighted checklist migration keeps `public.checkins`, adds aggregate score columns, and stores each saved task snapshot in `public.checkin_items` so historical labels and weights remain stable.
 

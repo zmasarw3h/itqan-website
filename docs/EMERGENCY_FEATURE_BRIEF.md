@@ -4,7 +4,7 @@
 
 ITQAN Lite is a one-masjid masjid operations app for students and admins.
 
-It began as an emergency Canvas replacement, but the current app includes daily Quran checklist tracking, weekly scoring, partner recitation, weekly plan uploads, halaqa grading, admin leaderboard views, CSV exports, and operational tooling. This document reflects the current maintained product scope, not only the original emergency MVP.
+It began as an emergency Canvas replacement, but the current app includes daily Quran checklist tracking, weekly scoring, partner recitation, weekly plan uploads, student leaderboard views, halaqa grading, admin leaderboard views, CSV exports, and operational tooling. This document reflects the current maintained product scope, not only the original emergency MVP.
 
 ## Source of Truth
 
@@ -28,6 +28,7 @@ Students can:
 - See today's checklist state, score, and history.
 - Confirm partner recitation rounds.
 - View weekly grades and point breakdowns.
+- View sanitized weekly leaderboard rankings and rank movement.
 - Upload one weekly plan file for the current Saturday-Friday halaqa week.
 - Change their password.
 
@@ -67,6 +68,7 @@ These features are in scope and must not be removed unless explicitly requested:
 - Weekly plan upload/view
 - Partner recitation
 - Student grades
+- Student leaderboard
 - Halaqa grading
 - Leaderboard/admin scoring
 - Admin correction

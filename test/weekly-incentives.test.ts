@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   accountabilityAppliesToWeek,
+  accountabilityGateIsActiveForDate,
   buildWeeklyIncentiveReport,
   computedBadgeAwardFromRow,
   type WeeklyIncentiveScoreRow
@@ -26,6 +27,14 @@ describe("weekly incentive reports", () => {
   it("keeps accountability obligations scoped to the May 31-June 6, 2026 week and later", () => {
     expect(accountabilityAppliesToWeek("2026-05-24")).toBe(false);
     expect(accountabilityAppliesToWeek("2026-05-31")).toBe(true);
+  });
+
+  it("does not activate the student sadaqa gate on Saturday", () => {
+    expect(accountabilityGateIsActiveForDate("2026-06-06")).toBe(false);
+  });
+
+  it("activates the student sadaqa gate on Sunday after the previous week completes", () => {
+    expect(accountabilityGateIsActiveForDate("2026-06-07")).toBe(true);
   });
 
   it("computes badge awards from completed weekly scores", () => {
