@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { leaderboardRowsToCsv, type LeaderboardRow } from "@/lib/leaderboard";
+import { calculateBelow70Streak, leaderboardRowsToCsv, type LeaderboardRow } from "@/lib/leaderboard";
 
 function leaderboardRow(overrides: Partial<LeaderboardRow> = {}): LeaderboardRow {
   return {
@@ -23,6 +23,17 @@ function leaderboardRow(overrides: Partial<LeaderboardRow> = {}): LeaderboardRow
 }
 
 describe("leaderboard CSV export", () => {
+  it("does not count below-70 streak weeks before the May 31-June 6, 2026 cutoff", () => {
+    expect(
+      calculateBelow70Streak({
+        completedWeekStartsDescending: ["2026-05-31", "2026-05-24"],
+        checkinsByWeek: new Map(),
+        partnerRecitationsByWeek: new Map(),
+        halaqaGradeByWeek: new Map()
+      })
+    ).toBe(1);
+  });
+
   it("escapes spreadsheet formula prefixes in user-controlled fields", () => {
     const csv = leaderboardRowsToCsv([
       leaderboardRow({

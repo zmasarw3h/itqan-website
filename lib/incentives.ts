@@ -4,6 +4,7 @@ export const PASSING_PERCENTAGE = 70;
 export const REWARD_THRESHOLD_PERCENTAGE = 90;
 export const ACCOUNTABILITY_STEP_PERCENTAGE = 10;
 export const ACCOUNTABILITY_STEP_CENTS = 500;
+export const ACCOUNTABILITY_OBLIGATIONS_START_WEEK = "2026-05-31";
 
 function assertValidPercentage(weeklyPercentage: number) {
   if (!Number.isFinite(weeklyPercentage) || weeklyPercentage < 0 || weeklyPercentage > 100) {
@@ -28,6 +29,10 @@ export function calculateBadgeAwardCount(weeklyPercentage: number): number {
   assertValidPercentage(weeklyPercentage);
 
   return Math.max(0, Math.floor(weeklyPercentage) - REWARD_THRESHOLD_PERCENTAGE);
+}
+
+export function accountabilityAppliesToWeek(weekStart: string) {
+  return weekStart >= ACCOUNTABILITY_OBLIGATIONS_START_WEEK;
 }
 
 export function incentiveWeekIsEligible(weekStart: string, today: string): boolean {

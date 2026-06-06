@@ -1,4 +1,5 @@
 import { addDays, weekDatesFromStart } from "@/lib/dates";
+import { accountabilityAppliesToWeek } from "@/lib/incentives";
 import { calculateWeeklyScore, type WeeklyScore } from "@/lib/scoring";
 import type { CheckIn, HalaqaGrade, PartnerRecitation, Profile } from "@/lib/types";
 
@@ -60,6 +61,10 @@ export function calculateBelow70Streak(input: {
   let streak = 0;
 
   for (const weekStart of input.completedWeekStartsDescending) {
+    if (!accountabilityAppliesToWeek(weekStart)) {
+      break;
+    }
+
     const score = calculateWeekScoreForStudent({
       weekStart,
       checkins: input.checkinsByWeek.get(weekStart) ?? [],

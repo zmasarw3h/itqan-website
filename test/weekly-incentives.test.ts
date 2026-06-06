@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { accountabilityAppliesToWeek } from "@/lib/incentives";
 import {
-  accountabilityAppliesToWeek,
   accountabilityGateIsActiveForDate,
   buildWeeklyIncentiveReport,
   computedBadgeAwardFromRow,
@@ -75,17 +75,30 @@ describe("weekly incentive reports", () => {
 
   it("identifies students below 70 for two completed weeks straight", () => {
     const report = buildWeeklyIncentiveReport({
-      selectedWeekStart: "2026-05-31",
-      completedWeekStartsDescending: ["2026-05-31", "2026-05-24"],
+      selectedWeekStart: "2026-06-07",
+      completedWeekStartsDescending: ["2026-06-07", "2026-05-31"],
       rows: [
-        row({ studentId: "student-a", weekStart: "2026-05-31", weeklyPercentage: 59 }),
-        row({ studentId: "student-a", weekStart: "2026-05-24", weeklyPercentage: 69 }),
-        row({ studentId: "student-b", weekStart: "2026-05-31", weeklyPercentage: 59 }),
-        row({ studentId: "student-b", weekStart: "2026-05-24", weeklyPercentage: 70 })
+        row({ studentId: "student-a", weekStart: "2026-06-07", weeklyPercentage: 59 }),
+        row({ studentId: "student-a", weekStart: "2026-05-31", weeklyPercentage: 69 }),
+        row({ studentId: "student-b", weekStart: "2026-06-07", weeklyPercentage: 59 }),
+        row({ studentId: "student-b", weekStart: "2026-05-31", weeklyPercentage: 70 })
       ]
     });
 
     expect(report.below70TwoWeeksStraight.map((studentRow) => studentRow.studentId)).toEqual(["student-a"]);
+  });
+
+  it("does not count pre-cutoff weeks for two-week below-70 streak reports", () => {
+    const report = buildWeeklyIncentiveReport({
+      selectedWeekStart: "2026-05-31",
+      completedWeekStartsDescending: ["2026-05-31", "2026-05-24"],
+      rows: [
+        row({ studentId: "student-a", weekStart: "2026-05-31", weeklyPercentage: 59 }),
+        row({ studentId: "student-a", weekStart: "2026-05-24", weeklyPercentage: 59 })
+      ]
+    });
+
+    expect(report.below70TwoWeeksStraight).toEqual([]);
   });
 
   it("identifies students at 70% or above for three completed weeks straight", () => {
