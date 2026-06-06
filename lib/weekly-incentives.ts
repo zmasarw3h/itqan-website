@@ -6,7 +6,11 @@ import {
   weekDatesFromStart,
   weekStartForDate
 } from "@/lib/dates";
-import { calculateAccountabilityAmountCents, calculateBadgeAwardCount } from "@/lib/incentives";
+import {
+  accountabilityAppliesToWeek,
+  calculateAccountabilityAmountCents,
+  calculateBadgeAwardCount
+} from "@/lib/incentives";
 import { calculateWeekScoreForStudent, weekIsComplete } from "@/lib/leaderboard";
 import type { requireProfile } from "@/lib/supabase-server";
 import type { AccountabilityObligation, CheckIn, HalaqaGrade, PartnerRecitation, Profile } from "@/lib/types";
@@ -16,12 +20,6 @@ type ActiveStudent = Pick<Profile, "id" | "name" | "email" | "phone">;
 type WeeklyCheckIn = Pick<CheckIn, "student_id" | "date" | "daily_score">;
 type WeeklyPartnerRecitation = Pick<PartnerRecitation, "student_id" | "week_start" | "round" | "points">;
 type WeeklyHalaqaGrade = Pick<HalaqaGrade, "student_id" | "week_start" | "attendance_points" | "recitation_points">;
-
-export const ACCOUNTABILITY_OBLIGATIONS_START_WEEK = "2026-05-31";
-
-export function accountabilityAppliesToWeek(weekStart: string) {
-  return weekStart >= ACCOUNTABILITY_OBLIGATIONS_START_WEEK;
-}
 
 export type ComputedBadgeAward = {
   id: string;
@@ -172,7 +170,7 @@ export function buildWeeklyIncentiveReport(input: {
   const below70ThisWeek = selectedRows
     .filter((row) => row.weeklyPercentage < 70)
     .sort((a, b) => a.weeklyPercentage - b.weeklyPercentage || a.studentName.localeCompare(b.studentName));
-  const below70TwoWeeksStraight = previousWeekStart
+  const below70TwoWeeksStraight = previousWeekStart && accountabilityAppliesToWeek(previousWeekStart)
     ? below70ThisWeek.filter(
         (row) => (scoreByStudentWeek.get(studentWeekKey(row.studentId, previousWeekStart))?.weeklyPercentage ?? 100) < 70
       )
