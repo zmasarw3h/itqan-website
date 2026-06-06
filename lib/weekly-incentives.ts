@@ -17,6 +17,12 @@ type WeeklyCheckIn = Pick<CheckIn, "student_id" | "date" | "daily_score">;
 type WeeklyPartnerRecitation = Pick<PartnerRecitation, "student_id" | "week_start" | "round" | "points">;
 type WeeklyHalaqaGrade = Pick<HalaqaGrade, "student_id" | "week_start" | "attendance_points" | "recitation_points">;
 
+export const ACCOUNTABILITY_OBLIGATIONS_START_WEEK = "2026-05-31";
+
+export function accountabilityAppliesToWeek(weekStart: string) {
+  return weekStart >= ACCOUNTABILITY_OBLIGATIONS_START_WEEK;
+}
+
 export type ComputedBadgeAward = {
   id: string;
   student_id: string;
@@ -353,7 +359,9 @@ export async function findOrCreateBlockingAccountabilityObligation(input: {
     weekStarts: completedWeekStarts,
     studentId: input.studentId
   });
-  const scoreRows = [...rows].sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+  const scoreRows = [...rows]
+    .filter((row) => accountabilityAppliesToWeek(row.weekStart))
+    .sort((a, b) => a.weekStart.localeCompare(b.weekStart));
 
   if (!scoreRows.length) {
     return null;

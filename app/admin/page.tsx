@@ -17,7 +17,7 @@ function leaderboardExportHref(weekStart: string, below70Only: boolean) {
   return `/admin/export?${params.toString()}`;
 }
 
-export default async function AdminPage({ searchParams }: { searchParams: Promise<LeaderboardSearchParams> }) {
+export default async function AdminPage({ searchParams }: { searchParams: Promise<LeaderboardSearchParams & { status?: string }> }) {
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["admin"]);
   const data = await loadLeaderboardData(supabase, resolvedSearchParams);
@@ -26,6 +26,14 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     <>
       <AppNav role={profile.role} name={profile.name} />
       <main className="mx-auto max-w-6xl px-4 py-8">
+        {resolvedSearchParams.status === "student-deleted" ? (
+          <p className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">Student deleted.</p>
+        ) : null}
+        {resolvedSearchParams.status === "invalid-delete" || resolvedSearchParams.status === "student-delete-missing" ? (
+          <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+            Unable to delete student.
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold text-ink">Admin Dashboard</h1>

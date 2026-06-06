@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  accountabilityAppliesToWeek,
   buildWeeklyIncentiveReport,
   computedBadgeAwardFromRow,
   type WeeklyIncentiveScoreRow
@@ -22,6 +23,11 @@ function row(overrides: Partial<WeeklyIncentiveScoreRow> = {}): WeeklyIncentiveS
 }
 
 describe("weekly incentive reports", () => {
+  it("keeps accountability obligations scoped to the May 31-June 6, 2026 week and later", () => {
+    expect(accountabilityAppliesToWeek("2026-05-24")).toBe(false);
+    expect(accountabilityAppliesToWeek("2026-05-31")).toBe(true);
+  });
+
   it("computes badge awards from completed weekly scores", () => {
     expect(computedBadgeAwardFromRow(row({ weeklyPercentage: 95, badgesAwarded: 5 }))).toMatchObject({
       student_id: "student-a",
