@@ -98,6 +98,14 @@ function validCompletedWeekStart(value: string | undefined, completedWeekStarts:
   return completedWeekStarts.includes(value) ? value : completedWeekStarts[0] ?? null;
 }
 
+export function accountabilityGateIsActiveForDate(today: string) {
+  if (!isValidDateString(today)) {
+    throw new Error("Invalid date.");
+  }
+
+  return new Date(`${today}T00:00:00.000Z`).getUTCDay() !== 6;
+}
+
 export function buildWeeklyIncentiveRows(input: {
   students: ActiveStudent[];
   weekStarts: string[];
@@ -347,6 +355,11 @@ export async function findOrCreateBlockingAccountabilityObligation(input: {
   today?: string;
 }) {
   const today = input.today ?? todayDateString();
+
+  if (!accountabilityGateIsActiveForDate(today)) {
+    return null;
+  }
+
   const completedWeekStarts = await loadCompletedWeekStarts(input.supabase, today);
   const rows = await loadComputedWeeklyIncentiveRows({
     supabase: input.supabase,
