@@ -97,6 +97,21 @@ The weekly score is out of 1000 points:
 - Partner recitation: up to 150 points
 - Saturday halaqa grade: up to 150 points
 
+### `/student/leaderboard`
+
+Shows a student-facing weekly leaderboard for active students.
+
+The student leaderboard may show:
+
+- Rank
+- Student display name
+- Weekly percentage score
+- Total weekly points
+- Rank change compared with the immediately previous Sunday-Saturday tracker week
+- Whether the row belongs to the signed-in student
+
+The student leaderboard must not show admin-only operational data such as phone numbers, email addresses, below-70 streaks, CSV export controls, private notes, correction links, or another student's detailed breakdown.
+
 ### `/student/weekly-plan`
 
 Allows students to upload one weekly plan file for the current Saturday-Friday halaqa week.
@@ -269,13 +284,14 @@ Constraints:
 - Unauthenticated users cannot access protected pages.
 - Inactive users cannot use the app.
 - Students can only read/write their own records.
+- Students can read only sanitized cross-student leaderboard rows, after a server-side student role check.
 - Students cannot access admin pages or admin data.
 - Admins can read operational student/check-in/grade/weekly-plan data.
 - Admins can update check-ins and halaqa grades.
 - Role checks must happen server-side.
 - Supabase RLS policies must enforce the same boundaries.
 - `SUPABASE_SERVICE_ROLE_KEY` must stay server-only.
-- Private weekly-plan Storage operations may use the service-role key only from server actions after role checks.
+- Private weekly-plan Storage operations and the sanitized student leaderboard read model may use the service-role key only from server code after role checks.
 
 ## CSV Export
 

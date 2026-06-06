@@ -9,11 +9,18 @@
 6. Student submits.
 7. System shows confirmation and timestamp.
 8. Student can view their own weekly history.
+9. Student can view weekly grades, rewards, weekly plans, partner recitation, and sanitized leaderboard standings.
 
 ## Student Screens
 - Login
 - Today Check-In
 - My History
+- Partner Recitation
+- Grades
+- Leaderboard
+- Weekly Plan
+- Rewards
+- Password
 
 ## Admin Flow
 1. Admin logs in.
