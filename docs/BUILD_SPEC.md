@@ -114,12 +114,14 @@ The student leaderboard must not show admin-only operational data such as phone 
 
 ### `/student/weekly-plan`
 
-Allows students to upload one weekly plan file for the current Saturday-Friday halaqa week.
+Allows students to upload one weekly plan file for the current Sunday-Saturday tracker week before using daily check-in.
 
 Rules:
 
 - Supported file types: PNG, JPG/JPEG, PDF
 - Maximum file size: 1 MB
+- `week_start` is stored as the Sunday date
+- Daily check-in is blocked until the current week's plan is uploaded
 - Uploading again in the same week replaces the existing weekly plan
 - Files live in the private `weekly-plans` Supabase Storage bucket
 - Metadata lives in `public.weekly_plans`

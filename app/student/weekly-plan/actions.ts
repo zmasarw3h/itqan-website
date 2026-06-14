@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { planWeekStartForDate, todayDateString } from "@/lib/dates";
+import { todayDateString, weekStartForDate } from "@/lib/dates";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import type { WeeklyPlan } from "@/lib/types";
@@ -16,7 +16,7 @@ export async function uploadWeeklyPlan(formData: FormData) {
   const { supabase, profile } = await requireProfile(["student"]);
   const storageSupabase = createSupabaseAdminClient();
   const file = formData.get("plan");
-  const weekStart = planWeekStartForDate(todayDateString());
+  const weekStart = weekStartForDate(todayDateString());
 
   if (!(file instanceof File)) {
     redirect("/student/weekly-plan?status=invalid");

@@ -3,11 +3,8 @@ import {
   currentWeekDates,
   formatDateInAppTimeZone,
   formatDateTimeInAppTimeZone,
-  formatPlanWeekRange,
   formatWeekRange,
   isValidDateString,
-  planWeekDatesFromStart,
-  planWeekStartForDate,
   todayDateString,
   weekDatesFromStart,
   weekStartForDate
@@ -82,29 +79,5 @@ describe("check-in date reset", () => {
     expect(isValidDateString("2026-05-10")).toBe(true);
     expect(isValidDateString("2026-02-30")).toBe(false);
     expect(isValidDateString("not-a-date")).toBe(false);
-  });
-});
-
-describe("weekly plan dates", () => {
-  it("returns Saturday for dates in the Saturday-Friday plan week", () => {
-    expect(planWeekStartForDate("2026-05-09")).toBe("2026-05-09");
-    expect(planWeekStartForDate("2026-05-10")).toBe("2026-05-09");
-    expect(planWeekStartForDate("2026-05-15")).toBe("2026-05-09");
-  });
-
-  it("returns Saturday-Friday dates from the week start", () => {
-    expect(planWeekDatesFromStart("2026-05-09")).toEqual([
-      "2026-05-09",
-      "2026-05-10",
-      "2026-05-11",
-      "2026-05-12",
-      "2026-05-13",
-      "2026-05-14",
-      "2026-05-15"
-    ]);
-  });
-
-  it("formats the weekly plan range", () => {
-    expect(formatPlanWeekRange("2026-05-09")).toBe("May 9–16, 2026");
   });
 });

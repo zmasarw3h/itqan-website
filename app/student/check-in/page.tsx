@@ -1,3 +1,4 @@
+import Link from "next/link";
 import AppNav from "@/app/nav";
 import AccountabilityGateActions from "@/app/student/check-in/accountability-gate-actions";
 import CheckInChecklist from "@/app/student/check-in/check-in-checklist";
@@ -9,7 +10,12 @@ import { calculateDailySubmission, tasksForDate } from "@/lib/scoring";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import { findOrCreateBlockingAccountabilityObligation } from "@/lib/weekly-incentives";
-import type { AccountabilityObligation, CheckIn, CheckInItem } from "@/lib/types";
+import {
+  WEEKLY_PLAN_GATE_COPY,
+  weeklyPlanBlocksCheckIn,
+  weeklyPlanRequiredWeekStart
+} from "@/lib/weekly-plans";
+import type { AccountabilityObligation, CheckIn, CheckInItem, WeeklyPlan } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -96,6 +102,39 @@ function AccountabilityGate({
   );
 }
 
+function WeeklyPlanGate({ studentName, weekStart }: { studentName: string; weekStart: string }) {
+  return (
+    <>
+      <AppNav role="student" name={studentName} />
+      <main className="mx-auto max-w-3xl px-4 py-8">
+        <section className="rounded-lg border border-stone-200 bg-white p-6 shadow-sm">
+          <div>
+            <p className="text-sm font-medium uppercase text-moss">Weekly plan required</p>
+            <h1 className="mt-2 text-2xl font-semibold text-ink">{WEEKLY_PLAN_GATE_COPY.heading}</h1>
+            <p className="mt-2 text-stone-600">{WEEKLY_PLAN_GATE_COPY.support}</p>
+          </div>
+
+          <div className="mt-6 rounded-md bg-stone-50 p-4 text-sm text-stone-700">
+            <p>
+              <span className="font-medium text-ink">{WEEKLY_PLAN_GATE_COPY.weekLabel}:</span>{" "}
+              {formatWeekRange(weekStart)}
+            </p>
+          </div>
+
+          <div className="mt-6">
+            <Link
+              className="inline-flex rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink"
+              href="/student/weekly-plan"
+            >
+              {WEEKLY_PLAN_GATE_COPY.actionLabel}
+            </Link>
+          </div>
+        </section>
+      </main>
+    </>
+  );
+}
+
 export default async function StudentCheckInPage({
   searchParams
 }: {
@@ -104,6 +143,18 @@ export default async function StudentCheckInPage({
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["student"]);
   const today = todayDateString();
+  const requiredWeeklyPlanWeekStart = weeklyPlanRequiredWeekStart(today);
+  const { data: currentWeeklyPlan } = await supabase
+    .from("weekly_plans")
+    .select("week_start")
+    .eq("student_id", profile.id)
+    .eq("week_start", requiredWeeklyPlanWeekStart)
+    .maybeSingle<Pick<WeeklyPlan, "week_start">>();
+
+  if (weeklyPlanBlocksCheckIn(currentWeeklyPlan ?? null, today)) {
+    return <WeeklyPlanGate studentName={profile.name} weekStart={requiredWeeklyPlanWeekStart} />;
+  }
+
   const adminSupabase = createSupabaseAdminClient();
   const blockingObligation = await findOrCreateBlockingAccountabilityObligation({
     supabase: adminSupabase,

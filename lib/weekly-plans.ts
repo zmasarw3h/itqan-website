@@ -1,4 +1,5 @@
 import type { Profile, WeeklyPlan } from "@/lib/types";
+import { weekStartForDate } from "@/lib/dates";
 
 export const WEEKLY_PLAN_BUCKET = "weekly-plans";
 export const WEEKLY_PLAN_MAX_BYTES = 1024 * 1024;
@@ -41,6 +42,28 @@ export function safeWeeklyPlanFileName(fileName: string) {
 
 export function weeklyPlanStoragePath(studentId: string, weekStart: string, fileName: string) {
   return `${studentId}/${weekStart}/${safeWeeklyPlanFileName(fileName)}`;
+}
+
+export const WEEKLY_PLAN_GATE_COPY = {
+  heading: "Upload this week's plan to unlock today's checklist",
+  support: "Weekly plans are due at the start of the week. Upload this week's plan before continuing today's checklist.",
+  weekLabel: "Required plan week",
+  actionLabel: "Upload weekly plan"
+};
+
+export function weeklyPlanRequiredWeekStart(today: string) {
+  return weekStartForDate(today);
+}
+
+export function weeklyPlanBlocksCheckIn(
+  weeklyPlan: Pick<WeeklyPlan, "week_start"> | null | undefined,
+  today: string
+) {
+  return weeklyPlan?.week_start !== weeklyPlanRequiredWeekStart(today);
+}
+
+export function routeIsWeeklyPlanGated(pathname: string) {
+  return pathname === "/student/check-in";
 }
 
 export function canStudentManageWeeklyPlan(actor: Profile | null, studentId: string) {

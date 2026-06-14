@@ -29,7 +29,7 @@ Students can:
 - Confirm partner recitation rounds.
 - View weekly grades and point breakdowns.
 - View sanitized weekly leaderboard rankings and rank movement.
-- Upload one weekly plan file for the current Saturday-Friday halaqa week.
+- Upload one weekly plan file for the current Sunday-Saturday tracker week before using daily check-in.
 - Change their password.
 
 ## Current Admin Scope

@@ -8,11 +8,9 @@ import StudentWeekSelector from "./student-week-selector";
 import {
   addDays,
   formatDateTimeInAppTimeZone,
-  formatPlanWeekRange,
   formatWeekRange,
   friendlyDate,
   isValidDateString,
-  planWeekStartForDate,
   todayDateString,
   weekDatesFromStart,
   weekStartForDate
@@ -123,7 +121,7 @@ export default async function AdminStudentPage({
   const selectedWeekStart = validWeekStart(resolvedSearchParams.week, currentTrackerWeekStart);
   const selectedWeekDates = weekDatesFromStart(selectedWeekStart);
   const selectedWeekDateSet = new Set(selectedWeekDates);
-  const selectedPlanWeekStart = planWeekStartForDate(selectedWeekStart);
+  const selectedPlanWeekStart = selectedWeekStart;
   const selectedWeekComplete = weekIsComplete(selectedWeekStart, today);
   const correctionInitialDate = selectedWeekDates.includes(today) ? today : selectedWeekDates[0];
 
@@ -178,7 +176,7 @@ export default async function AdminStudentPage({
       ...(checkins ?? []).map((checkin) => weekStartForDate(checkin.date)),
       ...(partnerWeekRows ?? []).map((row) => row.week_start),
       ...(halaqaWeekRows ?? []).map((row) => row.week_start),
-      ...(weeklyPlanRows ?? []).map((row) => weekStartForDate(addDays(row.week_start, 1)))
+      ...(weeklyPlanRows ?? []).filter((row) => weekStartForDate(row.week_start) === row.week_start).map((row) => row.week_start)
     ])
   ].sort((a, b) => b.localeCompare(a));
   const itemsByCheckInId = new Map<string, CheckInItem[]>();
@@ -471,7 +469,7 @@ export default async function AdminStudentPage({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold text-ink">Weekly Plan</h2>
-              <p className="mt-1 text-sm text-stone-600">{formatPlanWeekRange(selectedPlanWeekStart)}</p>
+              <p className="mt-1 text-sm text-stone-600">{formatWeekRange(selectedPlanWeekStart)}</p>
             </div>
             {weeklyPlanUrl ? (
               <a

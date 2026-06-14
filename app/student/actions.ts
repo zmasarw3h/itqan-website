@@ -16,7 +16,8 @@ import { partnerRoundForDate, PARTNER_RECITATION_POINTS_PER_ROUND, tasksForDate 
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import { findOrCreateBlockingAccountabilityObligation } from "@/lib/weekly-incentives";
-import type { AccountabilityObligation, CheckIn, CheckInItem, PartnerRecitation } from "@/lib/types";
+import { weeklyPlanBlocksCheckIn, weeklyPlanRequiredWeekStart } from "@/lib/weekly-plans";
+import type { AccountabilityObligation, CheckIn, CheckInItem, PartnerRecitation, WeeklyPlan } from "@/lib/types";
 
 export async function attestAccountabilityPaid(obligationId: string) {
   const { supabase, profile } = await requireProfile(["student"]);
@@ -93,6 +94,18 @@ function checkInSelect() {
 async function findOrCreateTodayCheckIn() {
   const { supabase, profile } = await requireProfile(["student"]);
   const today = todayDateString();
+  const requiredWeeklyPlanWeekStart = weeklyPlanRequiredWeekStart(today);
+  const { data: currentWeeklyPlan } = await supabase
+    .from("weekly_plans")
+    .select("week_start")
+    .eq("student_id", profile.id)
+    .eq("week_start", requiredWeeklyPlanWeekStart)
+    .maybeSingle<Pick<WeeklyPlan, "week_start">>();
+
+  if (weeklyPlanBlocksCheckIn(currentWeeklyPlan ?? null, today)) {
+    throw new Error("Upload this week's weekly plan before using today's checklist.");
+  }
+
   const adminSupabase = createSupabaseAdminClient();
   const blockingObligation = await findOrCreateBlockingAccountabilityObligation({
     supabase: adminSupabase,
