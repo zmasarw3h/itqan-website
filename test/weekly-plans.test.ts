@@ -3,8 +3,11 @@ import type { Profile } from "@/lib/types";
 import {
   canReadWeeklyPlan,
   canStudentManageWeeklyPlan,
+  routeIsWeeklyPlanGated,
   safeWeeklyPlanFileName,
   validateWeeklyPlanFile,
+  weeklyPlanBlocksCheckIn,
+  weeklyPlanRequiredWeekStart,
   weeklyPlanStoragePath
 } from "@/lib/weekly-plans";
 
@@ -69,5 +72,33 @@ describe("weekly plan ownership helpers", () => {
     expect(canReadWeeklyPlan(student, weeklyPlan)).toBe(true);
     expect(canReadWeeklyPlan(otherStudent, weeklyPlan)).toBe(false);
     expect(canReadWeeklyPlan(admin, weeklyPlan)).toBe(true);
+  });
+});
+
+describe("weekly plan check-in gate", () => {
+  it("requires the Sunday-start weekly plan for the current checklist week", () => {
+    expect(weeklyPlanRequiredWeekStart("2026-06-14")).toBe("2026-06-14");
+    expect(weeklyPlanRequiredWeekStart("2026-06-17")).toBe("2026-06-14");
+  });
+
+  it("blocks check-in when the Sunday-start weekly plan is missing", () => {
+    expect(weeklyPlanBlocksCheckIn(null, "2026-06-14")).toBe(true);
+  });
+
+  it("unlocks check-in when the Sunday-start weekly plan exists", () => {
+    expect(weeklyPlanBlocksCheckIn({ week_start: "2026-06-14" }, "2026-06-14")).toBe(false);
+  });
+
+  it("does not count old Saturday-keyed weekly plans", () => {
+    expect(weeklyPlanBlocksCheckIn({ week_start: "2026-06-13" }, "2026-06-14")).toBe(true);
+  });
+
+  it("gates only the daily check-in route", () => {
+    expect(routeIsWeeklyPlanGated("/student/check-in")).toBe(true);
+    expect(routeIsWeeklyPlanGated("/student/weekly-plan")).toBe(false);
+    expect(routeIsWeeklyPlanGated("/student/grades")).toBe(false);
+    expect(routeIsWeeklyPlanGated("/student/history")).toBe(false);
+    expect(routeIsWeeklyPlanGated("/student/partner-recitation")).toBe(false);
+    expect(routeIsWeeklyPlanGated("/account/change-password")).toBe(false);
   });
 });

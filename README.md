@@ -5,7 +5,7 @@ Emergency lightweight check-in system for one masjid while Canvas is unavailable
 ## What This App Does
 
 - Students sign in, autosave one weighted daily Quran checklist throughout the day, confirm partner recitation rounds, view weekly grades, see a student-facing leaderboard, see today's saved checklist and score, and view their own history.
-- Students upload one weekly plan image/PDF for the current Saturday-Friday halaqa week.
+- Students upload one weekly plan image/PDF for the current Sunday-Saturday tracker week before using daily check-in.
 - Admins sign in, add students, view all active students, review weekly/date submission scores, filter by student/date/status, correct check-ins, enter Saturday halaqa grades, and export CSV.
 - Admins can view/download a student's uploaded weekly plan from that student's admin screen.
 - The app intentionally excludes teacher roles, plan approval, comments, plan parsing/OCR, announcements, payments, booking, parent accounts, multi-masjid support, and Quran selection.
@@ -201,7 +201,7 @@ Admins, history, grades, and leaderboard views continue to use the latest saved 
 
 ## Weekly Plans
 
-Students use the `Weekly Plan` navigation link to upload one plan file for the current halaqa week. Plan weeks run Saturday-Friday, and `week_start` is stored as the Saturday date.
+Students use the `Weekly Plan` navigation link to upload one plan file for the current Sunday-Saturday tracker week. `week_start` is stored as the Sunday date. Starting Sunday, the daily check-in page is blocked until the current week's plan is uploaded.
 
 The upload accepts:
 

@@ -1,6 +1,6 @@
 import AppNav from "@/app/nav";
 import WeeklyPlanUploadForm from "@/app/student/weekly-plan/weekly-plan-upload-form";
-import { formatDateTimeInAppTimeZone, formatPlanWeekRange, planWeekStartForDate, todayDateString } from "@/lib/dates";
+import { formatDateTimeInAppTimeZone, formatWeekRange, todayDateString, weekStartForDate } from "@/lib/dates";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import type { WeeklyPlan } from "@/lib/types";
@@ -39,7 +39,7 @@ export default async function StudentWeeklyPlanPage({
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["student"]);
   const storageSupabase = createSupabaseAdminClient();
-  const weekStart = planWeekStartForDate(todayDateString());
+  const weekStart = weekStartForDate(todayDateString());
   const { data: weeklyPlan } = await supabase
     .from("weekly_plans")
     .select("id,student_id,week_start,file_path,file_name,file_type,file_size,uploaded_at")
@@ -63,7 +63,7 @@ export default async function StudentWeeklyPlanPage({
         <section className="rounded-lg border border-stone-200 bg-white p-6 shadow-sm">
           <div>
             <h1 className="text-2xl font-semibold text-ink">Weekly Plan</h1>
-            <p className="mt-1 text-stone-600">{formatPlanWeekRange(weekStart)}</p>
+            <p className="mt-1 text-stone-600">{formatWeekRange(weekStart)}</p>
           </div>
 
           {status ? (
