@@ -2,7 +2,9 @@ import type { Profile, WeeklyPlan } from "@/lib/types";
 import { weekStartForDate } from "@/lib/dates";
 
 export const WEEKLY_PLAN_BUCKET = "weekly-plans";
-export const WEEKLY_PLAN_MAX_BYTES = 1024 * 1024;
+export const WEEKLY_PLAN_MAX_MB = 3;
+export const WEEKLY_PLAN_MAX_BYTES = WEEKLY_PLAN_MAX_MB * 1024 * 1024;
+export const WEEKLY_PLAN_MAX_SIZE_LABEL = `${WEEKLY_PLAN_MAX_MB} MB`;
 export const WEEKLY_PLAN_ALLOWED_TYPES = ["image/png", "image/jpeg", "application/pdf"] as const;
 
 export type WeeklyPlanAllowedType = (typeof WEEKLY_PLAN_ALLOWED_TYPES)[number];
@@ -26,7 +28,7 @@ export function validateWeeklyPlanFile(file: WeeklyPlanUploadFile | null) {
   }
 
   if (file.size > WEEKLY_PLAN_MAX_BYTES) {
-    return "Weekly plan files must be 1 MB or smaller.";
+    return `Weekly plan files must be ${WEEKLY_PLAN_MAX_SIZE_LABEL} or smaller.`;
   }
 
   return null;

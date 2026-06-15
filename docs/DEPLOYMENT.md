@@ -40,7 +40,7 @@ Each Supabase project used by the app must have the private weekly plan Storage 
 
 - Bucket name: `weekly-plans`
 - Public access: off/private
-- Recommended file size limit: 1 MB
+- Recommended file size limit: 3 MB
 - Recommended allowed MIME types: `image/png`, `image/jpeg`, `application/pdf`
 
 Storage configuration must be created separately in staging and production.

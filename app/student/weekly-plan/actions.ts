@@ -8,6 +8,7 @@ import { requireProfile } from "@/lib/supabase-server";
 import type { WeeklyPlan } from "@/lib/types";
 import {
   WEEKLY_PLAN_BUCKET,
+  WEEKLY_PLAN_MAX_BYTES,
   validateWeeklyPlanFile,
   weeklyPlanStoragePath
 } from "@/lib/weekly-plans";
@@ -24,7 +25,7 @@ export async function uploadWeeklyPlan(formData: FormData) {
 
   const validationError = validateWeeklyPlanFile(file);
   if (validationError) {
-    redirect(`/student/weekly-plan?status=${file.size > 1024 * 1024 ? "too-large" : "invalid"}`);
+    redirect(`/student/weekly-plan?status=${file.size > WEEKLY_PLAN_MAX_BYTES ? "too-large" : "invalid"}`);
   }
 
   const { data: existingPlan } = await supabase
