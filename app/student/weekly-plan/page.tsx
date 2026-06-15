@@ -4,7 +4,7 @@ import { formatDateTimeInAppTimeZone, formatWeekRange, todayDateString, weekStar
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import type { WeeklyPlan } from "@/lib/types";
-import { WEEKLY_PLAN_BUCKET } from "@/lib/weekly-plans";
+import { WEEKLY_PLAN_BUCKET, WEEKLY_PLAN_MAX_SIZE_LABEL } from "@/lib/weekly-plans";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,7 @@ const statusMessages: Record<string, { text: string; className: string }> = {
     className: "bg-red-50 text-red-700"
   },
   "too-large": {
-    text: "Weekly plan files must be 1 MB or smaller.",
+    text: `Weekly plan files must be ${WEEKLY_PLAN_MAX_SIZE_LABEL} or smaller.`,
     className: "bg-red-50 text-red-700"
   },
   "upload-error": {

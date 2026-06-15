@@ -56,7 +56,7 @@ SUPABASE_SERVICE_ROLE_KEY=
 
    - Bucket name: `weekly-plans`
    - Public bucket: off/private
-   - File size limit: 1 MB if configured in the dashboard
+   - File size limit: 3 MB if configured in the dashboard
    - Allowed MIME types: `image/png`, `image/jpeg`, `application/pdf` if configured in the dashboard
 
    The app performs private Storage uploads and signed URL creation from server actions with `SUPABASE_SERVICE_ROLE_KEY`, after checking the signed-in user's role. Do not expose that key to the browser.
@@ -208,7 +208,7 @@ The upload accepts:
 - PNG
 - JPG
 - PDF
-- Maximum size: 1 MB
+- Maximum size: 3 MB
 
 Uploading again during the same week replaces the existing weekly plan record. The page shows the uploaded file name, upload timestamp, and a signed view/download link. If nothing is uploaded, it shows `No weekly plan uploaded yet.`
 

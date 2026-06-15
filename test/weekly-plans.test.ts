@@ -6,6 +6,7 @@ import {
   routeIsWeeklyPlanGated,
   safeWeeklyPlanFileName,
   validateWeeklyPlanFile,
+  WEEKLY_PLAN_MAX_BYTES,
   weeklyPlanBlocksCheckIn,
   weeklyPlanRequiredWeekStart,
   weeklyPlanStoragePath
@@ -32,10 +33,11 @@ const admin: Profile = {
 };
 
 describe("weekly plan upload rules", () => {
-  it("allows PNG, JPG, and PDF files up to 1 MB", () => {
+  it("allows PNG, JPG, and PDF files up to 3 MB", () => {
     expect(validateWeeklyPlanFile({ name: "plan.png", type: "image/png", size: 1024 })).toBeNull();
     expect(validateWeeklyPlanFile({ name: "plan.jpg", type: "image/jpeg", size: 1024 })).toBeNull();
     expect(validateWeeklyPlanFile({ name: "plan.pdf", type: "application/pdf", size: 1024 })).toBeNull();
+    expect(validateWeeklyPlanFile({ name: "plan.pdf", type: "application/pdf", size: WEEKLY_PLAN_MAX_BYTES })).toBeNull();
   });
 
   it("rejects unsupported file types", () => {
@@ -44,9 +46,9 @@ describe("weekly plan upload rules", () => {
     );
   });
 
-  it("rejects files larger than 1 MB", () => {
-    expect(validateWeeklyPlanFile({ name: "plan.pdf", type: "application/pdf", size: 1024 * 1024 + 1 })).toBe(
-      "Weekly plan files must be 1 MB or smaller."
+  it("rejects files larger than 3 MB", () => {
+    expect(validateWeeklyPlanFile({ name: "plan.pdf", type: "application/pdf", size: WEEKLY_PLAN_MAX_BYTES + 1 })).toBe(
+      "Weekly plan files must be 3 MB or smaller."
     );
   });
 
