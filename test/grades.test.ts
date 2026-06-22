@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildHalaqaFeedbackDisplay, buildWeeklyGradeBreakdown, studentGradesScope } from "@/lib/grades";
+import {
+  buildHalaqaFeedbackDisplay,
+  buildStudentBelow70Streak,
+  buildWeeklyGradeBreakdown,
+  completedStudentGradeWeekStartsDescending,
+  studentGradesScope
+} from "@/lib/grades";
 
 describe("student grades", () => {
   it("builds a weekly score breakdown for the grades page", () => {
@@ -42,6 +48,51 @@ describe("student grades", () => {
       weekDates: ["2026-05-10"]
     });
     expect(() => studentGradesScope("", "2026-05-10", ["2026-05-10"])).toThrow("Student id is required");
+  });
+
+  it("builds the student's below-70 streak from completed weekly grade data", () => {
+    expect(
+      buildStudentBelow70Streak({
+        studentId: "student-1",
+        completedWeekStartsDescending: ["2026-06-14", "2026-06-07", "2026-05-31"],
+        checkins: [
+          { date: "2026-06-14", daily_score: 100 },
+          { date: "2026-06-15", daily_score: 100 },
+          { date: "2026-06-16", daily_score: 100 },
+          { date: "2026-06-17", daily_score: 100 },
+          { date: "2026-06-18", daily_score: 100 },
+          { date: "2026-06-19", daily_score: 100 },
+          { date: "2026-06-07", daily_score: 100 },
+          { date: "2026-06-08", daily_score: 100 },
+          { date: "2026-06-09", daily_score: 100 },
+          { date: "2026-06-10", daily_score: 100 },
+          { date: "2026-06-11", daily_score: 100 },
+          { date: "2026-05-31", daily_score: 100 },
+          { date: "2026-06-01", daily_score: 100 },
+          { date: "2026-06-02", daily_score: 100 },
+          { date: "2026-06-03", daily_score: 100 },
+          { date: "2026-06-04", daily_score: 100 },
+          { date: "2026-06-05", daily_score: 100 },
+          { date: "2026-06-06", daily_score: 100 }
+        ],
+        partnerRecitations: [
+          { week_start: "2026-06-07", round: "round_1", points: 75 },
+          { week_start: "2026-06-07", round: "round_2", points: 75 },
+          { week_start: "2026-05-31", round: "round_1", points: 75 },
+          { week_start: "2026-05-31", round: "round_2", points: 75 }
+        ],
+        halaqaGrades: [{ week_start: "2026-05-31", attendance_points: 100, recitation_points: 50 }]
+      })
+    ).toBe(2);
+  });
+
+  it("builds completed student grade weeks from the accountability cutoff through the selected week", () => {
+    expect(
+      completedStudentGradeWeekStartsDescending({
+        selectedWeekStart: "2026-06-21",
+        today: "2026-06-22"
+      })
+    ).toEqual(["2026-06-14", "2026-06-07", "2026-05-31"]);
   });
 
   it("builds student halaqa feedback display from stored grade data", () => {

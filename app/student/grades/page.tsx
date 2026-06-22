@@ -1,6 +1,12 @@
 import AppNav from "@/app/nav";
 import { formatWeekRange, isValidDateString, todayDateString, weekDatesFromStart, weekStartForDate } from "@/lib/dates";
-import { buildHalaqaFeedbackDisplay, buildWeeklyGradeBreakdown, studentGradesScope } from "@/lib/grades";
+import {
+  buildHalaqaFeedbackDisplay,
+  buildStudentBelow70Streak,
+  buildWeeklyGradeBreakdown,
+  completedStudentGradeWeekStartsDescending,
+  studentGradesScope
+} from "@/lib/grades";
 import { calculateDailyScoreProgress } from "@/lib/scoring";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn, HalaqaGrade, PartnerRecitation } from "@/lib/types";
@@ -59,6 +65,8 @@ export default async function StudentGradesPage({
       ...(halaqaWeeks ?? []).map((week) => week.week_start)
     ])
   ].sort((a, b) => b.localeCompare(a));
+  const completedWeekStartsDescending = completedStudentGradeWeekStartsDescending({ selectedWeekStart, today });
+  const streakDates = completedWeekStartsDescending.flatMap((weekStart) => weekDatesFromStart(weekStart));
 
   const { data: checkins } = await supabase
     .from("checkins")
@@ -78,12 +86,51 @@ export default async function StudentGradesPage({
     .eq("student_id", scope.studentId)
     .eq("week_start", scope.weekStart)
     .maybeSingle<HalaqaGrade>();
+  const { data: streakCheckins } = streakDates.length
+    ? await supabase
+        .from("checkins")
+        .select("date,daily_score")
+        .eq("student_id", scope.studentId)
+        .in("date", streakDates)
+        .returns<Array<Pick<CheckIn, "date" | "daily_score">>>()
+    : { data: [] };
+  const { data: streakPartnerRecitations } = completedWeekStartsDescending.length
+    ? await supabase
+        .from("partner_recitations")
+        .select("week_start,round,points")
+        .eq("student_id", scope.studentId)
+        .in("week_start", completedWeekStartsDescending)
+        .returns<Array<Pick<PartnerRecitation, "week_start" | "round" | "points">>>()
+    : { data: [] };
+  const { data: streakHalaqaGrades } = completedWeekStartsDescending.length
+    ? await supabase
+        .from("halaqa_grades")
+        .select("week_start,attendance_points,recitation_points")
+        .eq("student_id", scope.studentId)
+        .in("week_start", completedWeekStartsDescending)
+        .returns<Array<Pick<HalaqaGrade, "week_start" | "attendance_points" | "recitation_points">>>()
+    : { data: [] };
   const weeklyScore = buildWeeklyGradeBreakdown({
     weekDates: scope.weekDates,
     checkins: checkins ?? [],
     partnerRecitations: partnerRecitations ?? [],
     halaqaGrade: halaqaGrade ?? null
   });
+  const below70Streak = buildStudentBelow70Streak({
+    studentId: scope.studentId,
+    completedWeekStartsDescending,
+    checkins: streakCheckins ?? [],
+    partnerRecitations: streakPartnerRecitations ?? [],
+    halaqaGrades: streakHalaqaGrades ?? []
+  });
+  const streakCardClass =
+    below70Streak >= 3 ? "rounded-lg bg-red-50 p-5" : below70Streak > 0 ? "rounded-lg bg-amber-50 p-5" : "rounded-lg bg-stone-50 p-5";
+  const streakValueClass =
+    below70Streak >= 3
+      ? "mt-2 text-4xl font-semibold text-red-900"
+      : below70Streak > 0
+        ? "mt-2 text-4xl font-semibold text-amber-900"
+        : "mt-2 text-4xl font-semibold text-ink";
   const dailyScoreByDate = new Map((checkins ?? []).map((checkin) => [checkin.date, checkin.daily_score]));
   const dailyProgress = calculateDailyScoreProgress({
     weekDates: scope.weekDates,
@@ -123,7 +170,7 @@ export default async function StudentGradesPage({
             </form>
           </div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <div className="mt-6 grid gap-4 md:grid-cols-3">
             <div className="rounded-lg bg-stone-50 p-5">
               <p className="text-sm font-medium uppercase text-stone-500">Daily progress so far</p>
               <p className="mt-2 text-4xl font-semibold text-ink">
@@ -141,6 +188,13 @@ export default async function StudentGradesPage({
                 {weeklyScore.total_points} / {weeklyScore.total_possible}
               </p>
               <p className="mt-1 text-lg text-stone-700">{weeklyScore.percentage}% in progress</p>
+            </div>
+            <div className={streakCardClass}>
+              <p className="text-sm font-medium uppercase text-stone-500">Below 70% streak</p>
+              <p className={streakValueClass}>
+                {below70Streak} {below70Streak === 1 ? "week" : "weeks"}
+              </p>
+              <p className="mt-1 text-lg text-stone-700">Completed weeks only.</p>
             </div>
           </div>
 
