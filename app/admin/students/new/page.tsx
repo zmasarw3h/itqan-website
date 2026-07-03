@@ -27,6 +27,11 @@ function statusMessage(status: string | undefined, role: Role | undefined) {
       return { tone: "error", text: "Enter a valid user name, phone number, and role." };
     case "profile-error":
       return { tone: "error", text: "The auth user was created, but the profile could not be saved. Check Supabase and try again." };
+    case "assignment-error":
+      return {
+        tone: "error",
+        text: "The user was created, but scoped access could not be assigned. Check the masjid, cohort, and group setup before they log in."
+      };
     default:
       return null;
   }

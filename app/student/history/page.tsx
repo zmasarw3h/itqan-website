@@ -1,4 +1,5 @@
 import AppNav from "@/app/nav";
+import { StudentSetupIncomplete } from "@/app/student/student-week-context";
 import {
   formatDateTimeInAppTimeZone,
   formatWeekRange,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/dates";
 import { buildHistoryDayRows, studentHistoryScope } from "@/lib/history";
 import { formatScore } from "@/lib/scoring";
+import { loadStudentScopeForWeek } from "@/lib/student-scope";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn, CheckInItem } from "@/lib/types";
 
@@ -39,6 +41,11 @@ export default async function StudentHistoryPage({
   const selectedWeekStart = validWeekStart(resolvedSearchParams.week, currentWeekStart);
   const selectedWeekDates = weekDatesFromStart(selectedWeekStart);
   const scope = studentHistoryScope(profile.id, selectedWeekStart, selectedWeekDates);
+  const studentScope = await loadStudentScopeForWeek(supabase, profile.id, selectedWeekStart);
+
+  if (!studentScope) {
+    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={selectedWeekStart} />;
+  }
 
   const { data: checkinDates } = await supabase
     .from("checkins")

@@ -2,26 +2,35 @@ import Link from "next/link";
 import { signOut } from "@/app/actions";
 import type { Role } from "@/lib/types";
 
+function linksForRole(role: Role) {
+  if (role === "admin") {
+    return [
+      { href: "/admin", label: "Admin" },
+      { href: "/admin/incentives", label: "Incentives" },
+      { href: "/admin/rewards", label: "Rewards" },
+      { href: "/admin/students/new", label: "Add User" },
+      { href: "/account/change-password", label: "Password" }
+    ];
+  }
+
+  if (role === "student") {
+    return [
+      { href: "/student/check-in", label: "Check-In" },
+      { href: "/student/partner-recitation", label: "Partner Recitation" },
+      { href: "/student/grades", label: "Grades" },
+      { href: "/student/leaderboard", label: "Leaderboard" },
+      { href: "/student/weekly-plan", label: "Weekly Plan" },
+      { href: "/student/rewards", label: "Rewards" },
+      { href: "/student/history", label: "History" },
+      { href: "/account/change-password", label: "Password" }
+    ];
+  }
+
+  return [{ href: "/account/change-password", label: "Password" }];
+}
+
 export default function AppNav({ role, name }: { role: Role; name: string }) {
-  const links =
-    role === "admin"
-      ? [
-          { href: "/admin", label: "Admin" },
-          { href: "/admin/incentives", label: "Incentives" },
-          { href: "/admin/rewards", label: "Rewards" },
-          { href: "/admin/students/new", label: "Add User" },
-          { href: "/account/change-password", label: "Password" }
-        ]
-      : [
-          { href: "/student/check-in", label: "Check-In" },
-          { href: "/student/partner-recitation", label: "Partner Recitation" },
-          { href: "/student/grades", label: "Grades" },
-          { href: "/student/leaderboard", label: "Leaderboard" },
-          { href: "/student/weekly-plan", label: "Weekly Plan" },
-          { href: "/student/rewards", label: "Rewards" },
-          { href: "/student/history", label: "History" },
-          { href: "/account/change-password", label: "Password" }
-        ];
+  const links = linksForRole(role);
 
   return (
     <header className="border-b border-stone-200 bg-white">

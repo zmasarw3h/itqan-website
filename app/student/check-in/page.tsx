@@ -2,11 +2,13 @@ import Link from "next/link";
 import AppNav from "@/app/nav";
 import AccountabilityGateActions from "@/app/student/check-in/accountability-gate-actions";
 import CheckInChecklist from "@/app/student/check-in/check-in-checklist";
+import { StudentSetupIncomplete, StudentWeekContextPanel } from "@/app/student/student-week-context";
 import { attestAccountabilityPaid } from "@/app/student/actions";
 import { ACCOUNTABILITY_GATE_COPY } from "@/lib/accountability";
-import { friendlyDate, formatWeekRange, todayDateString } from "@/lib/dates";
+import { friendlyDate, formatWeekRange, todayDateString, weekStartForDate } from "@/lib/dates";
 import { formatAmountCents } from "@/lib/incentives";
 import { calculateDailySubmission, tasksForDate } from "@/lib/scoring";
+import { loadStudentWeekContext, type StudentWeekScope, type StudentWeekTeacher } from "@/lib/student-scope";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import { findOrCreateBlockingAccountabilityObligation } from "@/lib/weekly-incentives";
@@ -43,11 +45,15 @@ function GuidanceVerse() {
 function AccountabilityGate({
   obligation,
   status,
-  studentName
+  studentName,
+  scope,
+  teacher
 }: {
   obligation: Pick<AccountabilityObligation, "id" | "week_start" | "weekly_percentage" | "amount_cents">;
   status?: string;
   studentName: string;
+  scope: StudentWeekScope;
+  teacher: StudentWeekTeacher | null;
 }) {
   const attestAction = attestAccountabilityPaid.bind(null, obligation.id);
 
@@ -61,6 +67,7 @@ function AccountabilityGate({
             <h1 className="mt-2 text-2xl font-semibold text-ink">{ACCOUNTABILITY_GATE_COPY.heading}</h1>
             <p className="mt-2 text-stone-600">{ACCOUNTABILITY_GATE_COPY.support}</p>
           </div>
+          <StudentWeekContextPanel scope={scope} teacher={teacher} />
 
           {status === "accountability-error" ? (
             <p className="mt-6 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -102,7 +109,17 @@ function AccountabilityGate({
   );
 }
 
-function WeeklyPlanGate({ studentName, weekStart }: { studentName: string; weekStart: string }) {
+function WeeklyPlanGate({
+  studentName,
+  weekStart,
+  scope,
+  teacher
+}: {
+  studentName: string;
+  weekStart: string;
+  scope: StudentWeekScope;
+  teacher: StudentWeekTeacher | null;
+}) {
   return (
     <>
       <AppNav role="student" name={studentName} />
@@ -113,6 +130,7 @@ function WeeklyPlanGate({ studentName, weekStart }: { studentName: string; weekS
             <h1 className="mt-2 text-2xl font-semibold text-ink">{WEEKLY_PLAN_GATE_COPY.heading}</h1>
             <p className="mt-2 text-stone-600">{WEEKLY_PLAN_GATE_COPY.support}</p>
           </div>
+          <StudentWeekContextPanel scope={scope} teacher={teacher} />
 
           <div className="mt-6 rounded-md bg-stone-50 p-4 text-sm text-stone-700">
             <p>
@@ -143,6 +161,13 @@ export default async function StudentCheckInPage({
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["student"]);
   const today = todayDateString();
+  const currentWeekStart = weekStartForDate(today);
+  const studentContext = await loadStudentWeekContext(supabase, profile.id, currentWeekStart);
+
+  if (!studentContext.scope) {
+    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={currentWeekStart} />;
+  }
+
   const requiredWeeklyPlanWeekStart = weeklyPlanRequiredWeekStart(today);
   const { data: currentWeeklyPlan } = await supabase
     .from("weekly_plans")
@@ -152,7 +177,14 @@ export default async function StudentCheckInPage({
     .maybeSingle<Pick<WeeklyPlan, "week_start">>();
 
   if (weeklyPlanBlocksCheckIn(currentWeeklyPlan ?? null, today)) {
-    return <WeeklyPlanGate studentName={profile.name} weekStart={requiredWeeklyPlanWeekStart} />;
+    return (
+      <WeeklyPlanGate
+        studentName={profile.name}
+        weekStart={requiredWeeklyPlanWeekStart}
+        scope={studentContext.scope}
+        teacher={studentContext.teacher}
+      />
+    );
   }
 
   const adminSupabase = createSupabaseAdminClient();
@@ -168,6 +200,8 @@ export default async function StudentCheckInPage({
         obligation={blockingObligation}
         status={resolvedSearchParams.status}
         studentName={profile.name}
+        scope={studentContext.scope}
+        teacher={studentContext.teacher}
       />
     );
   }
@@ -212,6 +246,7 @@ export default async function StudentCheckInPage({
               <p className="mt-1 text-2xl font-semibold text-ink">Today</p>
             </div>
           </div>
+          <StudentWeekContextPanel scope={studentContext.scope} teacher={studentContext.teacher} />
 
           {resolvedSearchParams.status === "accountability-attested" ? (
             <p className="mt-6 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">

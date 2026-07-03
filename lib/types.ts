@@ -1,4 +1,6 @@
-export type Role = "student" | "admin";
+export type Role = "student" | "teacher" | "admin" | "super_admin";
+export type CohortKind = "brothers" | "sisters";
+export type StaffRole = "admin" | "teacher";
 
 export type Profile = {
   id: string;
@@ -10,7 +12,78 @@ export type Profile = {
   created_at?: string;
 };
 
-export type CheckIn = {
+export type Masjid = {
+  id: string;
+  name: string;
+  slug: string;
+  active: boolean;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type Cohort = {
+  id: string;
+  masjid_id: string;
+  kind: CohortKind;
+  name: string;
+  active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type HalaqaGroup = {
+  id: string;
+  cohort_id: string;
+  name: string;
+  active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type StudentGroupMembership = {
+  id: string;
+  student_id: string;
+  group_id: string;
+  starts_on: string;
+  ends_on: string | null;
+  assigned_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type MasjidStaffMembership = {
+  id: string;
+  profile_id: string;
+  masjid_id: string;
+  staff_role: StaffRole;
+  active: boolean;
+  starts_on: string;
+  ends_on: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type GroupTeacherAssignment = {
+  id: string;
+  group_id: string;
+  teacher_id: string;
+  week_start: string;
+  active: boolean;
+  assigned_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type ScopedStudentRecord = {
+  masjid_id?: string | null;
+  cohort_id?: string | null;
+  halaqa_group_id?: string | null;
+};
+
+export type CheckIn = ScopedStudentRecord & {
   id: string;
   student_id: string;
   date: string;
@@ -36,7 +109,7 @@ export type CheckInItem = {
   created_at: string;
 };
 
-export type WeeklyPlan = {
+export type WeeklyPlan = ScopedStudentRecord & {
   id: string;
   student_id: string;
   week_start: string;
@@ -49,7 +122,7 @@ export type WeeklyPlan = {
 
 export type PartnerRound = "round_1" | "round_2";
 
-export type PartnerRecitation = {
+export type PartnerRecitation = ScopedStudentRecord & {
   id: string;
   student_id: string;
   week_start: string;
@@ -58,7 +131,7 @@ export type PartnerRecitation = {
   submitted_at: string;
 };
 
-export type HalaqaGrade = {
+export type HalaqaGrade = ScopedStudentRecord & {
   id: string;
   student_id: string;
   week_start: string;
@@ -73,6 +146,7 @@ export type HalaqaGrade = {
 
 export type WeeklyIncentiveRun = {
   id: string;
+  masjid_id?: string | null;
   week_start: string;
   processed_at: string;
   processed_by: string | null;
@@ -81,7 +155,7 @@ export type WeeklyIncentiveRun = {
 
 export type AccountabilityObligationStatus = "pending" | "attested_paid" | "waived";
 
-export type AccountabilityObligation = {
+export type AccountabilityObligation = ScopedStudentRecord & {
   id: string;
   student_id: string;
   week_start: string;
@@ -96,7 +170,7 @@ export type AccountabilityObligation = {
   updated_at: string | null;
 };
 
-export type BadgeAward = {
+export type BadgeAward = ScopedStudentRecord & {
   id: string;
   student_id: string;
   week_start: string;

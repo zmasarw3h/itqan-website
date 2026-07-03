@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { canReadAdminData, canReadCheckInScores, canReadStudentData, canSubmitStudentCheckIn } from "@/lib/access";
+import {
+  canReadAdminData,
+  canReadCheckInScores,
+  canReadStudentData,
+  canSubmitStudentCheckIn,
+  defaultPathForRole
+} from "@/lib/access";
 import type { Profile } from "@/lib/types";
 
 const student: Profile = {
@@ -29,6 +35,24 @@ const admin: Profile = {
   active: true
 };
 
+const teacher: Profile = {
+  id: "teacher-1",
+  name: "Teacher One",
+  email: "14165550200@itqan.local",
+  phone: null,
+  role: "teacher",
+  active: true
+};
+
+const superAdmin: Profile = {
+  id: "super-admin-1",
+  name: "Super Admin One",
+  email: "14165550300@itqan.local",
+  phone: null,
+  role: "super_admin",
+  active: true
+};
+
 describe("access rules", () => {
   it("allows students to read only their own data", () => {
     expect(canReadStudentData(student, student.id)).toBe(true);
@@ -45,6 +69,17 @@ describe("access rules", () => {
     expect(canReadAdminData(admin)).toBe(true);
   });
 
+  it("keeps teacher access out of broad admin and student-owned helpers", () => {
+    expect(canReadAdminData(teacher)).toBe(false);
+    expect(canReadStudentData(teacher, student.id)).toBe(false);
+    expect(canSubmitStudentCheckIn(teacher, student.id)).toBe(false);
+  });
+
+  it("allows super admins to use existing broad admin fallbacks until scoped UI exists", () => {
+    expect(canReadAdminData(superAdmin)).toBe(true);
+    expect(canReadStudentData(superAdmin, student.id)).toBe(true);
+  });
+
   it("allows admins to view scores", () => {
     expect(canReadCheckInScores(admin, student.id)).toBe(true);
     expect(canReadCheckInScores(admin, otherStudent.id)).toBe(true);
@@ -59,5 +94,12 @@ describe("access rules", () => {
     expect(canSubmitStudentCheckIn(student, student.id)).toBe(true);
     expect(canSubmitStudentCheckIn(student, otherStudent.id)).toBe(false);
     expect(canSubmitStudentCheckIn(admin, student.id)).toBe(false);
+  });
+
+  it("routes deferred roles to account settings until dedicated screens exist", () => {
+    expect(defaultPathForRole("student")).toBe("/student/check-in");
+    expect(defaultPathForRole("admin")).toBe("/admin");
+    expect(defaultPathForRole("teacher")).toBe("/account/change-password");
+    expect(defaultPathForRole("super_admin")).toBe("/account/change-password");
   });
 });

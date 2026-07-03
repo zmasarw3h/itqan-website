@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerClient } from "@supabase/ssr";
 import type { CookieOptions } from "@supabase/ssr";
+import { defaultPathForRole } from "@/lib/access";
 import { getSupabasePublicConfig } from "@/lib/config";
 import type { Profile, Role } from "@/lib/types";
 
@@ -61,7 +62,7 @@ export async function requireProfile(allowedRoles?: Role[]) {
   }
 
   if (allowedRoles && !allowedRoles.includes(result.profile.role)) {
-    redirect(result.profile.role === "admin" ? "/admin" : "/student/check-in");
+    redirect(defaultPathForRole(result.profile.role));
   }
 
   return {
