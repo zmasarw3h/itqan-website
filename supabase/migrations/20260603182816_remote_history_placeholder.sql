@@ -1,0 +1,6 @@
+-- Placeholder for an applied remote migration that existed in Supabase
+-- migration history before this repository branch was prepared.
+--
+-- Keep this file so `supabase db push` can reconcile local migration
+-- files with the linked production migration history. The schema changes
+-- represented by this remote version are already present in production.

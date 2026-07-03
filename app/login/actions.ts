@@ -2,6 +2,7 @@
 
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { defaultPathForRole } from "@/lib/access";
 import { resolveLoginIdentifierToAuthEmail } from "@/lib/login-identifier";
 import type { Profile } from "@/lib/types";
 
@@ -70,5 +71,5 @@ export async function signInWithPhone(identifier: string, password: string): Pro
     return { error: "This account is not active." };
   }
 
-  return { redirectTo: profile.role === "admin" ? "/admin" : "/student/check-in" };
+  return { redirectTo: defaultPathForRole(profile.role) };
 }

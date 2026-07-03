@@ -5,6 +5,7 @@ import CorrectionForm, { type CorrectionFormCheckIn } from "./correction-form";
 import HalaqaGradeForm from "./halaqa-grade-form";
 import StudentDeleteForm from "./student-delete-form";
 import StudentWeekSelector from "./student-week-selector";
+import { canAdminManageStudentForWeek } from "@/lib/admin-scope";
 import {
   addDays,
   formatDateTimeInAppTimeZone,
@@ -124,6 +125,11 @@ export default async function AdminStudentPage({
   const selectedPlanWeekStart = selectedWeekStart;
   const selectedWeekComplete = weekIsComplete(selectedWeekStart, today);
   const correctionInitialDate = selectedWeekDates.includes(today) ? today : selectedWeekDates[0];
+  const canManageStudent = await canAdminManageStudentForWeek(supabase, resolvedParams.id, selectedWeekStart);
+
+  if (!canManageStudent) {
+    notFound();
+  }
 
   const { data: student } = await supabase
     .from("profiles")

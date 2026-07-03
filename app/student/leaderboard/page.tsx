@@ -1,4 +1,5 @@
 import AppNav from "@/app/nav";
+import { StudentSetupIncomplete } from "@/app/student/student-week-context";
 import { formatWeekRange } from "@/lib/dates";
 import { requireProfile } from "@/lib/supabase-server";
 import { studentRankChangeLabel, studentRankChangeSymbol, type StudentLeaderboardRow } from "@/lib/student-leaderboard";
@@ -26,8 +27,13 @@ export default async function StudentLeaderboardPage({
   searchParams: Promise<StudentLeaderboardSearchParams>;
 }) {
   const resolvedSearchParams = await searchParams;
-  const { profile } = await requireProfile(["student"]);
-  const data = await loadStudentLeaderboardData(profile.id, resolvedSearchParams);
+  const { supabase, profile } = await requireProfile(["student"]);
+  const data = await loadStudentLeaderboardData(supabase, profile.id, resolvedSearchParams);
+
+  if (!data.scope) {
+    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={data.selectedWeekStart} />;
+  }
+
   const currentRow = data.currentStudentRow;
   const nextRow = currentRow ? data.rows.find((row) => row.rank === currentRow.rank - 1) ?? null : null;
   const pointsBehindNext =

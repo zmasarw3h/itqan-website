@@ -1,6 +1,7 @@
 import Link from "next/link";
 import AppNav from "@/app/nav";
-import { formatWeekRange } from "@/lib/dates";
+import { adminScopedStudentToProfile, loadAdminStudentsForWeek } from "@/lib/admin-scope";
+import { formatWeekRange, todayDateString, weekStartForDate } from "@/lib/dates";
 import { formatAmountCents } from "@/lib/incentives";
 import { requireProfile } from "@/lib/supabase-server";
 import {
@@ -118,8 +119,11 @@ export default async function AdminIncentivesPage({
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["admin"]);
   const activeView = selectedReportView(resolvedSearchParams.view);
+  const currentWeekStart = weekStartForDate(todayDateString());
+  const students = (await loadAdminStudentsForWeek(supabase, currentWeekStart)).map(adminScopedStudentToProfile);
   const data = await loadWeeklyIncentiveReportData({
     supabase,
+    students,
     week: resolvedSearchParams.week
   });
   const activeViewMeta = reportViews.find((view) => view.key === activeView) ?? reportViews[1];

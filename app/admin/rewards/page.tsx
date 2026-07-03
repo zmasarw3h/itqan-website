@@ -1,6 +1,7 @@
 import Link from "next/link";
 import AppNav from "@/app/nav";
-import { formatWeekRange, todayDateString } from "@/lib/dates";
+import { adminScopedStudentToProfile, loadAdminStudentsForWeek } from "@/lib/admin-scope";
+import { formatWeekRange, todayDateString, weekStartForDate } from "@/lib/dates";
 import {
   buildMonthlyBadgeLeaderboard,
   formatMonthLabel,
@@ -10,7 +11,6 @@ import {
 } from "@/lib/rewards";
 import { requireProfile } from "@/lib/supabase-server";
 import { loadComputedBadgeAwards } from "@/lib/weekly-incentives";
-import type { Profile } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -38,19 +38,14 @@ export default async function AdminRewardsPage({
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["admin"]);
   const monthStart = selectedMonthStart(resolvedSearchParams.month);
-  const { data: students } = await supabase
-    .from("profiles")
-    .select("id,name,email,phone,role,active,created_at")
-    .eq("role", "student")
-    .eq("active", true)
-    .order("name", { ascending: true })
-    .returns<Profile[]>();
-  const awards = await loadComputedBadgeAwards({ supabase });
+  const currentWeekStart = weekStartForDate(todayDateString());
+  const students = (await loadAdminStudentsForWeek(supabase, currentWeekStart)).map(adminScopedStudentToProfile);
+  const awards = await loadComputedBadgeAwards({ supabase, students });
   const availableMonthStarts = [
     ...new Set([monthStart, monthStartForDate(todayDateString()), ...awards.map((award) => `${award.week_start.slice(0, 7)}-01`)])
   ].sort((a, b) => b.localeCompare(a));
   const rows = buildMonthlyBadgeLeaderboard({
-    students: students ?? [],
+    students,
     awards,
     monthStart
   });

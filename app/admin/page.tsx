@@ -34,6 +34,11 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
             Unable to delete student.
           </p>
         ) : null}
+        {resolvedSearchParams.status === "student-scope-denied" ? (
+          <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+            You do not have access to that student for the selected week.
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold text-ink">Admin Dashboard</h1>

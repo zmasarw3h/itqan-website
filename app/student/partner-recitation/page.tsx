@@ -1,7 +1,9 @@
 import AppNav from "@/app/nav";
 import { submitPartnerRecitation } from "@/app/student/actions";
+import { StudentSetupIncomplete, StudentWeekContextPanel } from "@/app/student/student-week-context";
 import { formatDateTimeInAppTimeZone, friendlyDate, todayDateString, weekStartForDate } from "@/lib/dates";
 import { buildPartnerRecitationView } from "@/lib/partner-recitations";
+import { loadStudentWeekContext } from "@/lib/student-scope";
 import { requireProfile } from "@/lib/supabase-server";
 import type { PartnerRecitation } from "@/lib/types";
 
@@ -20,6 +22,11 @@ export default async function PartnerRecitationPage({
   const { supabase, profile } = await requireProfile(["student"]);
   const today = todayDateString();
   const weekStart = weekStartForDate(today);
+  const studentContext = await loadStudentWeekContext(supabase, profile.id, weekStart);
+
+  if (!studentContext.scope) {
+    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={weekStart} />;
+  }
 
   const { data: partnerRecitations } = await supabase
     .from("partner_recitations")
@@ -41,6 +48,7 @@ export default async function PartnerRecitationPage({
             <h1 className="text-2xl font-semibold text-ink">Partner Recitation</h1>
             <p className="mt-1 text-stone-600">{friendlyDate(today)}</p>
           </div>
+          <StudentWeekContextPanel scope={studentContext.scope} teacher={studentContext.teacher} />
 
           {resolvedSearchParams.status === "submitted" ? (
             <p className="mt-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
@@ -55,6 +63,11 @@ export default async function PartnerRecitationPage({
           {resolvedSearchParams.status === "error" ? (
             <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
               Unable to confirm partner recitation. Please try again.
+            </p>
+          ) : null}
+          {resolvedSearchParams.status === "setup-incomplete" ? (
+            <p className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              Your halaqa assignment is not ready yet.
             </p>
           ) : null}
 

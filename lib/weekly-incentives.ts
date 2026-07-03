@@ -213,26 +213,43 @@ export function computedBadgeAwardFromRow(row: WeeklyIncentiveScoreRow): Compute
   };
 }
 
-export async function loadCompletedWeekStarts(supabase: SupabaseClient, today = todayDateString()) {
+export async function loadCompletedWeekStarts(
+  supabase: SupabaseClient,
+  today = todayDateString(),
+  studentIds?: string[]
+) {
+  if (studentIds && !studentIds.length) {
+    return [];
+  }
+
   const currentWeekStart = weekStartForDate(today);
-  const { data: checkinDates } = await supabase
+  let checkinDatesQuery = supabase
     .from("checkins")
     .select("date")
     .order("date", { ascending: false })
-    .limit(365)
-    .returns<Array<{ date: string }>>();
-  const { data: partnerWeeks } = await supabase
+    .limit(365);
+  let partnerWeeksQuery = supabase
     .from("partner_recitations")
     .select("week_start")
     .order("week_start", { ascending: false })
-    .limit(104)
-    .returns<Array<{ week_start: string }>>();
-  const { data: halaqaWeeks } = await supabase
+    .limit(104);
+  let halaqaWeeksQuery = supabase
     .from("halaqa_grades")
     .select("week_start")
     .order("week_start", { ascending: false })
-    .limit(104)
-    .returns<Array<{ week_start: string }>>();
+    .limit(104);
+
+  if (studentIds) {
+    checkinDatesQuery = checkinDatesQuery.in("student_id", studentIds);
+    partnerWeeksQuery = partnerWeeksQuery.in("student_id", studentIds);
+    halaqaWeeksQuery = halaqaWeeksQuery.in("student_id", studentIds);
+  }
+
+  const [{ data: checkinDates }, { data: partnerWeeks }, { data: halaqaWeeks }] = await Promise.all([
+    checkinDatesQuery.returns<Array<{ date: string }>>(),
+    partnerWeeksQuery.returns<Array<{ week_start: string }>>(),
+    halaqaWeeksQuery.returns<Array<{ week_start: string }>>()
+  ]);
 
   return [
     ...new Set([
@@ -249,42 +266,62 @@ export async function loadComputedWeeklyIncentiveRows(input: {
   supabase: SupabaseClient;
   weekStarts: string[];
   studentId?: string;
+  students?: ActiveStudent[];
 }) {
   if (!input.weekStarts.length) {
     return [];
   }
 
   const allDates = input.weekStarts.flatMap((weekStart) => weekDatesFromStart(weekStart));
-  let studentsQuery = input.supabase
-    .from("profiles")
-    .select("id,name,email,phone")
-    .eq("role", "student")
-    .eq("active", true)
-    .order("name", { ascending: true });
+  let students = input.students ?? null;
 
-  if (input.studentId) {
-    studentsQuery = studentsQuery.eq("id", input.studentId);
+  if (!students) {
+    let studentsQuery = input.supabase
+      .from("profiles")
+      .select("id,name,email,phone")
+      .eq("role", "student")
+      .eq("active", true)
+      .order("name", { ascending: true });
+
+    if (input.studentId) {
+      studentsQuery = studentsQuery.eq("id", input.studentId);
+    }
+
+    const { data } = await studentsQuery.returns<ActiveStudent[]>();
+    students = data ?? [];
+  } else if (input.studentId) {
+    students = students.filter((student) => student.id === input.studentId);
   }
 
-  const { data: students } = await studentsQuery.returns<ActiveStudent[]>();
-  const { data: checkins } = await input.supabase
-    .from("checkins")
-    .select("student_id,date,daily_score")
-    .in("date", allDates)
-    .returns<WeeklyCheckIn[]>();
-  const { data: partnerRecitations } = await input.supabase
-    .from("partner_recitations")
-    .select("student_id,week_start,round,points")
-    .in("week_start", input.weekStarts)
-    .returns<WeeklyPartnerRecitation[]>();
-  const { data: halaqaGrades } = await input.supabase
-    .from("halaqa_grades")
-    .select("student_id,week_start,attendance_points,recitation_points")
-    .in("week_start", input.weekStarts)
-    .returns<WeeklyHalaqaGrade[]>();
+  const studentIds = students.map((student) => student.id);
+
+  if (!studentIds.length) {
+    return [];
+  }
+
+  const [{ data: checkins }, { data: partnerRecitations }, { data: halaqaGrades }] = await Promise.all([
+    input.supabase
+      .from("checkins")
+      .select("student_id,date,daily_score")
+      .in("student_id", studentIds)
+      .in("date", allDates)
+      .returns<WeeklyCheckIn[]>(),
+    input.supabase
+      .from("partner_recitations")
+      .select("student_id,week_start,round,points")
+      .in("student_id", studentIds)
+      .in("week_start", input.weekStarts)
+      .returns<WeeklyPartnerRecitation[]>(),
+    input.supabase
+      .from("halaqa_grades")
+      .select("student_id,week_start,attendance_points,recitation_points")
+      .in("student_id", studentIds)
+      .in("week_start", input.weekStarts)
+      .returns<WeeklyHalaqaGrade[]>()
+  ]);
 
   return buildWeeklyIncentiveRows({
-    students: students ?? [],
+    students,
     weekStarts: input.weekStarts,
     checkins: checkins ?? [],
     partnerRecitations: partnerRecitations ?? [],
@@ -296,13 +333,16 @@ export async function loadComputedBadgeAwards(input: {
   supabase: SupabaseClient;
   weekStarts?: string[];
   studentId?: string;
+  students?: ActiveStudent[];
   today?: string;
 }) {
-  const weekStarts = input.weekStarts ?? (await loadCompletedWeekStarts(input.supabase, input.today));
+  const scopedStudentIds = input.students?.map((student) => student.id);
+  const weekStarts = input.weekStarts ?? (await loadCompletedWeekStarts(input.supabase, input.today, scopedStudentIds));
   const rows = await loadComputedWeeklyIncentiveRows({
     supabase: input.supabase,
     weekStarts,
-    studentId: input.studentId
+    studentId: input.studentId,
+    students: input.students
   });
 
   return rows.flatMap((row) => {
@@ -314,10 +354,12 @@ export async function loadComputedBadgeAwards(input: {
 export async function loadWeeklyIncentiveReportData(input: {
   supabase: SupabaseClient;
   week?: string;
+  students?: ActiveStudent[];
   today?: string;
 }) {
   const today = input.today ?? todayDateString();
-  const completedWeekStarts = await loadCompletedWeekStarts(input.supabase, today);
+  const scopedStudentIds = input.students?.map((student) => student.id);
+  const completedWeekStarts = await loadCompletedWeekStarts(input.supabase, today, scopedStudentIds);
   const selectedWeekStart = validCompletedWeekStart(input.week, completedWeekStarts);
 
   if (!selectedWeekStart) {
@@ -333,13 +375,20 @@ export async function loadWeeklyIncentiveReportData(input: {
   const reportWeekStarts = completedWeekStarts.slice(selectedIndex, selectedIndex + 3);
   const rows = await loadComputedWeeklyIncentiveRows({
     supabase: input.supabase,
-    weekStarts: reportWeekStarts
+    weekStarts: reportWeekStarts,
+    students: input.students
   });
-  const { count: pendingAccountabilityCount } = await input.supabase
+  let pendingAccountabilityQuery = input.supabase
     .from("accountability_obligations")
     .select("id", { count: "exact", head: true })
     .eq("week_start", selectedWeekStart)
     .eq("status", "pending");
+
+  if (scopedStudentIds) {
+    pendingAccountabilityQuery = pendingAccountabilityQuery.in("student_id", scopedStudentIds);
+  }
+
+  const { count: pendingAccountabilityCount } = await pendingAccountabilityQuery;
 
   return {
     availableWeekStarts: completedWeekStarts,

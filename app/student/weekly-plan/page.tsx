@@ -1,6 +1,8 @@
 import AppNav from "@/app/nav";
+import { StudentSetupIncomplete, StudentWeekContextPanel } from "@/app/student/student-week-context";
 import WeeklyPlanUploadForm from "@/app/student/weekly-plan/weekly-plan-upload-form";
 import { formatDateTimeInAppTimeZone, formatWeekRange, todayDateString, weekStartForDate } from "@/lib/dates";
+import { loadStudentWeekContext } from "@/lib/student-scope";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import type { WeeklyPlan } from "@/lib/types";
@@ -28,6 +30,10 @@ const statusMessages: Record<string, { text: string; className: string }> = {
   "save-error": {
     text: "Unable to save the weekly plan. Please try again.",
     className: "bg-red-50 text-red-700"
+  },
+  "setup-incomplete": {
+    text: "Your halaqa assignment is not ready yet.",
+    className: "bg-amber-50 text-amber-800"
   }
 };
 
@@ -40,6 +46,12 @@ export default async function StudentWeeklyPlanPage({
   const { supabase, profile } = await requireProfile(["student"]);
   const storageSupabase = createSupabaseAdminClient();
   const weekStart = weekStartForDate(todayDateString());
+  const studentContext = await loadStudentWeekContext(supabase, profile.id, weekStart);
+
+  if (!studentContext.scope) {
+    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={weekStart} />;
+  }
+
   const { data: weeklyPlan } = await supabase
     .from("weekly_plans")
     .select("id,student_id,week_start,file_path,file_name,file_type,file_size,uploaded_at")
@@ -65,6 +77,7 @@ export default async function StudentWeeklyPlanPage({
             <h1 className="text-2xl font-semibold text-ink">Weekly Plan</h1>
             <p className="mt-1 text-stone-600">{formatWeekRange(weekStart)}</p>
           </div>
+          <StudentWeekContextPanel scope={studentContext.scope} teacher={studentContext.teacher} />
 
           {status ? (
             <p className={`mt-5 rounded-md px-3 py-2 text-sm ${status.className}`}>{status.text}</p>

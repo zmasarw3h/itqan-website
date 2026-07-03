@@ -13,7 +13,12 @@ Manual in the app:
 5. Share the temporary password shown by the app flow: `itqan2026`.
 6. Ask the user to change their password after first sign-in.
 
-The app creates the Supabase Auth user and matching active `public.profiles` row.
+The app creates the Supabase Auth user and matching active `public.profiles` row. It also assigns:
+
+- New students to the first active brothers group in the admin's primary masjid.
+- New admins to the same primary masjid as the creating admin.
+
+If scoped assignment fails, the user may exist in Auth/Profile but will not have usable app access until the masjid/cohort/group membership is fixed.
 
 ## Import Users
 
@@ -43,6 +48,8 @@ Automated locally with the existing import script:
 4. Review the generated local report in `data/import-results-*.csv`.
 
 Do not commit real user CSVs or generated reports. The import sets new and existing imported users to the temporary password `itqan2026`.
+
+The import tooling predates multi-masjid scope. After importing new users, verify they have the required `student_group_memberships` or `masjid_staff_memberships` rows before asking them to sign in.
 
 ## Reset or Change Passwords
 

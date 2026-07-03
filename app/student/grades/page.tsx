@@ -1,4 +1,5 @@
 import AppNav from "@/app/nav";
+import { StudentSetupIncomplete, StudentWeekContextPanel } from "@/app/student/student-week-context";
 import { formatWeekRange, isValidDateString, todayDateString, weekDatesFromStart, weekStartForDate } from "@/lib/dates";
 import {
   buildHalaqaFeedbackDisplay,
@@ -8,6 +9,7 @@ import {
   studentGradesScope
 } from "@/lib/grades";
 import { calculateDailyScoreProgress } from "@/lib/scoring";
+import { loadStudentWeekContext } from "@/lib/student-scope";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn, HalaqaGrade, PartnerRecitation } from "@/lib/types";
 
@@ -37,6 +39,11 @@ export default async function StudentGradesPage({
   const selectedWeekStart = validWeekStart(resolvedSearchParams.week, currentWeekStart);
   const selectedWeekDates = weekDatesFromStart(selectedWeekStart);
   const scope = studentGradesScope(profile.id, selectedWeekStart, selectedWeekDates);
+  const studentContext = await loadStudentWeekContext(supabase, profile.id, selectedWeekStart);
+
+  if (!studentContext.scope) {
+    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={selectedWeekStart} />;
+  }
 
   const { data: checkinDates } = await supabase
     .from("checkins")
@@ -169,6 +176,7 @@ export default async function StudentGradesPage({
               </button>
             </form>
           </div>
+          <StudentWeekContextPanel scope={studentContext.scope} teacher={studentContext.teacher} />
 
           <div className="mt-6 grid gap-4 md:grid-cols-3">
             <div className="rounded-lg bg-stone-50 p-5">

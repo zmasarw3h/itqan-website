@@ -13,6 +13,7 @@ import {
 import { todayDateString, weekStartForDate } from "@/lib/dates";
 import { assertNoDuplicatePartnerRecitation } from "@/lib/partner-recitations";
 import { partnerRoundForDate, PARTNER_RECITATION_POINTS_PER_ROUND, tasksForDate } from "@/lib/scoring";
+import { requireStudentScopeForWeek } from "@/lib/student-scope";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import { findOrCreateBlockingAccountabilityObligation } from "@/lib/weekly-incentives";
@@ -94,6 +95,9 @@ function checkInSelect() {
 async function findOrCreateTodayCheckIn() {
   const { supabase, profile } = await requireProfile(["student"]);
   const today = todayDateString();
+  const weekStart = weekStartForDate(today);
+  await requireStudentScopeForWeek(supabase, profile.id, weekStart);
+
   const requiredWeeklyPlanWeekStart = weeklyPlanRequiredWeekStart(today);
   const { data: currentWeeklyPlan } = await supabase
     .from("weekly_plans")
@@ -360,6 +364,12 @@ export async function submitPartnerRecitation() {
   const { supabase, profile } = await requireProfile(["student"]);
   const today = todayDateString();
   const weekStart = weekStartForDate(today);
+  try {
+    await requireStudentScopeForWeek(supabase, profile.id, weekStart);
+  } catch {
+    redirect("/student/partner-recitation?status=setup-incomplete");
+  }
+
   const round = partnerRoundForDate(today);
 
   const { data: existing } = await supabase

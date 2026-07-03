@@ -1,10 +1,12 @@
 import AppNav from "@/app/nav";
-import { formatWeekRange, todayDateString } from "@/lib/dates";
+import { StudentSetupIncomplete } from "@/app/student/student-week-context";
+import { formatWeekRange, todayDateString, weekStartForDate } from "@/lib/dates";
 import {
   buildStudentRewardSummary,
   formatMonthLabel,
   monthStartForDate
 } from "@/lib/rewards";
+import { loadStudentScopeForWeek } from "@/lib/student-scope";
 import { requireProfile } from "@/lib/supabase-server";
 import { loadComputedBadgeAwards } from "@/lib/weekly-incentives";
 
@@ -12,7 +14,15 @@ export const dynamic = "force-dynamic";
 
 export default async function StudentRewardsPage() {
   const { supabase, profile } = await requireProfile(["student"]);
-  const currentMonthStart = monthStartForDate(todayDateString());
+  const today = todayDateString();
+  const currentWeekStart = weekStartForDate(today);
+  const studentScope = await loadStudentScopeForWeek(supabase, profile.id, currentWeekStart);
+
+  if (!studentScope) {
+    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={currentWeekStart} />;
+  }
+
+  const currentMonthStart = monthStartForDate(today);
   const studentAwards = await loadComputedBadgeAwards({
     supabase,
     studentId: profile.id

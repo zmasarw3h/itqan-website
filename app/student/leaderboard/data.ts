@@ -1,5 +1,6 @@
 import "server-only";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import type { createServerSupabaseClient } from "@/lib/supabase-server";
 import {
   buildLeaderboardRows,
   weekIsComplete
@@ -13,8 +14,15 @@ import {
   weekStartForDate
 } from "@/lib/dates";
 import { buildStudentLeaderboardRows, type StudentLeaderboardRow } from "@/lib/student-leaderboard";
+import {
+  loadCohortStudentsForWeek,
+  loadStudentScopeForWeek,
+  type CohortStudentForWeek,
+  type StudentWeekScope
+} from "@/lib/student-scope";
 import type { CheckIn, HalaqaGrade, PartnerRecitation, Profile } from "@/lib/types";
 
+type SupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
 type LeaderboardCheckIn = Pick<CheckIn, "student_id" | "date" | "daily_score">;
 type LeaderboardPartnerRecitation = Pick<PartnerRecitation, "student_id" | "week_start" | "round" | "points">;
 type LeaderboardHalaqaGrade = Pick<HalaqaGrade, "student_id" | "week_start" | "attendance_points" | "recitation_points">;
@@ -25,6 +33,7 @@ export type StudentLeaderboardSearchParams = {
 };
 
 export type StudentLeaderboardData = {
+  scope: StudentWeekScope | null;
   rows: StudentLeaderboardRow[];
   currentStudentRow: StudentLeaderboardRow | null;
   availableWeekStarts: string[];
@@ -112,42 +121,76 @@ function studentsCreatedByWeekEnd(students: LeaderboardStudent[], weekStart: str
   return students.filter((student) => !student.created_at || student.created_at < weekEndExclusive);
 }
 
+function mapCohortStudents(students: CohortStudentForWeek[]): LeaderboardStudent[] {
+  return students.map((student) => ({
+    id: student.student_id,
+    name: student.student_name,
+    email: "",
+    phone: null,
+    created_at: student.student_created_at ?? undefined
+  }));
+}
+
 export async function loadStudentLeaderboardData(
+  supabase: SupabaseClient,
   currentStudentId: string,
   searchParams: StudentLeaderboardSearchParams
 ): Promise<StudentLeaderboardData> {
-  const supabase = createSupabaseAdminClient();
+  const adminSupabase = createSupabaseAdminClient();
   const today = todayDateString();
   const currentWeekStart = weekStartForDate(today);
   const selectedWeekStart = validWeekStart(searchParams.week, currentWeekStart);
   const previousWeekStart = addDays(selectedWeekStart, -7);
+  const scope = await loadStudentScopeForWeek(supabase, currentStudentId, selectedWeekStart);
 
-  const { data: students } = await supabase
-    .from("profiles")
-    .select("id,name,email,phone,role,active,created_at")
-    .eq("role", "student")
-    .eq("active", true)
-    .order("name", { ascending: true })
-    .returns<LeaderboardStudent[]>();
+  if (!scope) {
+    return {
+      scope: null,
+      rows: [],
+      currentStudentRow: null,
+      availableWeekStarts: [selectedWeekStart, currentWeekStart].sort((a, b) => b.localeCompare(a)),
+      selectedWeekStart,
+      selectedWeekLabel: formatWeekRange(selectedWeekStart),
+      selectedWeekComplete: weekIsComplete(selectedWeekStart, today),
+      previousWeekStart,
+      previousWeekLabel: formatWeekRange(previousWeekStart)
+    };
+  }
 
-  const { data: checkinDates } = await supabase
-    .from("checkins")
-    .select("date")
-    .order("date", { ascending: false })
-    .limit(365)
-    .returns<Array<{ date: string }>>();
-  const { data: partnerWeeks } = await supabase
-    .from("partner_recitations")
-    .select("week_start")
-    .order("week_start", { ascending: false })
-    .limit(104)
-    .returns<Array<{ week_start: string }>>();
-  const { data: halaqaWeeks } = await supabase
-    .from("halaqa_grades")
-    .select("week_start")
-    .order("week_start", { ascending: false })
-    .limit(104)
-    .returns<Array<{ week_start: string }>>();
+  const [cohortStudents, previousCohortStudents] = await Promise.all([
+    loadCohortStudentsForWeek(supabase, currentStudentId, selectedWeekStart),
+    loadCohortStudentsForWeek(supabase, currentStudentId, previousWeekStart)
+  ]);
+  const students = mapCohortStudents(cohortStudents);
+  const previousStudents = mapCohortStudents(previousCohortStudents);
+  const selectedStudentIds = students.map((student) => student.id);
+  const allStudentIds = [...new Set([...selectedStudentIds, ...previousStudents.map((student) => student.id)])];
+
+  const [{ data: checkinDates }, { data: partnerWeeks }, { data: halaqaWeeks }] = selectedStudentIds.length
+    ? await Promise.all([
+        adminSupabase
+          .from("checkins")
+          .select("date")
+          .in("student_id", selectedStudentIds)
+          .order("date", { ascending: false })
+          .limit(365)
+          .returns<Array<{ date: string }>>(),
+        adminSupabase
+          .from("partner_recitations")
+          .select("week_start")
+          .in("student_id", selectedStudentIds)
+          .order("week_start", { ascending: false })
+          .limit(104)
+          .returns<Array<{ week_start: string }>>(),
+        adminSupabase
+          .from("halaqa_grades")
+          .select("week_start")
+          .in("student_id", selectedStudentIds)
+          .order("week_start", { ascending: false })
+          .limit(104)
+          .returns<Array<{ week_start: string }>>()
+      ])
+    : [{ data: [] }, { data: [] }, { data: [] }];
 
   const availableWeekStarts = [
     ...new Set([
@@ -163,26 +206,33 @@ export async function loadStudentLeaderboardData(
   const allDates = [...selectedWeekDates, ...previousWeekDates];
   const allWeekStarts = [selectedWeekStart, previousWeekStart];
 
-  const { data: checkins } = await supabase
-    .from("checkins")
-    .select("student_id,date,daily_score")
-    .in("date", allDates)
-    .returns<LeaderboardCheckIn[]>();
-  const { data: partnerRecitations } = await supabase
-    .from("partner_recitations")
-    .select("student_id,week_start,round,points")
-    .in("week_start", allWeekStarts)
-    .returns<LeaderboardPartnerRecitation[]>();
-  const { data: halaqaGrades } = await supabase
-    .from("halaqa_grades")
-    .select("student_id,week_start,attendance_points,recitation_points")
-    .in("week_start", allWeekStarts)
-    .returns<LeaderboardHalaqaGrade[]>();
+  const [{ data: checkins }, { data: partnerRecitations }, { data: halaqaGrades }] = allStudentIds.length
+    ? await Promise.all([
+        adminSupabase
+          .from("checkins")
+          .select("student_id,date,daily_score")
+          .in("student_id", allStudentIds)
+          .in("date", allDates)
+          .returns<LeaderboardCheckIn[]>(),
+        adminSupabase
+          .from("partner_recitations")
+          .select("student_id,week_start,round,points")
+          .in("student_id", allStudentIds)
+          .in("week_start", allWeekStarts)
+          .returns<LeaderboardPartnerRecitation[]>(),
+        adminSupabase
+          .from("halaqa_grades")
+          .select("student_id,week_start,attendance_points,recitation_points")
+          .in("student_id", allStudentIds)
+          .in("week_start", allWeekStarts)
+          .returns<LeaderboardHalaqaGrade[]>()
+      ])
+    : [{ data: [] }, { data: [] }, { data: [] }];
 
   const selectedWeekDateSet = new Set(selectedWeekDates);
   const previousWeekDateSet = new Set(previousWeekDates);
   const currentRows = buildLeaderboardRows({
-    students: students ?? [],
+    students,
     selectedWeekStart,
     today,
     below70Only: false,
@@ -200,7 +250,7 @@ export async function loadStudentLeaderboardData(
     halaqaGrades: halaqaGrades ?? []
   })
     ? buildLeaderboardRows({
-        students: studentsCreatedByWeekEnd(students ?? [], previousWeekStart),
+        students: studentsCreatedByWeekEnd(previousStudents, previousWeekStart),
         selectedWeekStart: previousWeekStart,
         today,
         below70Only: false,
@@ -214,6 +264,7 @@ export async function loadStudentLeaderboardData(
   const rows = buildStudentLeaderboardRows({ currentRows, previousRows, currentStudentId });
 
   return {
+    scope,
     rows,
     currentStudentRow: rows.find((row) => row.isCurrentStudent) ?? null,
     availableWeekStarts,
