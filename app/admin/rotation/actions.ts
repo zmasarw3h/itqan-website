@@ -9,7 +9,7 @@ import {
   loadPriorTeacherAssignments,
   loadRotationSettings,
   loadRotationStudents,
-  resolveTicBrothersRotationContext,
+  resolveAdminBrothersRotationContext,
   rotationRedirectPath,
   validRotationWeekStart
 } from "@/app/admin/rotation/data";
@@ -28,7 +28,7 @@ function positiveInteger(value: FormDataEntryValue | null) {
 
 async function requireRotationContext() {
   const { supabase, profile } = await requireProfile(["admin"]);
-  const context = await resolveTicBrothersRotationContext(supabase);
+  const context = await resolveAdminBrothersRotationContext(supabase);
 
   if (!context) {
     redirect(rotationRedirectPath(validRotationWeekStart(undefined), "unauthorized"));
