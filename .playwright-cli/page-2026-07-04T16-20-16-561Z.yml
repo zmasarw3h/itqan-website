@@ -1,0 +1,19 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - paragraph [ref=e5]: ITQAN
+        - heading "Daily Check-In" [level=1] [ref=e6]
+        - paragraph [ref=e7]: Sign in with your phone number and assigned password.
+      - generic [ref=e8]:
+        - generic [ref=e9]:
+          - text: Phone Number
+          - 'textbox "Phone Number Canadian number: enter 10 digits, e.g. 4165550100. Non-Canadian number: include + and your country code." [ref=e10]':
+            - /placeholder: "4165550100"
+          - generic [ref=e11]: "Canadian number: enter 10 digits, e.g. 4165550100. Non-Canadian number: include + and your country code."
+        - generic [ref=e12]:
+          - text: Password
+          - textbox "Password" [ref=e13]
+        - button "Sign in" [ref=e14] [cursor=pointer]
+  - button "Open Next.js Dev Tools" [ref=e20] [cursor=pointer]:
+    - img [ref=e21]

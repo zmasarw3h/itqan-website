@@ -6,6 +6,7 @@ function linksForRole(role: Role) {
   if (role === "admin") {
     return [
       { href: "/admin", label: "Admin" },
+      { href: "/admin/rotation", label: "Rotation" },
       { href: "/admin/incentives", label: "Incentives" },
       { href: "/admin/rewards", label: "Rewards" },
       { href: "/admin/students/new", label: "Add User" },

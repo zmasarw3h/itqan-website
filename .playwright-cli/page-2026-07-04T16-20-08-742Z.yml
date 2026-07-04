@@ -1,0 +1,480 @@
+- generic [active] [ref=f1e1]:
+  - banner [ref=f1e2]:
+    - navigation [ref=f1e3]:
+      - generic [ref=f1e4]:
+        - paragraph [ref=f1e5]: ITQAN
+        - paragraph [ref=f1e6]: Codex Rotation Smoke Admin
+      - generic [ref=f1e7]:
+        - link "Admin" [ref=f1e8] [cursor=pointer]:
+          - /url: /admin
+        - link "Rotation" [ref=f1e9] [cursor=pointer]:
+          - /url: /admin/rotation
+        - link "Incentives" [ref=f1e10] [cursor=pointer]:
+          - /url: /admin/incentives
+        - link "Rewards" [ref=f1e11] [cursor=pointer]:
+          - /url: /admin/rewards
+        - link "Add User" [ref=f1e12] [cursor=pointer]:
+          - /url: /admin/students/new
+        - link "Password" [ref=f1e13] [cursor=pointer]:
+          - /url: /account/change-password
+        - button "Sign out" [ref=f1e15] [cursor=pointer]
+  - main [ref=f1e16]:
+    - generic [ref=f1e17]:
+      - generic [ref=f1e18]:
+        - heading "Admin Dashboard" [level=1] [ref=f1e19]
+        - paragraph [ref=f1e20]: Weekly percentages are ranked for Jun 28–Jul 4, 2026.
+      - link "Export CSV" [ref=f1e21] [cursor=pointer]:
+        - /url: /admin/export?week=2026-06-28
+    - generic [ref=f1e22]:
+      - generic [ref=f1e23]:
+        - text: Week
+        - combobox "Week" [ref=f1e24]:
+          - option "Jun 28–Jul 4, 2026" [selected]
+          - option "Jun 21–27, 2026"
+          - option "Jun 14–20, 2026"
+          - option "Jun 7–13, 2026"
+          - option "May 31–Jun 6, 2026"
+          - option "May 24–30, 2026"
+          - option "May 17–23, 2026"
+      - generic [ref=f1e25]:
+        - checkbox "Show below-70 students only" [ref=f1e26]
+        - text: Show below-70 students only
+    - generic [ref=f1e27]:
+      - generic [ref=f1e28]:
+        - generic [ref=f1e29]:
+          - generic [ref=f1e30]: Search students
+          - searchbox "Search students" [ref=f1e31]
+        - paragraph [ref=f1e32]: Showing 30 of 30 students
+      - table [ref=f1e34]:
+        - rowgroup [ref=f1e35]:
+          - row "Rank Student Week % Status Below-70 Streak Daily Partner Halaqa Student Page" [ref=f1e36]:
+            - columnheader "Rank" [ref=f1e37]
+            - columnheader "Student" [ref=f1e38]
+            - columnheader "Week %" [ref=f1e39]
+            - columnheader "Status" [ref=f1e40]
+            - columnheader "Below-70 Streak" [ref=f1e41]
+            - columnheader "Daily" [ref=f1e42]
+            - columnheader "Partner" [ref=f1e43]
+            - columnheader "Halaqa" [ref=f1e44]
+            - columnheader "Student Page" [ref=f1e45]
+        - rowgroup [ref=f1e46]:
+          - row "#1 Mohamed Shabana +14373660171 90% In progress 0 600 / 700 150 / 150 150 / 150 Open" [ref=f1e47]:
+            - cell "#1" [ref=f1e48]
+            - cell "Mohamed Shabana +14373660171" [ref=f1e49]:
+              - paragraph [ref=f1e50]: Mohamed Shabana
+              - paragraph [ref=f1e51]: "+14373660171"
+            - cell "90%" [ref=f1e52]
+            - cell "In progress" [ref=f1e53]
+            - cell "0" [ref=f1e54]
+            - cell "600 / 700" [ref=f1e55]
+            - cell "150 / 150" [ref=f1e56]
+            - cell "150 / 150" [ref=f1e57]
+            - cell "Open" [ref=f1e58]:
+              - link "Open" [ref=f1e59] [cursor=pointer]:
+                - /url: /admin/students/fee2ce87-ed84-4cc2-88f4-b4d53c1cdc43
+          - row "#2 Osman Mohammed +14168241830 77.5% In progress 0 700 / 700 75 / 150 0 / 150 Open" [ref=f1e60]:
+            - cell "#2" [ref=f1e61]
+            - cell "Osman Mohammed +14168241830" [ref=f1e62]:
+              - paragraph [ref=f1e63]: Osman Mohammed
+              - paragraph [ref=f1e64]: "+14168241830"
+            - cell "77.5%" [ref=f1e65]
+            - cell "In progress" [ref=f1e66]
+            - cell "0" [ref=f1e67]
+            - cell "700 / 700" [ref=f1e68]
+            - cell "75 / 150" [ref=f1e69]
+            - cell "0 / 150" [ref=f1e70]
+            - cell "Open" [ref=f1e71]:
+              - link "Open" [ref=f1e72] [cursor=pointer]:
+                - /url: /admin/students/1e5b9cf1-30ab-4866-8c90-de0795219e76
+          - row "#3 Idris Khalifa +16474047133 74% In progress 0 590 / 700 150 / 150 0 / 150 Open" [ref=f1e73]:
+            - cell "#3" [ref=f1e74]
+            - cell "Idris Khalifa +16474047133" [ref=f1e75]:
+              - paragraph [ref=f1e76]: Idris Khalifa
+              - paragraph [ref=f1e77]: "+16474047133"
+            - cell "74%" [ref=f1e78]
+            - cell "In progress" [ref=f1e79]
+            - cell "0" [ref=f1e80]
+            - cell "590 / 700" [ref=f1e81]
+            - cell "150 / 150" [ref=f1e82]
+            - cell "0 / 150" [ref=f1e83]
+            - cell "Open" [ref=f1e84]:
+              - link "Open" [ref=f1e85] [cursor=pointer]:
+                - /url: /admin/students/c27f4c0a-46cc-4eb3-81fa-cb721cfec03a
+          - row "#4 Ayman Anwar +201060901044 73.5% In progress 0 660 / 700 75 / 150 0 / 150 Open" [ref=f1e86]:
+            - cell "#4" [ref=f1e87]
+            - cell "Ayman Anwar +201060901044" [ref=f1e88]:
+              - paragraph [ref=f1e89]: Ayman Anwar
+              - paragraph [ref=f1e90]: "+201060901044"
+            - cell "73.5%" [ref=f1e91]
+            - cell "In progress" [ref=f1e92]
+            - cell "0" [ref=f1e93]
+            - cell "660 / 700" [ref=f1e94]
+            - cell "75 / 150" [ref=f1e95]
+            - cell "0 / 150" [ref=f1e96]
+            - cell "Open" [ref=f1e97]:
+              - link "Open" [ref=f1e98] [cursor=pointer]:
+                - /url: /admin/students/da1ba262-ddc7-4b58-80b9-8cc41ba8f4d6
+          - row "#5 Welid Shak +16473036201 71% In progress 2 560 / 700 150 / 150 0 / 150 Open" [ref=f1e99]:
+            - cell "#5" [ref=f1e100]
+            - cell "Welid Shak +16473036201" [ref=f1e101]:
+              - paragraph [ref=f1e102]: Welid Shak
+              - paragraph [ref=f1e103]: "+16473036201"
+            - cell "71%" [ref=f1e104]
+            - cell "In progress" [ref=f1e105]
+            - cell "2" [ref=f1e106]
+            - cell "560 / 700" [ref=f1e107]
+            - cell "150 / 150" [ref=f1e108]
+            - cell "0 / 150" [ref=f1e109]
+            - cell "Open" [ref=f1e110]:
+              - link "Open" [ref=f1e111] [cursor=pointer]:
+                - /url: /admin/students/a5646b36-0c8b-4c4b-b1b2-c75e29b67963
+          - row "#6 Ishak +18076229088 70% In progress 0 550 / 700 150 / 150 0 / 150 Open" [ref=f1e112]:
+            - cell "#6" [ref=f1e113]
+            - cell "Ishak +18076229088" [ref=f1e114]:
+              - paragraph [ref=f1e115]: Ishak
+              - paragraph [ref=f1e116]: "+18076229088"
+            - cell "70%" [ref=f1e117]
+            - cell "In progress" [ref=f1e118]
+            - cell "0" [ref=f1e119]
+            - cell "550 / 700" [ref=f1e120]
+            - cell "150 / 150" [ref=f1e121]
+            - cell "0 / 150" [ref=f1e122]
+            - cell "Open" [ref=f1e123]:
+              - link "Open" [ref=f1e124] [cursor=pointer]:
+                - /url: /admin/students/a424fb30-9886-4314-96ea-aa4a3558ed6a
+          - row "#7 Ossama Gaid +16477172394 64.5% Below 70% so far 0 495 / 700 150 / 150 0 / 150 Open" [ref=f1e125]:
+            - cell "#7" [ref=f1e126]
+            - cell "Ossama Gaid +16477172394" [ref=f1e127]:
+              - paragraph [ref=f1e128]: Ossama Gaid
+              - paragraph [ref=f1e129]: "+16477172394"
+            - cell "64.5%" [ref=f1e130]
+            - cell "Below 70% so far" [ref=f1e131]
+            - cell "0" [ref=f1e132]
+            - cell "495 / 700" [ref=f1e133]
+            - cell "150 / 150" [ref=f1e134]
+            - cell "0 / 150" [ref=f1e135]
+            - cell "Open" [ref=f1e136]:
+              - link "Open" [ref=f1e137] [cursor=pointer]:
+                - /url: /admin/students/c31e383e-3be0-4b7e-a56d-3c05cefcd9b9
+          - row "#8 Yusuf Umarbayev +77029422527 62% Below 70% so far 4 545 / 700 75 / 150 0 / 150 Open" [ref=f1e138]:
+            - cell "#8" [ref=f1e139]
+            - cell "Yusuf Umarbayev +77029422527" [ref=f1e140]:
+              - paragraph [ref=f1e141]: Yusuf Umarbayev
+              - paragraph [ref=f1e142]: "+77029422527"
+            - cell "62%" [ref=f1e143]
+            - cell "Below 70% so far" [ref=f1e144]
+            - cell "4" [ref=f1e145]
+            - cell "545 / 700" [ref=f1e146]
+            - cell "75 / 150" [ref=f1e147]
+            - cell "0 / 150" [ref=f1e148]
+            - cell "Open" [ref=f1e149]:
+              - link "Open" [ref=f1e150] [cursor=pointer]:
+                - /url: /admin/students/53bad807-238b-414e-a998-e38e585205d5
+          - row "#9 Abdulaziz +14165051259 58% Below 70% so far 0 580 / 700 0 / 150 0 / 150 Open" [ref=f1e151]:
+            - cell "#9" [ref=f1e152]
+            - cell "Abdulaziz +14165051259" [ref=f1e153]:
+              - paragraph [ref=f1e154]: Abdulaziz
+              - paragraph [ref=f1e155]: "+14165051259"
+            - cell "58%" [ref=f1e156]
+            - cell "Below 70% so far" [ref=f1e157]
+            - cell "0" [ref=f1e158]
+            - cell "580 / 700" [ref=f1e159]
+            - cell "0 / 150" [ref=f1e160]
+            - cell "0 / 150" [ref=f1e161]
+            - cell "Open" [ref=f1e162]:
+              - link "Open" [ref=f1e163] [cursor=pointer]:
+                - /url: /admin/students/b8b06f00-5631-4bed-810b-0497abee0482
+          - row "#10 Mohaned Hani +201118193008 58% Below 70% so far 0 430 / 700 0 / 150 150 / 150 Open" [ref=f1e164]:
+            - cell "#10" [ref=f1e165]
+            - cell "Mohaned Hani +201118193008" [ref=f1e166]:
+              - paragraph [ref=f1e167]: Mohaned Hani
+              - paragraph [ref=f1e168]: "+201118193008"
+            - cell "58%" [ref=f1e169]
+            - cell "Below 70% so far" [ref=f1e170]
+            - cell "0" [ref=f1e171]
+            - cell "430 / 700" [ref=f1e172]
+            - cell "0 / 150" [ref=f1e173]
+            - cell "150 / 150" [ref=f1e174]
+            - cell "Open" [ref=f1e175]:
+              - link "Open" [ref=f1e176] [cursor=pointer]:
+                - /url: /admin/students/1a534363-6cfd-4428-b336-70d829e5c12b
+          - row "#11 Abdul Latif +16475345019 53% Below 70% so far 1 455 / 700 75 / 150 0 / 150 Open" [ref=f1e177]:
+            - cell "#11" [ref=f1e178]
+            - cell "Abdul Latif +16475345019" [ref=f1e179]:
+              - paragraph [ref=f1e180]: Abdul Latif
+              - paragraph [ref=f1e181]: "+16475345019"
+            - cell "53%" [ref=f1e182]
+            - cell "Below 70% so far" [ref=f1e183]
+            - cell "1" [ref=f1e184]
+            - cell "455 / 700" [ref=f1e185]
+            - cell "75 / 150" [ref=f1e186]
+            - cell "0 / 150" [ref=f1e187]
+            - cell "Open" [ref=f1e188]:
+              - link "Open" [ref=f1e189] [cursor=pointer]:
+                - /url: /admin/students/c9fadb21-0aab-4e0b-a3b2-d0ac45d26e61
+          - row "#12 Anwar Awil +16475734497 52.5% Below 70% so far 1 525 / 700 0 / 150 0 / 150 Open" [ref=f1e190]:
+            - cell "#12" [ref=f1e191]
+            - cell "Anwar Awil +16475734497" [ref=f1e192]:
+              - paragraph [ref=f1e193]: Anwar Awil
+              - paragraph [ref=f1e194]: "+16475734497"
+            - cell "52.5%" [ref=f1e195]
+            - cell "Below 70% so far" [ref=f1e196]
+            - cell "1" [ref=f1e197]
+            - cell "525 / 700" [ref=f1e198]
+            - cell "0 / 150" [ref=f1e199]
+            - cell "0 / 150" [ref=f1e200]
+            - cell "Open" [ref=f1e201]:
+              - link "Open" [ref=f1e202] [cursor=pointer]:
+                - /url: /admin/students/70e37cc7-eaff-43e9-b758-0ceecf693fb2
+          - row "#13 Mohamed Awelkheir +16478187876 50% Below 70% so far 4 350 / 700 0 / 150 150 / 150 Open" [ref=f1e203]:
+            - cell "#13" [ref=f1e204]
+            - cell "Mohamed Awelkheir +16478187876" [ref=f1e205]:
+              - paragraph [ref=f1e206]: Mohamed Awelkheir
+              - paragraph [ref=f1e207]: "+16478187876"
+            - cell "50%" [ref=f1e208]
+            - cell "Below 70% so far" [ref=f1e209]
+            - cell "4" [ref=f1e210]
+            - cell "350 / 700" [ref=f1e211]
+            - cell "0 / 150" [ref=f1e212]
+            - cell "150 / 150" [ref=f1e213]
+            - cell "Open" [ref=f1e214]:
+              - link "Open" [ref=f1e215] [cursor=pointer]:
+                - /url: /admin/students/557096d4-bee1-4b7f-b5be-ef1ccfe0c2ef
+          - row "#14 Muaid Khalid +16472444006 49.5% Below 70% so far 1 495 / 700 0 / 150 0 / 150 Open" [ref=f1e216]:
+            - cell "#14" [ref=f1e217]
+            - cell "Muaid Khalid +16472444006" [ref=f1e218]:
+              - paragraph [ref=f1e219]: Muaid Khalid
+              - paragraph [ref=f1e220]: "+16472444006"
+            - cell "49.5%" [ref=f1e221]
+            - cell "Below 70% so far" [ref=f1e222]
+            - cell "1" [ref=f1e223]
+            - cell "495 / 700" [ref=f1e224]
+            - cell "0 / 150" [ref=f1e225]
+            - cell "0 / 150" [ref=f1e226]
+            - cell "Open" [ref=f1e227]:
+              - link "Open" [ref=f1e228] [cursor=pointer]:
+                - /url: /admin/students/2d1a0c2c-8ef2-4f42-a89e-3b3de8fc198c
+          - row "#15 Abdulaziz Kider +16475094884 49% Below 70% so far 0 415 / 700 75 / 150 0 / 150 Open" [ref=f1e229]:
+            - cell "#15" [ref=f1e230]
+            - cell "Abdulaziz Kider +16475094884" [ref=f1e231]:
+              - paragraph [ref=f1e232]: Abdulaziz Kider
+              - paragraph [ref=f1e233]: "+16475094884"
+            - cell "49%" [ref=f1e234]
+            - cell "Below 70% so far" [ref=f1e235]
+            - cell "0" [ref=f1e236]
+            - cell "415 / 700" [ref=f1e237]
+            - cell "75 / 150" [ref=f1e238]
+            - cell "0 / 150" [ref=f1e239]
+            - cell "Open" [ref=f1e240]:
+              - link "Open" [ref=f1e241] [cursor=pointer]:
+                - /url: /admin/students/c89266d5-211c-474c-ac3b-6873ae4cec0f
+          - row "#16 Al Hadi Abu Sami +14374351219 49% Below 70% so far 0 340 / 700 150 / 150 0 / 150 Open" [ref=f1e242]:
+            - cell "#16" [ref=f1e243]
+            - cell "Al Hadi Abu Sami +14374351219" [ref=f1e244]:
+              - paragraph [ref=f1e245]: Al Hadi Abu Sami
+              - paragraph [ref=f1e246]: "+14374351219"
+            - cell "49%" [ref=f1e247]
+            - cell "Below 70% so far" [ref=f1e248]
+            - cell "0" [ref=f1e249]
+            - cell "340 / 700" [ref=f1e250]
+            - cell "150 / 150" [ref=f1e251]
+            - cell "0 / 150" [ref=f1e252]
+            - cell "Open" [ref=f1e253]:
+              - link "Open" [ref=f1e254] [cursor=pointer]:
+                - /url: /admin/students/5e0eeab0-021e-485b-a3fe-0b4d64b38a3f
+          - row "#17 Abdalla Elrefair +201016953095 47.5% Below 70% so far 4 400 / 700 75 / 150 0 / 150 Open" [ref=f1e255]:
+            - cell "#17" [ref=f1e256]
+            - cell "Abdalla Elrefair +201016953095" [ref=f1e257]:
+              - paragraph [ref=f1e258]: Abdalla Elrefair
+              - paragraph [ref=f1e259]: "+201016953095"
+            - cell "47.5%" [ref=f1e260]
+            - cell "Below 70% so far" [ref=f1e261]
+            - cell "4" [ref=f1e262]
+            - cell "400 / 700" [ref=f1e263]
+            - cell "75 / 150" [ref=f1e264]
+            - cell "0 / 150" [ref=f1e265]
+            - cell "Open" [ref=f1e266]:
+              - link "Open" [ref=f1e267] [cursor=pointer]:
+                - /url: /admin/students/0ce78151-17dc-488d-b966-f319ab8601c2
+          - row "#18 Mohamed Ashraf +201027766444 47% Below 70% so far 0 470 / 700 0 / 150 0 / 150 Open" [ref=f1e268]:
+            - cell "#18" [ref=f1e269]
+            - cell "Mohamed Ashraf +201027766444" [ref=f1e270]:
+              - paragraph [ref=f1e271]: Mohamed Ashraf
+              - paragraph [ref=f1e272]: "+201027766444"
+            - cell "47%" [ref=f1e273]
+            - cell "Below 70% so far" [ref=f1e274]
+            - cell "0" [ref=f1e275]
+            - cell "470 / 700" [ref=f1e276]
+            - cell "0 / 150" [ref=f1e277]
+            - cell "0 / 150" [ref=f1e278]
+            - cell "Open" [ref=f1e279]:
+              - link "Open" [ref=f1e280] [cursor=pointer]:
+                - /url: /admin/students/3e200a58-f9dd-49ca-b052-47d26f733337
+          - row "#19 Tahseen +15142351743 45% Below 70% so far 0 450 / 700 0 / 150 0 / 150 Open" [ref=f1e281]:
+            - cell "#19" [ref=f1e282]
+            - cell "Tahseen +15142351743" [ref=f1e283]:
+              - paragraph [ref=f1e284]: Tahseen
+              - paragraph [ref=f1e285]: "+15142351743"
+            - cell "45%" [ref=f1e286]
+            - cell "Below 70% so far" [ref=f1e287]
+            - cell "0" [ref=f1e288]
+            - cell "450 / 700" [ref=f1e289]
+            - cell "0 / 150" [ref=f1e290]
+            - cell "0 / 150" [ref=f1e291]
+            - cell "Open" [ref=f1e292]:
+              - link "Open" [ref=f1e293] [cursor=pointer]:
+                - /url: /admin/students/c5c7a8d3-70a6-45e3-92e9-b5df97bee873
+          - row "#20 Abdelkadir Khalif +16473087521 41.5% Below 70% so far 4 415 / 700 0 / 150 0 / 150 Open" [ref=f1e294]:
+            - cell "#20" [ref=f1e295]
+            - cell "Abdelkadir Khalif +16473087521" [ref=f1e296]:
+              - paragraph [ref=f1e297]: Abdelkadir Khalif
+              - paragraph [ref=f1e298]: "+16473087521"
+            - cell "41.5%" [ref=f1e299]
+            - cell "Below 70% so far" [ref=f1e300]
+            - cell "4" [ref=f1e301]
+            - cell "415 / 700" [ref=f1e302]
+            - cell "0 / 150" [ref=f1e303]
+            - cell "0 / 150" [ref=f1e304]
+            - cell "Open" [ref=f1e305]:
+              - link "Open" [ref=f1e306] [cursor=pointer]:
+                - /url: /admin/students/aed42b3a-fc5c-4eec-8a4b-6cb0f98ecece
+          - row "#21 Ary Rizky +16475723972 40% Below 70% so far 1 400 / 700 0 / 150 0 / 150 Open" [ref=f1e307]:
+            - cell "#21" [ref=f1e308]
+            - cell "Ary Rizky +16475723972" [ref=f1e309]:
+              - paragraph [ref=f1e310]: Ary Rizky
+              - paragraph [ref=f1e311]: "+16475723972"
+            - cell "40%" [ref=f1e312]
+            - cell "Below 70% so far" [ref=f1e313]
+            - cell "1" [ref=f1e314]
+            - cell "400 / 700" [ref=f1e315]
+            - cell "0 / 150" [ref=f1e316]
+            - cell "0 / 150" [ref=f1e317]
+            - cell "Open" [ref=f1e318]:
+              - link "Open" [ref=f1e319] [cursor=pointer]:
+                - /url: /admin/students/b5c2a7b9-d8b0-4049-b84f-1a1190ae3629
+          - row "#22 Zied Masarweh +14377753332 40% Below 70% so far 2 400 / 700 0 / 150 0 / 150 Open" [ref=f1e320]:
+            - cell "#22" [ref=f1e321]
+            - cell "Zied Masarweh +14377753332" [ref=f1e322]:
+              - paragraph [ref=f1e323]: Zied Masarweh
+              - paragraph [ref=f1e324]: "+14377753332"
+            - cell "40%" [ref=f1e325]
+            - cell "Below 70% so far" [ref=f1e326]
+            - cell "2" [ref=f1e327]
+            - cell "400 / 700" [ref=f1e328]
+            - cell "0 / 150" [ref=f1e329]
+            - cell "0 / 150" [ref=f1e330]
+            - cell "Open" [ref=f1e331]:
+              - link "Open" [ref=f1e332] [cursor=pointer]:
+                - /url: /admin/students/4e197b51-112e-419f-aff4-85c39b130d3c
+          - row "#23 Mohamed Gamal +16478535030 25.5% Below 70% so far 2 180 / 700 75 / 150 0 / 150 Open" [ref=f1e333]:
+            - cell "#23" [ref=f1e334]
+            - cell "Mohamed Gamal +16478535030" [ref=f1e335]:
+              - paragraph [ref=f1e336]: Mohamed Gamal
+              - paragraph [ref=f1e337]: "+16478535030"
+            - cell "25.5%" [ref=f1e338]
+            - cell "Below 70% so far" [ref=f1e339]
+            - cell "2" [ref=f1e340]
+            - cell "180 / 700" [ref=f1e341]
+            - cell "75 / 150" [ref=f1e342]
+            - cell "0 / 150" [ref=f1e343]
+            - cell "Open" [ref=f1e344]:
+              - link "Open" [ref=f1e345] [cursor=pointer]:
+                - /url: /admin/students/7fd5eca4-c805-4273-a5f2-e0609ae0aa19
+          - row "#24 Muayad Abdel Kadir +16477793368 24.5% Below 70% so far 0 170 / 700 75 / 150 0 / 150 Open" [ref=f1e346]:
+            - cell "#24" [ref=f1e347]
+            - cell "Muayad Abdel Kadir +16477793368" [ref=f1e348]:
+              - paragraph [ref=f1e349]: Muayad Abdel Kadir
+              - paragraph [ref=f1e350]: "+16477793368"
+            - cell "24.5%" [ref=f1e351]
+            - cell "Below 70% so far" [ref=f1e352]
+            - cell "0" [ref=f1e353]
+            - cell "170 / 700" [ref=f1e354]
+            - cell "75 / 150" [ref=f1e355]
+            - cell "0 / 150" [ref=f1e356]
+            - cell "Open" [ref=f1e357]:
+              - link "Open" [ref=f1e358] [cursor=pointer]:
+                - /url: /admin/students/12d7e019-ec5f-4274-8837-233ffb821902
+          - row "#25 Rayyan +16475073769 21% Below 70% so far 4 210 / 700 0 / 150 0 / 150 Open" [ref=f1e359]:
+            - cell "#25" [ref=f1e360]
+            - cell "Rayyan +16475073769" [ref=f1e361]:
+              - paragraph [ref=f1e362]: Rayyan
+              - paragraph [ref=f1e363]: "+16475073769"
+            - cell "21%" [ref=f1e364]
+            - cell "Below 70% so far" [ref=f1e365]
+            - cell "4" [ref=f1e366]
+            - cell "210 / 700" [ref=f1e367]
+            - cell "0 / 150" [ref=f1e368]
+            - cell "0 / 150" [ref=f1e369]
+            - cell "Open" [ref=f1e370]:
+              - link "Open" [ref=f1e371] [cursor=pointer]:
+                - /url: /admin/students/9481e048-563c-41b7-9cb2-6194db564d1f
+          - row "#26 Ubayy +16479153426 21% Below 70% so far 2 210 / 700 0 / 150 0 / 150 Open" [ref=f1e372]:
+            - cell "#26" [ref=f1e373]
+            - cell "Ubayy +16479153426" [ref=f1e374]:
+              - paragraph [ref=f1e375]: Ubayy
+              - paragraph [ref=f1e376]: "+16479153426"
+            - cell "21%" [ref=f1e377]
+            - cell "Below 70% so far" [ref=f1e378]
+            - cell "2" [ref=f1e379]
+            - cell "210 / 700" [ref=f1e380]
+            - cell "0 / 150" [ref=f1e381]
+            - cell "0 / 150" [ref=f1e382]
+            - cell "Open" [ref=f1e383]:
+              - link "Open" [ref=f1e384] [cursor=pointer]:
+                - /url: /admin/students/0a00bf88-6a1e-4d6e-a74f-6ab66858ec2f
+          - row "#27 Muadh +14372256807 16% Below 70% so far 4 160 / 700 0 / 150 0 / 150 Open" [ref=f1e385]:
+            - cell "#27" [ref=f1e386]
+            - cell "Muadh +14372256807" [ref=f1e387]:
+              - paragraph [ref=f1e388]: Muadh
+              - paragraph [ref=f1e389]: "+14372256807"
+            - cell "16%" [ref=f1e390]
+            - cell "Below 70% so far" [ref=f1e391]
+            - cell "4" [ref=f1e392]
+            - cell "160 / 700" [ref=f1e393]
+            - cell "0 / 150" [ref=f1e394]
+            - cell "0 / 150" [ref=f1e395]
+            - cell "Open" [ref=f1e396]:
+              - link "Open" [ref=f1e397] [cursor=pointer]:
+                - /url: /admin/students/fc8f0e73-2ac3-4cab-bdfb-7a1632e2a527
+          - row "#28 Mohamed Nasr +14372216638 0% Below 70% so far 4 0 / 700 0 / 150 0 / 150 Open" [ref=f1e398]:
+            - cell "#28" [ref=f1e399]
+            - cell "Mohamed Nasr +14372216638" [ref=f1e400]:
+              - paragraph [ref=f1e401]: Mohamed Nasr
+              - paragraph [ref=f1e402]: "+14372216638"
+            - cell "0%" [ref=f1e403]
+            - cell "Below 70% so far" [ref=f1e404]
+            - cell "4" [ref=f1e405]
+            - cell "0 / 700" [ref=f1e406]
+            - cell "0 / 150" [ref=f1e407]
+            - cell "0 / 150" [ref=f1e408]
+            - cell "Open" [ref=f1e409]:
+              - link "Open" [ref=f1e410] [cursor=pointer]:
+                - /url: /admin/students/3e89f33d-44bb-4104-bad3-4949fd020cb9
+          - row "#29 Mustafa Idris +14168775426 0% Below 70% so far 3 0 / 700 0 / 150 0 / 150 Open" [ref=f1e411]:
+            - cell "#29" [ref=f1e412]
+            - cell "Mustafa Idris +14168775426" [ref=f1e413]:
+              - paragraph [ref=f1e414]: Mustafa Idris
+              - paragraph [ref=f1e415]: "+14168775426"
+            - cell "0%" [ref=f1e416]
+            - cell "Below 70% so far" [ref=f1e417]
+            - cell "3" [ref=f1e418]
+            - cell "0 / 700" [ref=f1e419]
+            - cell "0 / 150" [ref=f1e420]
+            - cell "0 / 150" [ref=f1e421]
+            - cell "Open" [ref=f1e422]:
+              - link "Open" [ref=f1e423] [cursor=pointer]:
+                - /url: /admin/students/c958c7f3-ada9-48ce-bd08-3fd3aa8d772e
+          - row "#30 Taha Saeed +923219448926 0% Below 70% so far 4 0 / 700 0 / 150 0 / 150 Open" [ref=f1e424]:
+            - cell "#30" [ref=f1e425]
+            - cell "Taha Saeed +923219448926" [ref=f1e426]:
+              - paragraph [ref=f1e427]: Taha Saeed
+              - paragraph [ref=f1e428]: "+923219448926"
+            - cell "0%" [ref=f1e429]
+            - cell "Below 70% so far" [ref=f1e430]
+            - cell "4" [ref=f1e431]
+            - cell "0 / 700" [ref=f1e432]
+            - cell "0 / 150" [ref=f1e433]
+            - cell "0 / 150" [ref=f1e434]
+            - cell "Open" [ref=f1e435]:
+              - link "Open" [ref=f1e436] [cursor=pointer]:
+                - /url: /admin/students/cea23077-7e45-488c-84ed-6e441902c23a

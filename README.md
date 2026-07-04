@@ -1,6 +1,6 @@
 # ITQAN Daily Check-In
 
-Emergency lightweight check-in system for one masjid while Canvas is unavailable.
+Lightweight masjid operations system that started as an emergency Canvas replacement.
 
 ## What This App Does
 
@@ -8,7 +8,7 @@ Emergency lightweight check-in system for one masjid while Canvas is unavailable
 - Students upload one weekly plan image/PDF for the current Sunday-Saturday tracker week before using daily check-in.
 - Admins sign in, add students, view all active students, review weekly/date submission scores, filter by student/date/status, correct check-ins, enter Saturday halaqa grades, and export CSV.
 - Admins can view/download a student's uploaded weekly plan from that student's admin screen.
-- The app intentionally excludes teacher roles, plan approval, comments, plan parsing/OCR, announcements, payments, booking, parent accounts, multi-masjid support, and Quran selection.
+- The app now includes scoped masjid/cohort foundations and weekly teacher rotation operations. It still excludes plan approval, comments, plan parsing/OCR, announcements, payments, booking, parent accounts, and Quran selection.
 
 ## Stack
 

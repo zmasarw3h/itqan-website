@@ -77,6 +77,44 @@ export type GroupTeacherAssignment = {
   updated_at: string | null;
 };
 
+export type TeacherRotationAvailability = {
+  id: string;
+  teacher_id: string;
+  masjid_id: string;
+  cohort_id: string;
+  week_start: string;
+  available: boolean;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CohortRotationSettings = {
+  id: string;
+  masjid_id: string;
+  cohort_id: string;
+  target_group_count: number;
+  active: boolean;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TeacherRotationRun = {
+  id: string;
+  cohort_id: string;
+  week_start: string;
+  generated_by: string | null;
+  generated_at: string;
+  available_teacher_count: number;
+  group_count: number;
+  assigned_count: number;
+  warning_count: number;
+  created_at: string;
+};
+
 export type ScopedStudentRecord = {
   masjid_id?: string | null;
   cohort_id?: string | null;
