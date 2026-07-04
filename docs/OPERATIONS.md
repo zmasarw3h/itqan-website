@@ -20,6 +20,15 @@ The app creates the Supabase Auth user and matching active `public.profiles` row
 
 If scoped assignment fails, the user may exist in Auth/Profile but will not have usable app access until the masjid/cohort/group membership is fixed.
 
+## Masjid Setup
+
+Seeded masajid:
+
+- `Toronto Islamic Centre (TIC)` with a brothers cohort and default brothers group.
+- `Thunder Bay Masjid` with a brothers cohort and default brothers group.
+
+Thunder Bay starts without assigned staff. Add an active `masjid_staff_memberships` row for each admin or teacher who should access that masjid before expecting them to manage students or rotation there.
+
 ## Import Users
 
 Automated locally with the existing import script:
