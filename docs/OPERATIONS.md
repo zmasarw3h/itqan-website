@@ -19,6 +19,9 @@ The app creates the Supabase Auth user and matching active `public.profiles` row
 - New teachers to the same primary masjid as the creating admin, effective from the current tracker week.
 - New admins to the same primary masjid as the creating admin.
 
+Admins can also participate in teacher rotation. Keep their profile role as `admin` and add an active
+`masjid_staff_memberships` row with `staff_role = 'teacher'` for the relevant masjid.
+
 If scoped assignment fails, the user may exist in Auth/Profile but will not have usable app access until the masjid/cohort/group membership is fixed.
 
 ## Masjid Setup

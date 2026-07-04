@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildPartnerRecitationView } from "@/lib/partner-recitations";
+import {
+  buildPartnerRecitationView,
+  parsePartnerRecitationRounds,
+  partnerRecitationPayloads
+} from "@/lib/partner-recitations";
 
 describe("partner recitation view state", () => {
   it("shows clear open copy for round 1 and round 2 opening guidance", () => {
@@ -48,5 +52,33 @@ describe("partner recitation view state", () => {
 
     expect(view.currentRoundMessage).toBe("Both rounds are complete for this week.");
     expect(view.canSubmitCurrentRound).toBe(false);
+  });
+
+  it("builds admin correction payloads for completed partner rounds", () => {
+    expect(
+      partnerRecitationPayloads({
+        studentId: "student-1",
+        weekStart: "2026-05-10",
+        rounds: ["round_2", "round_1", "round_2"]
+      })
+    ).toEqual([
+      {
+        student_id: "student-1",
+        week_start: "2026-05-10",
+        round: "round_2",
+        points: 75
+      },
+      {
+        student_id: "student-1",
+        week_start: "2026-05-10",
+        round: "round_1",
+        points: 75
+      }
+    ]);
+  });
+
+  it("normalizes submitted partner rounds and rejects invalid values", () => {
+    expect(parsePartnerRecitationRounds(["round_2", "round_1", "round_2"])).toEqual(["round_1", "round_2"]);
+    expect(() => parsePartnerRecitationRounds(["round_3"])).toThrow("Invalid partner recitation round.");
   });
 });

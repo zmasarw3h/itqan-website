@@ -5,11 +5,12 @@ import { redirect } from "next/navigation";
 import { canAdminManageStudentForWeek } from "@/lib/admin-scope";
 import { buildAdminUserCreateInput } from "@/lib/admin-users";
 import { adminCorrectionPayload, checkInItemPayloads, normalizeNote } from "@/lib/checkins";
-import { todayDateString, weekStartForDate } from "@/lib/dates";
+import { isValidDateString, todayDateString, weekStartForDate } from "@/lib/dates";
+import { PARTNER_RECITATION_ROUNDS, parsePartnerRecitationRounds, partnerRecitationPayloads } from "@/lib/partner-recitations";
 import { calculateDailySubmission, HALAQA_ATTENDANCE_POINTS } from "@/lib/scoring";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
-import type { CheckIn } from "@/lib/types";
+import type { CheckIn, PartnerRecitation } from "@/lib/types";
 import { WEEKLY_PLAN_BUCKET } from "@/lib/weekly-plans";
 
 function adminStudentStatusPath(studentId: string, status: string, weekStart?: string) {
@@ -256,6 +257,81 @@ export async function correctCheckIn(formData: FormData) {
   revalidatePath("/admin");
   revalidatePath(`/admin/students/${studentId}`);
   redirect(adminStudentStatusPath(studentId, "corrected", redirectWeek));
+}
+
+export async function correctPartnerRecitations(formData: FormData) {
+  const { supabase } = await requireProfile(["admin"]);
+  const studentId = String(formData.get("student_id") ?? "");
+  const weekStart = String(formData.get("week_start") ?? "");
+  const redirectWeek = String(formData.get("redirect_week") ?? weekStart);
+
+  if (!studentId || !isValidDateString(weekStart) || weekStartForDate(weekStart) !== weekStart) {
+    redirect("/admin?status=invalid-partner-correction");
+  }
+
+  let completedRounds: PartnerRecitation["round"][];
+
+  try {
+    completedRounds = parsePartnerRecitationRounds(formData.getAll("completed_rounds"));
+  } catch {
+    redirect(adminStudentStatusPath(studentId, "partner-correction-invalid", redirectWeek || weekStart));
+  }
+
+  const canManageStudent = await canAdminManageStudentForWeek(supabase, studentId, weekStart);
+
+  if (!canManageStudent) {
+    redirect("/admin?status=student-scope-denied");
+  }
+
+  const { data: existingRecitations, error: existingError } = await supabase
+    .from("partner_recitations")
+    .select("round")
+    .eq("student_id", studentId)
+    .eq("week_start", weekStart)
+    .returns<Array<Pick<PartnerRecitation, "round">>>();
+
+  if (existingError) {
+    redirect(adminStudentStatusPath(studentId, "partner-correction-error", redirectWeek || weekStart));
+  }
+
+  const completedRoundSet = new Set(completedRounds);
+  const existingRoundSet = new Set((existingRecitations ?? []).map((recitation) => recitation.round));
+  const roundsToDelete = PARTNER_RECITATION_ROUNDS.filter(
+    (round) => existingRoundSet.has(round) && !completedRoundSet.has(round)
+  );
+  const roundsToInsert = completedRounds.filter((round) => !existingRoundSet.has(round));
+
+  if (roundsToDelete.length) {
+    const { error } = await supabase
+      .from("partner_recitations")
+      .delete()
+      .eq("student_id", studentId)
+      .eq("week_start", weekStart)
+      .in("round", roundsToDelete);
+
+    if (error) {
+      redirect(adminStudentStatusPath(studentId, "partner-correction-error", redirectWeek || weekStart));
+    }
+  }
+
+  if (roundsToInsert.length) {
+    const { error } = await supabase.from("partner_recitations").upsert(
+      partnerRecitationPayloads({
+        studentId,
+        weekStart,
+        rounds: roundsToInsert
+      }),
+      { onConflict: "student_id,week_start,round", ignoreDuplicates: true }
+    );
+
+    if (error) {
+      redirect(adminStudentStatusPath(studentId, "partner-correction-error", redirectWeek || weekStart));
+    }
+  }
+
+  revalidatePath("/admin");
+  revalidatePath(`/admin/students/${studentId}`);
+  redirect(adminStudentStatusPath(studentId, "partner-corrected", redirectWeek || weekStart));
 }
 
 export async function saveHalaqaGrade(formData: FormData) {
