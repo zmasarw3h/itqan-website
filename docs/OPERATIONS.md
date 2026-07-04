@@ -140,6 +140,28 @@ Manual in the app:
 5. If the student attended, enter a valid recitation mark and optional notes.
 6. Verify the student's weekly grade view if needed.
 
+## Weekly Teacher Rotation
+
+Admin workflow in the app:
+
+1. Sign in as an admin.
+2. Open `Admin Dashboard -> Rotation`.
+3. Choose the target Sunday tracker week. The page defaults to next week.
+4. Set the cohort's target group count.
+5. Check the teachers who are available for that week and save availability.
+6. Use `Generate / rebalance` to balance active students across stable groups and assign available teachers.
+
+Target group count cannot be saved below the current number of active groups. The app does not
+deactivate or delete groups automatically in this release.
+
+If fewer teachers are available than groups, some groups remain unassigned and the run should surface a
+warning. If more teachers are available than groups, extra teachers remain unassigned and the run should
+surface a warning. Do not rebalance student groups based on weekly teacher availability; rebalance only
+when an admin intentionally runs the rotation action.
+
+The first operational release is scoped to the TIC brothers cohort. Server-side checks still enforce that
+the signed-in admin can manage the TIC masjid before any rotation data is read or written.
+
 ## Emergency Production Changes
 
 - Prefer app-level corrections first.
