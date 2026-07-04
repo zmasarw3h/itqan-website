@@ -71,6 +71,12 @@ export type RotationPageData = {
 };
 
 type TeacherProfile = Pick<Profile, "id" | "name" | "email" | "created_at">;
+type AdminMasjidMembershipRow = {
+  masjid_id: string;
+  starts_on: string;
+  created_at: string | null;
+  masajid: Pick<Masjid, "id" | "name" | "slug">;
+};
 
 export const ROTATION_STATUS_MESSAGES: Record<string, { text: string; className: string }> = {
   "settings-saved": {
@@ -136,42 +142,75 @@ async function assertAdminCanManageMasjid(supabase: SupabaseClient, masjidId: st
   return !error && data === true;
 }
 
-export async function resolveTicBrothersRotationContext(
+async function loadAdminRotationMasjids(supabase: SupabaseClient) {
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return [];
+  }
+
+  const adminSupabase = createSupabaseAdminClient();
+  const today = todayDateString();
+  const { data, error } = await adminSupabase
+    .from("masjid_staff_memberships")
+    .select("masjid_id,starts_on,created_at,masajid!inner(id,name,slug)")
+    .eq("profile_id", user.id)
+    .eq("staff_role", "admin")
+    .eq("active", true)
+    .lte("starts_on", today)
+    .or(`ends_on.is.null,ends_on.gte.${today}`)
+    .order("starts_on", { ascending: false })
+    .order("created_at", { ascending: false })
+    .returns<AdminMasjidMembershipRow[]>();
+
+  if (error || !data) {
+    return [];
+  }
+
+  const masjids: Array<Pick<Masjid, "id" | "name" | "slug">> = [];
+  const seenMasjidIds = new Set<string>();
+
+  for (const row of data) {
+    if (seenMasjidIds.has(row.masjid_id)) {
+      continue;
+    }
+
+    const canManageMasjid = await assertAdminCanManageMasjid(supabase, row.masjid_id);
+
+    if (canManageMasjid) {
+      seenMasjidIds.add(row.masjid_id);
+      masjids.push(row.masajid);
+    }
+  }
+
+  return masjids;
+}
+
+export async function resolveAdminBrothersRotationContext(
   supabase: SupabaseClient
 ): Promise<RotationContext | null> {
   const adminSupabase = createSupabaseAdminClient();
-  const { data: masjid } = await adminSupabase
-    .from("masajid")
-    .select("id,name,slug")
-    .eq("slug", "tic")
-    .eq("active", true)
-    .maybeSingle<Pick<Masjid, "id" | "name" | "slug">>();
+  const masjids = await loadAdminRotationMasjids(supabase);
 
-  if (!masjid) {
-    return null;
+  for (const masjid of masjids) {
+    const { data: cohort } = await adminSupabase
+      .from("cohorts")
+      .select("id,name,kind,masjid_id")
+      .eq("masjid_id", masjid.id)
+      .eq("kind", "brothers")
+      .eq("active", true)
+      .order("sort_order", { ascending: true })
+      .limit(1)
+      .maybeSingle<Pick<Cohort, "id" | "name" | "kind" | "masjid_id">>();
+
+    if (cohort) {
+      return { masjid, cohort };
+    }
   }
 
-  const canManageMasjid = await assertAdminCanManageMasjid(supabase, masjid.id);
-
-  if (!canManageMasjid) {
-    return null;
-  }
-
-  const { data: cohort } = await adminSupabase
-    .from("cohorts")
-    .select("id,name,kind,masjid_id")
-    .eq("masjid_id", masjid.id)
-    .eq("kind", "brothers")
-    .eq("active", true)
-    .order("sort_order", { ascending: true })
-    .limit(1)
-    .maybeSingle<Pick<Cohort, "id" | "name" | "kind" | "masjid_id">>();
-
-  if (!cohort) {
-    return null;
-  }
-
-  return { masjid, cohort };
+  return null;
 }
 
 export async function loadRotationSettings(
@@ -474,7 +513,7 @@ export async function loadRotationPageData(input: {
   searchParams: RotationSearchParams;
 }): Promise<RotationPageData> {
   const selectedWeekStart = validRotationWeekStart(input.searchParams.week);
-  const context = await resolveTicBrothersRotationContext(input.supabase);
+  const context = await resolveAdminBrothersRotationContext(input.supabase);
 
   if (!context) {
     return {
@@ -487,7 +526,7 @@ export async function loadRotationPageData(input: {
       teachers: [],
       assignments: [],
       persistencePlan: null,
-      setupIssues: ["TIC brothers cohort is not available for this admin."]
+      setupIssues: ["No active brothers rotation cohort is available for this admin."]
     };
   }
 
