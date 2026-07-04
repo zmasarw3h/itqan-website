@@ -9,13 +9,14 @@ Manual in the app:
 1. Sign in as an admin.
 2. Open `Admin Dashboard -> Add User`.
 3. Enter the user's name and phone number.
-4. Choose Student or Admin.
+4. Choose Student, Teacher, or Admin.
 5. Share the temporary password shown by the app flow: `itqan2026`.
 6. Ask the user to change their password after first sign-in.
 
 The app creates the Supabase Auth user and matching active `public.profiles` row. It also assigns:
 
 - New students to the first active brothers group in the admin's primary masjid.
+- New teachers to the same primary masjid as the creating admin, effective from the current tracker week.
 - New admins to the same primary masjid as the creating admin.
 
 If scoped assignment fails, the user may exist in Auth/Profile but will not have usable app access until the masjid/cohort/group membership is fixed.

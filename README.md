@@ -6,7 +6,7 @@ Lightweight masjid operations system that started as an emergency Canvas replace
 
 - Students sign in, autosave one weighted daily Quran checklist throughout the day, confirm partner recitation rounds, view weekly grades, see a student-facing leaderboard, see today's saved checklist and score, and view their own history.
 - Students upload one weekly plan image/PDF for the current Sunday-Saturday tracker week before using daily check-in.
-- Admins sign in, add students, view all active students, review weekly/date submission scores, filter by student/date/status, correct check-ins, enter Saturday halaqa grades, and export CSV.
+- Admins sign in, add students/teachers/admins, view all active students, review weekly/date submission scores, filter by student/date/status, correct check-ins, enter Saturday halaqa grades, and export CSV.
 - Admins can view/download a student's uploaded weekly plan from that student's admin screen.
 - The app now includes scoped masjid/cohort foundations and weekly teacher rotation operations. It still excludes plan approval, comments, plan parsing/OCR, announcements, payments, booking, parent accounts, and Quran selection.
 
