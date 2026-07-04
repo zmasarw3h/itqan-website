@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { correctPartnerRecitations } from "@/app/admin/actions";
 import AppNav from "@/app/nav";
 import CorrectionForm, { type CorrectionFormCheckIn } from "./correction-form";
 import HalaqaGradeForm from "./halaqa-grade-form";
@@ -17,6 +18,7 @@ import {
   weekStartForDate
 } from "@/lib/dates";
 import { PASSING_PERCENTAGE } from "@/lib/leaderboard";
+import { PARTNER_RECITATION_ROUNDS } from "@/lib/partner-recitations";
 import { calculateDailyScoreProgress, calculateWeeklyScore, formatScore } from "@/lib/scoring";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
@@ -262,6 +264,17 @@ export default async function AdminStudentPage({
             Unable to save correction.
           </p>
         ) : null}
+        {resolvedSearchParams.status === "partner-corrected" ? (
+          <p className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
+            Partner recitation correction saved.
+          </p>
+        ) : null}
+        {resolvedSearchParams.status === "partner-correction-invalid" ||
+        resolvedSearchParams.status === "partner-correction-error" ? (
+          <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+            Unable to save partner recitation correction.
+          </p>
+        ) : null}
         {resolvedSearchParams.status === "grade-saved" ? (
           <p className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">Halaqa grade saved.</p>
         ) : null}
@@ -439,26 +452,46 @@ export default async function AdminStudentPage({
             <h2 className="text-lg font-semibold text-ink">Weekly Requirements</h2>
             <p className="mt-1 text-sm text-stone-600">Partner recitation and halaqa grade for the selected week.</p>
           </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {(["round_1", "round_2"] as PartnerRecitation["round"][]).map((round) => {
-              const recitation = partnerRecitationByRound.get(round);
+          <form action={correctPartnerRecitations} className="mt-4">
+            <input name="student_id" type="hidden" value={student.id} />
+            <input name="week_start" type="hidden" value={selectedWeekStart} />
+            <input name="redirect_week" type="hidden" value={selectedWeekStart} />
+            <fieldset className="grid gap-3 md:grid-cols-2">
+              <legend className="sr-only">Partner recitation completion status</legend>
+              {PARTNER_RECITATION_ROUNDS.map((round) => {
+                const recitation = partnerRecitationByRound.get(round);
 
-              return (
-                <div className="rounded-md border border-stone-200 p-4" key={round}>
-                  <p className="text-sm font-medium text-ink">{partnerRoundLabel(round)}</p>
-                  <p className={recitation ? "mt-1 text-sm text-green-700" : "mt-1 text-sm text-stone-600"}>
-                    {recitation ? "Submitted" : "No submission"}
-                  </p>
-                  <p className="mt-2 text-xl font-semibold text-ink">{recitation?.points ?? 0} / 75</p>
-                  {recitation ? (
-                    <p className="mt-1 text-xs text-stone-500">
-                      Submitted {formatDateTimeInAppTimeZone(recitation.submitted_at)}
-                    </p>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
+                return (
+                  <label className="rounded-md border border-stone-200 p-4" key={round}>
+                    <span className="flex items-start gap-3">
+                      <input
+                        className="mt-1 h-4 w-4"
+                        defaultChecked={Boolean(recitation)}
+                        name="completed_rounds"
+                        type="checkbox"
+                        value={round}
+                      />
+                      <span>
+                        <span className="block text-sm font-medium text-ink">{partnerRoundLabel(round)}</span>
+                        <span className={recitation ? "mt-1 block text-sm text-green-700" : "mt-1 block text-sm text-stone-600"}>
+                          {recitation ? "Completed" : "Not completed"}
+                        </span>
+                      </span>
+                    </span>
+                    <span className="mt-2 block text-xl font-semibold text-ink">{recitation?.points ?? 0} / 75</span>
+                    {recitation ? (
+                      <span className="mt-1 block text-xs text-stone-500">
+                        Submitted {formatDateTimeInAppTimeZone(recitation.submitted_at)}
+                      </span>
+                    ) : null}
+                  </label>
+                );
+              })}
+            </fieldset>
+            <button className="mt-4 rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink">
+              Save partner recitation status
+            </button>
+          </form>
           <div className="mt-6 border-t border-stone-200 pt-4">
             <h3 className="font-semibold text-ink">Halaqa Grade</h3>
             <p className="mt-1 text-sm text-stone-600">Saturday grade for {formatWeekRange(selectedWeekStart)}</p>

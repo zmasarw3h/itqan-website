@@ -1,10 +1,43 @@
 import type { PartnerRecitation } from "@/lib/types";
-import { partnerRoundForDate, type PartnerRound } from "@/lib/scoring";
+import { partnerRoundForDate, PARTNER_RECITATION_POINTS_PER_ROUND, type PartnerRound } from "@/lib/scoring";
 
 export function assertNoDuplicatePartnerRecitation(existing: Pick<PartnerRecitation, "student_id" | "week_start" | "round"> | null) {
   if (existing) {
     throw new Error("A partner recitation already exists for this student, week, and round.");
   }
+}
+
+export const PARTNER_RECITATION_ROUNDS: readonly PartnerRound[] = ["round_1", "round_2"];
+
+export function isPartnerRecitationRound(value: FormDataEntryValue | null): value is PartnerRound {
+  return typeof value === "string" && PARTNER_RECITATION_ROUNDS.includes(value as PartnerRound);
+}
+
+export function parsePartnerRecitationRounds(values: FormDataEntryValue[]) {
+  const rounds = new Set<PartnerRound>();
+
+  for (const value of values) {
+    if (!isPartnerRecitationRound(value)) {
+      throw new Error("Invalid partner recitation round.");
+    }
+
+    rounds.add(value);
+  }
+
+  return PARTNER_RECITATION_ROUNDS.filter((round) => rounds.has(round));
+}
+
+export function partnerRecitationPayloads(input: {
+  studentId: string;
+  weekStart: string;
+  rounds: Iterable<PartnerRound>;
+}) {
+  return [...new Set(input.rounds)].map((round) => ({
+    student_id: input.studentId,
+    week_start: input.weekStart,
+    round,
+    points: PARTNER_RECITATION_POINTS_PER_ROUND
+  }));
 }
 
 export type PartnerRoundStatus = "completed" | "open" | "closed" | "not_completed";
