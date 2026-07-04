@@ -3,7 +3,7 @@ import type { Role } from "@/lib/types";
 
 export const DEFAULT_USER_PASSWORD = "itqan2026";
 
-const CREATEABLE_ROLES = new Set<Role>(["student", "admin"]);
+const CREATEABLE_ROLES = new Set<Role>(["student", "teacher", "admin"]);
 
 export function buildAdminUserCreateInput(input: {
   name: FormDataEntryValue | null;

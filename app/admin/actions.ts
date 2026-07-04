@@ -131,13 +131,13 @@ export async function createUser(formData: FormData) {
     redirect("/admin/students/new?status=assignment-error");
   }
 
-  if (input.role === "admin") {
+  if (input.role === "admin" || input.role === "teacher") {
     const { error: membershipError } = await adminSupabase.from("masjid_staff_memberships").insert({
       profile_id: authData.user.id,
       masjid_id: primaryMasjidId,
-      staff_role: "admin",
+      staff_role: input.role,
       active: true,
-      starts_on: todayDateString(),
+      starts_on: input.role === "teacher" ? weekStartForDate(todayDateString()) : todayDateString(),
       created_by: profile.id
     });
 
@@ -166,6 +166,7 @@ export async function createUser(formData: FormData) {
   }
 
   revalidatePath("/admin");
+  revalidatePath("/admin/rotation");
   const params = new URLSearchParams({ status: "created", role: input.role });
 
   if (input.role === "student") {

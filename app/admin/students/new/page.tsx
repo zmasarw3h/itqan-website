@@ -15,7 +15,7 @@ type NewStudentSearchParams = {
 function statusMessage(status: string | undefined, role: Role | undefined) {
   switch (status) {
     case "created": {
-      const userLabel = role === "admin" ? "Admin" : "Student";
+      const userLabel = role === "admin" ? "Admin" : role === "teacher" ? "Teacher" : "Student";
       return {
         tone: "success",
         text: `${userLabel} created. They can now log in with their phone number and password itqan2026.`
@@ -44,7 +44,10 @@ export default async function NewStudentPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const { profile } = await requireProfile(["admin"]);
-  const createdRole: Role | undefined = resolvedSearchParams.role === "admin" || resolvedSearchParams.role === "student" ? resolvedSearchParams.role : undefined;
+  const createdRole: Role | undefined =
+    resolvedSearchParams.role === "admin" || resolvedSearchParams.role === "teacher" || resolvedSearchParams.role === "student"
+      ? resolvedSearchParams.role
+      : undefined;
   const message = statusMessage(resolvedSearchParams.status, createdRole);
 
   return (
@@ -53,7 +56,7 @@ export default async function NewStudentPage({
       <main className="mx-auto max-w-2xl px-4 py-8">
         <div>
           <h1 className="text-2xl font-semibold text-ink">Add User</h1>
-          <p className="mt-1 text-stone-600">Create a student or admin login from a name and phone number.</p>
+          <p className="mt-1 text-stone-600">Create a student, teacher, or admin login from a name and phone number.</p>
         </div>
 
         {message ? (
@@ -101,6 +104,7 @@ export default async function NewStudentPage({
             <span className="text-sm font-medium text-ink">Role</span>
             <select className="mt-1 w-full rounded-md border border-stone-300 bg-white px-3 py-2" defaultValue="student" name="role" required>
               <option value="student">Student</option>
+              <option value="teacher">Teacher</option>
               <option value="admin">Admin</option>
             </select>
           </label>
