@@ -31,6 +31,7 @@ function linksForRole(role: Role) {
     return [
       { href: "/super-admin", label: "Super Admin" },
       { href: "/super-admin/people", label: "People" },
+      { href: "/super-admin/masajid", label: "Masajid" },
       { href: "/account/change-password", label: "Password" }
     ];
   }
