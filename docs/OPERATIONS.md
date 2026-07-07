@@ -179,6 +179,20 @@ when an admin intentionally runs the rotation action.
 The first operational release is scoped to the TIC brothers cohort. Server-side checks still enforce that
 the signed-in admin can manage the TIC masjid before any rotation data is read or written.
 
+## Super Admin Setup
+
+Super admin workflow in the app:
+
+1. Sign in as an active `super_admin`.
+2. Open `Super Admin -> Masajid`.
+3. Create a masjid with a slug, active state, optional starter brothers/sisters cohort, and optional starter group.
+4. Open the masjid detail page to edit the masjid, create or deactivate cohorts, and create or deactivate groups.
+5. Grant the first admin or admin-teacher from an existing active person by email or phone.
+
+Setup changes are audited in `super_admin_audit_events`. The UI does not delete masajid, cohorts, groups,
+or staff memberships; deactivation uses the `active` flag and requires typed confirmation when turning
+active setup records off. Admin grants require typed confirmation of both the masjid name and person name.
+
 ## Emergency Production Changes
 
 - Prefer app-level corrections first.
