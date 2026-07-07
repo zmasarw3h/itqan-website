@@ -30,6 +30,7 @@ function linksForRole(role: Role) {
   if (role === "super_admin") {
     return [
       { href: "/super-admin", label: "Super Admin" },
+      { href: "/super-admin/people", label: "People" },
       { href: "/account/change-password", label: "Password" }
     ];
   }
