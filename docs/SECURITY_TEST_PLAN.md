@@ -23,11 +23,21 @@ Tables with RLS enabled:
 - `public.weekly_plans`
 - `public.partner_recitations`
 - `public.halaqa_grades`
+- `public.masajid`
+- `public.cohorts`
+- `public.halaqa_groups`
+- `public.student_group_memberships`
+- `public.masjid_staff_memberships`
+- `public.group_teacher_assignments`
+- `public.super_admin_audit_events`
 
 Helper functions used by policies:
 
 - `public.is_active_admin()`
 - `public.is_active_student()`
+- `public.is_active_teacher()`
+- `public.is_active_super_admin()`
+- `public.is_admin_for_masjid(masjid_id)`
 - `public.current_effective_date()`
 - `public.week_start_for_date(date)`
 - `public.current_partner_recitation_round()`
@@ -78,13 +88,40 @@ As `admin_a`:
 
 - Select all profiles.
 - Expected: all profiles intended for admin management are visible.
-- Insert and update a student profile.
-- Expected: succeeds for active admin.
+- Insert or update `profiles.role` / `profiles.active` directly through the signed-in client.
+- Expected: fails unless the actor is an active super admin. Normal app student/teacher creation uses guarded server-side service-role code.
 
 As `student_a` or unauthenticated:
 
 - Insert a profile for a new student.
 - Expected: fails with RLS/permission error.
+
+### Super Admin Audit Events
+
+As `super_admin_a`:
+
+- Select from `super_admin_audit_events`.
+- Expected: audit events are returned.
+
+As `admin_a`, `student_a`, or unauthenticated:
+
+- Select from `super_admin_audit_events`.
+- Expected: zero rows or permission/RLS denial.
+- Insert, update, or delete audit events.
+- Expected: fails. Audit rows should be written only by guarded server-side code or a future tightly scoped RPC.
+
+### Foundation Tables
+
+As `admin_a`:
+
+- Insert/update/delete `masajid`, `cohorts`, or `halaqa_groups` directly through the signed-in client.
+- Expected: fails. Setup-level writes are super-admin only or must go through existing guarded server-side flows.
+- Insert/update a `masjid_staff_memberships` row with `staff_role = 'admin'`.
+- Expected: fails. Admin grants are super-admin only.
+- Insert/update a `masjid_staff_memberships` row with `staff_role = 'teacher'` for a masjid where `admin_a` has active admin membership.
+- Expected: succeeds if all table constraints are satisfied.
+- Insert/update a `student_group_memberships` or `group_teacher_assignments` row outside `admin_a`'s active admin masjid.
+- Expected: fails.
 
 ### Check-Ins
 
@@ -235,6 +272,7 @@ The current unit tests cover pure helper behavior that supports the access model
 - `test/grades.test.ts`: student grade scoping and grade display helpers.
 - `test/partner-recitations.test.ts`: current-round view state.
 - `test/security.test.ts`: consolidated security-critical helper expectations.
+- `test/super-admin-rules.test.ts`: pure super-admin guardrails and audit payload shaping.
 
 These are not substitutes for RLS tests. They only guard app-side pure functions.
 

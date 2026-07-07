@@ -96,10 +96,10 @@ describe("access rules", () => {
     expect(canSubmitStudentCheckIn(admin, student.id)).toBe(false);
   });
 
-  it("routes deferred roles to account settings until dedicated screens exist", () => {
+  it("routes roles to their default app area", () => {
     expect(defaultPathForRole("student")).toBe("/student/check-in");
     expect(defaultPathForRole("admin")).toBe("/admin");
     expect(defaultPathForRole("teacher")).toBe("/account/change-password");
-    expect(defaultPathForRole("super_admin")).toBe("/account/change-password");
+    expect(defaultPathForRole("super_admin")).toBe("/super-admin");
   });
 });

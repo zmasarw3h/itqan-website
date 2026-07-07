@@ -86,6 +86,19 @@ describe("student grades", () => {
     ).toBe(2);
   });
 
+  it("does not build a below-70 streak before the student's score baseline", () => {
+    expect(
+      buildStudentBelow70Streak({
+        studentId: "student-1",
+        completedWeekStartsDescending: ["2026-06-28", "2026-06-21", "2026-06-14"],
+        minimumWeekStart: "2026-07-05",
+        checkins: [],
+        partnerRecitations: [],
+        halaqaGrades: []
+      })
+    ).toBe(0);
+  });
+
   it("builds completed student grade weeks from the accountability cutoff through the selected week", () => {
     expect(
       completedStudentGradeWeekStartsDescending({

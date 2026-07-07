@@ -126,6 +126,7 @@ export default async function StudentGradesPage({
   const below70Streak = buildStudentBelow70Streak({
     studentId: scope.studentId,
     completedWeekStartsDescending,
+    minimumWeekStart: studentContext.scope.startsOn,
     checkins: streakCheckins ?? [],
     partnerRecitations: streakPartnerRecitations ?? [],
     halaqaGrades: streakHalaqaGrades ?? []

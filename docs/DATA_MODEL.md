@@ -35,6 +35,7 @@ Core tables:
 - `teacher_rotation_availability`: per-teacher, per-cohort weekly availability for Saturday halaqa rotation.
 - `cohort_rotation_settings`: active rotation configuration for a cohort, including target stable group count.
 - `teacher_rotation_runs`: audit metadata for generated weekly rotation runs.
+- `super_admin_audit_events`: append-only audit target for future super-admin mutations and account recovery actions.
 
 Server-side helper functions expose narrow scoped views used by the app:
 
@@ -95,5 +96,6 @@ Existing admins receive TIC admin staff memberships. Existing active students re
 - One active rotation settings row per cohort.
 - Students can only view and submit their own records. Student leaderboard rows are limited to the student's cohort for the selected week.
 - Active students without an effective group membership see setup-incomplete screens and cannot create check-ins, weekly plans, or partner recitations.
-- Admin app queries and mutations are scoped by masjid membership. The initial foundation migration still keeps older broad admin RLS policies until the scoped-RLS phase.
+- Admin app queries and mutations are scoped by masjid membership. Phase 0 also tightens direct Data API write policies so normal admins cannot grant admin access, mutate global foundation setup, or change other masajid through broad RLS.
+- Active super admins can read `super_admin_audit_events`; browser/client writes to the audit table are not exposed.
 - Teachers are eventually scoped by assigned group/week and can grade/view weekly plans only for assigned students.

@@ -51,6 +51,7 @@ export function calculateWeekScoreForStudent(input: {
 
 export function calculateBelow70Streak(input: {
   completedWeekStartsDescending: string[];
+  minimumWeekStart?: string | null;
   checkinsByWeek: ReadonlyMap<string, Pick<CheckIn, "student_id" | "date" | "daily_score">[]>;
   partnerRecitationsByWeek: ReadonlyMap<string, Pick<PartnerRecitation, "student_id" | "round" | "points">[]>;
   halaqaGradeByWeek: ReadonlyMap<
@@ -61,6 +62,10 @@ export function calculateBelow70Streak(input: {
   let streak = 0;
 
   for (const weekStart of input.completedWeekStartsDescending) {
+    if (input.minimumWeekStart && weekStart < input.minimumWeekStart) {
+      break;
+    }
+
     if (!accountabilityAppliesToWeek(weekStart)) {
       break;
     }
@@ -108,6 +113,7 @@ export function buildLeaderboardRows(input: {
       >;
     }
   >;
+  minimumWeekStartByStudent?: ReadonlyMap<string, string | null | undefined>;
 }) {
   const selectedWeekComplete = weekIsComplete(input.selectedWeekStart, input.today);
   const rows = input.students.map<LeaderboardRow>((student) => {
@@ -121,6 +127,7 @@ export function buildLeaderboardRows(input: {
     const below70Streak = streakData
       ? calculateBelow70Streak({
           completedWeekStartsDescending: input.completedWeekStartsDescending,
+          minimumWeekStart: input.minimumWeekStartByStudent?.get(student.id) ?? null,
           ...streakData
         })
       : 0;
