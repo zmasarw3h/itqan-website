@@ -27,6 +27,13 @@ function linksForRole(role: Role) {
     ];
   }
 
+  if (role === "super_admin") {
+    return [
+      { href: "/super-admin", label: "Super Admin" },
+      { href: "/account/change-password", label: "Password" }
+    ];
+  }
+
   return [{ href: "/account/change-password", label: "Password" }];
 }
 

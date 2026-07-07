@@ -9,7 +9,7 @@ Manual in the app:
 1. Sign in as an admin.
 2. Open `Admin Dashboard -> Add User`.
 3. Enter the user's name and phone number.
-4. Choose Student, Teacher, or Admin.
+4. Choose Student or Teacher.
 5. Share the temporary password shown by the app flow: `itqan2026`.
 6. Ask the user to change their password after first sign-in.
 
@@ -17,7 +17,11 @@ The app creates the Supabase Auth user and matching active `public.profiles` row
 
 - New students to the first active brothers group in the admin's primary masjid.
 - New teachers to the same primary masjid as the creating admin, effective from the current tracker week.
-- New admins to the same primary masjid as the creating admin.
+
+Normal admins cannot grant `profiles.role = 'admin'` or `super_admin` access from the app. Until the
+super-admin console is implemented, admin grants remain a controlled server-side or database operation
+performed by an operator with explicit approval and should be recorded in `super_admin_audit_events`
+when done through app code.
 
 Admins can also participate in teacher rotation. Keep their profile role as `admin` and add an active
 `masjid_staff_memberships` row with `staff_role = 'teacher'` for the relevant masjid.

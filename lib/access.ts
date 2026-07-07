@@ -1,6 +1,10 @@
 import type { Profile, Role } from "@/lib/types";
 
 export function defaultPathForRole(role: Role) {
+  if (role === "super_admin") {
+    return "/super-admin";
+  }
+
   if (role === "admin") {
     return "/admin";
   }

@@ -13,17 +13,6 @@ describe("admin user creation", () => {
     });
   });
 
-  it("normalizes phone and builds a synthetic auth email for new admins", () => {
-    expect(buildAdminUserCreateInput({ name: "Admin One", phone: "4165550000", role: "admin" })).toEqual({
-      name: "Admin One",
-      phone: "+14165550000",
-      email: "14165550000@itqan.local",
-      password: DEFAULT_USER_PASSWORD,
-      role: "admin",
-      active: true
-    });
-  });
-
   it("normalizes phone and builds a synthetic auth email for new teachers", () => {
     expect(buildAdminUserCreateInput({ name: "Teacher One", phone: "4165552222", role: "teacher" })).toEqual({
       name: "Teacher One",
@@ -38,6 +27,7 @@ describe("admin user creation", () => {
   it("validates name, phone, and role server-side", () => {
     expect(() => buildAdminUserCreateInput({ name: "", phone: "4165551234", role: "student" })).toThrow("name");
     expect(() => buildAdminUserCreateInput({ name: "Student One", phone: "555", role: "student" })).toThrow("valid");
+    expect(() => buildAdminUserCreateInput({ name: "Admin One", phone: "4165550000", role: "admin" })).toThrow("role");
     expect(() => buildAdminUserCreateInput({ name: "User One", phone: "4165551234", role: "super_admin" })).toThrow("role");
   });
 });
