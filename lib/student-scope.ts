@@ -6,6 +6,7 @@ type SupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
 
 type StudentScopeMembershipRow = {
   group_id: string;
+  starts_on: string;
   halaqa_groups: {
     id: string;
     name: string;
@@ -35,6 +36,7 @@ export type StudentWeekScope = {
   cohortKind: CohortKind;
   groupId: string;
   groupName: string;
+  startsOn: string;
 };
 
 export type StudentWeekTeacher = {
@@ -71,7 +73,8 @@ function mapScopeRow(
     cohortName: cohort.name,
     cohortKind: cohort.kind,
     groupId: group.id,
-    groupName: group.name
+    groupName: group.name,
+    startsOn: row.starts_on
   };
 }
 
@@ -83,7 +86,7 @@ export async function loadStudentScopeForWeek(
   const { data, error } = await supabase
     .from("student_group_memberships")
     .select(
-      "group_id,halaqa_groups(id,name,cohort_id,cohorts(id,name,kind,masjid_id,masajid(id,name,slug)))"
+      "group_id,starts_on,halaqa_groups(id,name,cohort_id,cohorts(id,name,kind,masjid_id,masajid(id,name,slug)))"
     )
     .eq("student_id", studentId)
     .lte("starts_on", weekStart)

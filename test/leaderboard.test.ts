@@ -34,6 +34,18 @@ describe("leaderboard CSV export", () => {
     ).toBe(1);
   });
 
+  it("does not count below-70 streak weeks before the student score baseline", () => {
+    expect(
+      calculateBelow70Streak({
+        completedWeekStartsDescending: ["2026-06-28", "2026-06-21", "2026-06-14"],
+        minimumWeekStart: "2026-07-05",
+        checkinsByWeek: new Map(),
+        partnerRecitationsByWeek: new Map(),
+        halaqaGradeByWeek: new Map()
+      })
+    ).toBe(0);
+  });
+
   it("escapes spreadsheet formula prefixes in user-controlled fields", () => {
     const csv = leaderboardRowsToCsv([
       leaderboardRow({

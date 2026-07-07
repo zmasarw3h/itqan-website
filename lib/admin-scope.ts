@@ -10,6 +10,7 @@ export type AdminStudentForWeek = {
   student_email: string;
   student_phone: string | null;
   student_created_at: string | null;
+  membership_starts_on: string | null;
   masjid_id: string;
   cohort_id: string;
   cohort_kind: CohortKind;
@@ -18,7 +19,7 @@ export type AdminStudentForWeek = {
   group_name: string;
 };
 
-export function adminScopedStudentToProfile(student: AdminStudentForWeek): Profile {
+export function adminScopedStudentToProfile(student: AdminStudentForWeek): Profile & { score_starts_on: string | null } {
   return {
     id: student.student_id,
     name: student.student_name,
@@ -26,8 +27,13 @@ export function adminScopedStudentToProfile(student: AdminStudentForWeek): Profi
     phone: student.student_phone,
     role: "student",
     active: true,
-    created_at: student.student_created_at ?? undefined
+    created_at: student.student_created_at ?? undefined,
+    score_starts_on: student.membership_starts_on
   };
+}
+
+function studentGroupKey(studentId: string, groupId: string) {
+  return `${studentId}:${groupId}`;
 }
 
 export async function loadAdminStudentsForWeek(supabase: SupabaseClient, weekStart: string) {
@@ -39,7 +45,40 @@ export async function loadAdminStudentsForWeek(supabase: SupabaseClient, weekSta
     throw new Error("Unable to load admin student scope.");
   }
 
-  return Array.isArray(data) ? (data as AdminStudentForWeek[]) : [];
+  const students = Array.isArray(data) ? (data as Array<Omit<AdminStudentForWeek, "membership_starts_on">>) : [];
+  const studentIds = [...new Set(students.map((student) => student.student_id))];
+
+  if (!studentIds.length) {
+    return [];
+  }
+
+  const { data: memberships, error: membershipsError } = await supabase
+    .from("student_group_memberships")
+    .select("student_id,group_id,starts_on")
+    .in("student_id", studentIds)
+    .lte("starts_on", weekStart)
+    .or(`ends_on.is.null,ends_on.gte.${weekStart}`)
+    .order("starts_on", { ascending: false })
+    .returns<Array<{ student_id: string; group_id: string; starts_on: string }>>();
+
+  if (membershipsError) {
+    throw new Error("Unable to load admin student membership starts.");
+  }
+
+  const membershipStartByStudentGroup = new Map<string, string>();
+
+  for (const membership of memberships ?? []) {
+    const key = studentGroupKey(membership.student_id, membership.group_id);
+
+    if (!membershipStartByStudentGroup.has(key)) {
+      membershipStartByStudentGroup.set(key, membership.starts_on);
+    }
+  }
+
+  return students.map((student) => ({
+    ...student,
+    membership_starts_on: membershipStartByStudentGroup.get(studentGroupKey(student.student_id, student.group_id)) ?? null
+  }));
 }
 
 export async function canAdminManageStudentForWeek(

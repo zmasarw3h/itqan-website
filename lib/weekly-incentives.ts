@@ -16,7 +16,9 @@ import type { requireProfile } from "@/lib/supabase-server";
 import type { AccountabilityObligation, CheckIn, HalaqaGrade, PartnerRecitation, Profile } from "@/lib/types";
 
 type SupabaseClient = Awaited<ReturnType<typeof requireProfile>>["supabase"];
-type ActiveStudent = Pick<Profile, "id" | "name" | "email" | "phone">;
+type ActiveStudent = Pick<Profile, "id" | "name" | "email" | "phone"> & {
+  score_starts_on?: string | null;
+};
 type WeeklyCheckIn = Pick<CheckIn, "student_id" | "date" | "daily_score">;
 type WeeklyPartnerRecitation = Pick<PartnerRecitation, "student_id" | "week_start" | "round" | "points">;
 type WeeklyHalaqaGrade = Pick<HalaqaGrade, "student_id" | "week_start" | "attendance_points" | "recitation_points">;
@@ -124,6 +126,10 @@ export function buildWeeklyIncentiveRows(input: {
 
   for (const weekStart of input.weekStarts) {
     for (const student of input.students) {
+      if (student.score_starts_on && weekStart < student.score_starts_on) {
+        continue;
+      }
+
       const key = studentWeekKey(student.id, weekStart);
       const score = calculateWeekScoreForStudent({
         weekStart,
@@ -262,6 +268,38 @@ export async function loadCompletedWeekStarts(
     .sort((a, b) => b.localeCompare(a));
 }
 
+function latestWeekStart(weekStarts: string[]) {
+  return [...weekStarts].sort((a, b) => b.localeCompare(a))[0] ?? null;
+}
+
+async function loadStudentScoreStartsOn(input: {
+  supabase: SupabaseClient;
+  studentIds: string[];
+  weekStart: string;
+}) {
+  if (!input.studentIds.length) {
+    return new Map<string, string>();
+  }
+
+  const { data } = await input.supabase
+    .from("student_group_memberships")
+    .select("student_id,starts_on")
+    .in("student_id", input.studentIds)
+    .lte("starts_on", input.weekStart)
+    .or(`ends_on.is.null,ends_on.gte.${input.weekStart}`)
+    .order("starts_on", { ascending: false })
+    .returns<Array<{ student_id: string; starts_on: string }>>();
+  const startsOnByStudent = new Map<string, string>();
+
+  for (const membership of data ?? []) {
+    if (!startsOnByStudent.has(membership.student_id)) {
+      startsOnByStudent.set(membership.student_id, membership.starts_on);
+    }
+  }
+
+  return startsOnByStudent;
+}
+
 export async function loadComputedWeeklyIncentiveRows(input: {
   supabase: SupabaseClient;
   weekStarts: string[];
@@ -297,6 +335,22 @@ export async function loadComputedWeeklyIncentiveRows(input: {
 
   if (!studentIds.length) {
     return [];
+  }
+
+  const scoreStartLookupWeek = latestWeekStart(input.weekStarts);
+
+  if (scoreStartLookupWeek) {
+    const studentsMissingScoreStart = students.filter((student) => student.score_starts_on === undefined);
+    const startsOnByStudent = await loadStudentScoreStartsOn({
+      supabase: input.supabase,
+      studentIds: studentsMissingScoreStart.map((student) => student.id),
+      weekStart: scoreStartLookupWeek
+    });
+
+    students = students.map((student) => ({
+      ...student,
+      score_starts_on: student.score_starts_on ?? startsOnByStudent.get(student.id) ?? null
+    }));
   }
 
   const [{ data: checkins }, { data: partnerRecitations }, { data: halaqaGrades }] = await Promise.all([

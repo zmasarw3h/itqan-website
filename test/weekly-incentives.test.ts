@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { accountabilityAppliesToWeek } from "@/lib/incentives";
 import {
   accountabilityGateIsActiveForDate,
+  buildWeeklyIncentiveRows,
   buildWeeklyIncentiveReport,
   computedBadgeAwardFromRow,
   type WeeklyIncentiveScoreRow
@@ -71,6 +72,26 @@ describe("weekly incentive reports", () => {
     });
 
     expect(report.below70ThisWeek.map((studentRow) => studentRow.studentId)).toEqual(["student-a"]);
+  });
+
+  it("does not generate incentive rows before a student's score baseline", () => {
+    const rows = buildWeeklyIncentiveRows({
+      students: [
+        {
+          id: "student-a",
+          name: "Student A",
+          email: "student-a@itqan.local",
+          phone: null,
+          score_starts_on: "2026-07-05"
+        }
+      ],
+      weekStarts: ["2026-06-28", "2026-07-05"],
+      checkins: [],
+      partnerRecitations: [],
+      halaqaGrades: []
+    });
+
+    expect(rows.map((scoreRow) => scoreRow.weekStart)).toEqual(["2026-07-05"]);
   });
 
   it("identifies students below 70 for two completed weeks straight", () => {
