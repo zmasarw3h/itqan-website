@@ -10,23 +10,26 @@ Manual in the app:
 2. Open `Admin Dashboard -> Add User`.
 3. Enter the user's name and phone number.
 4. Choose Student or Teacher.
-5. Share the temporary password shown by the app flow: `itqan2026`.
-6. Ask the user to change their password after first sign-in.
+5. For a student, choose the masjid, cohort, and group.
+6. For a teacher, choose the masjid where they should have teacher access.
+7. Share the temporary password shown by the app flow: `itqan2026`.
+8. Ask the user to change their password after first sign-in.
 
 The app creates the Supabase Auth user and matching active `public.profiles` row. It also assigns:
 
-- New students to the first active brothers group in the admin's primary masjid.
-- New teachers to the same primary masjid as the creating admin, effective from the current tracker week.
+- New students to the selected active group, effective from the current tracker week.
+- New teachers to the selected active masjid with `staff_role = 'teacher'`, effective from the current tracker week.
 
-Normal admins cannot grant `profiles.role = 'admin'` or `super_admin` access from the app. Until the
-super-admin console is implemented, admin grants remain a controlled server-side or database operation
-performed by an operator with explicit approval and should be recorded in `super_admin_audit_events`
-when done through app code.
+Normal admins can only create students and teachers inside their active masjid admin scope. They cannot
+grant `profiles.role = 'admin'` or `super_admin` access, reset passwords, or move users across masajid
+from the normal admin app. Use the super-admin console for those operations.
 
 Admins can also participate in teacher rotation. Keep their profile role as `admin` and add an active
 `masjid_staff_memberships` row with `staff_role = 'teacher'` for the relevant masjid.
 
-If scoped assignment fails, the user may exist in Auth/Profile but will not have usable app access until the masjid/cohort/group membership is fixed.
+The app validates the selected scope before creating the Auth user. If a later membership insert fails,
+the user may exist in Auth/Profile but will not have usable app access until the masjid/cohort/group or
+staff membership is fixed.
 
 ## Masjid Setup
 
@@ -71,7 +74,8 @@ The import tooling predates multi-masjid scope. After importing new users, verif
 ## Reset or Change Passwords
 
 - User self-service: signed-in users can open `Password` in the app navigation and change their own password.
-- Admin reset: manual in Supabase Auth dashboard if the user cannot sign in.
+- Super-admin reset: open `/super-admin/people`, select the person, and use the password reset section.
+- Emergency admin reset: manual in Supabase Auth dashboard if the user cannot sign in and the super-admin console is unavailable.
 - Bulk reset: manual via the local import script. Re-running `npm run import-users -- data/users.csv` resets imported users in that CSV to `itqan2026`.
 
 ## Deploy App

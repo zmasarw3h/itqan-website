@@ -2,7 +2,16 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { canAdminManageStudentForWeek } from "@/lib/admin-scope";
+import {
+  assertAdminCanManageGroup,
+  assertAdminCanManageMasjid,
+  canAdminManageStudentForWeek,
+  requireScopedAdmin
+} from "@/lib/admin-scope";
+import {
+  adminScopeStatusForError,
+  assertSelectedStudentScopeMatchesResolved
+} from "@/lib/admin-scope-rules";
 import { buildAdminUserCreateInput } from "@/lib/admin-users";
 import { adminCorrectionPayload, checkInItemPayloads, normalizeNote } from "@/lib/checkins";
 import { isValidDateString, todayDateString, weekStartForDate } from "@/lib/dates";
@@ -23,58 +32,12 @@ function adminStudentStatusPath(studentId: string, status: string, weekStart?: s
   return `/admin/students/${studentId}?${params.toString()}`;
 }
 
-async function loadPrimaryAdminMasjidId(input: {
-  adminSupabase: ReturnType<typeof createSupabaseAdminClient>;
-  adminId: string;
-}) {
-  const today = todayDateString();
-  const { data } = await input.adminSupabase
-    .from("masjid_staff_memberships")
-    .select("masjid_id")
-    .eq("profile_id", input.adminId)
-    .eq("staff_role", "admin")
-    .eq("active", true)
-    .lte("starts_on", today)
-    .or(`ends_on.is.null,ends_on.gte.${today}`)
-    .order("starts_on", { ascending: false })
-    .limit(1)
-    .maybeSingle<{ masjid_id: string }>();
-
-  return data?.masjid_id ?? null;
-}
-
-async function loadDefaultStudentGroupId(input: {
-  adminSupabase: ReturnType<typeof createSupabaseAdminClient>;
-  masjidId: string;
-}) {
-  const { data: cohort } = await input.adminSupabase
-    .from("cohorts")
-    .select("id")
-    .eq("masjid_id", input.masjidId)
-    .eq("kind", "brothers")
-    .eq("active", true)
-    .order("sort_order", { ascending: true })
-    .limit(1)
-    .maybeSingle<{ id: string }>();
-
-  if (!cohort) {
-    return null;
-  }
-
-  const { data: group } = await input.adminSupabase
-    .from("halaqa_groups")
-    .select("id")
-    .eq("cohort_id", cohort.id)
-    .eq("active", true)
-    .order("sort_order", { ascending: true })
-    .limit(1)
-    .maybeSingle<{ id: string }>();
-
-  return group?.id ?? null;
+function formString(value: FormDataEntryValue | null) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 export async function createUser(formData: FormData) {
-  const { supabase, profile } = await requireProfile(["admin"]);
+  const { adminSupabase, profile } = await requireScopedAdmin();
 
   let input: ReturnType<typeof buildAdminUserCreateInput>;
 
@@ -88,7 +51,54 @@ export async function createUser(formData: FormData) {
     redirect("/admin/students/new?status=invalid");
   }
 
-  const { data: existingProfiles } = await supabase
+  const today = todayDateString();
+  const startsOn = weekStartForDate(today);
+  let teacherMasjidId: string | null = null;
+  let studentGroupId: string | null = null;
+
+  try {
+    if (input.role === "teacher") {
+      const masjid = await assertAdminCanManageMasjid({
+        adminSupabase,
+        admin: profile,
+        masjidId: formString(formData.get("teacher_masjid_id")),
+        effectiveDate: today
+      });
+      teacherMasjidId = masjid.id;
+    }
+
+    if (input.role === "student") {
+      const selectedMasjidId = formString(formData.get("student_masjid_id"));
+      const selectedCohortId = formString(formData.get("student_cohort_id"));
+      const selectedGroupId = formString(formData.get("student_group_id"));
+      const group = await assertAdminCanManageGroup({
+        adminSupabase,
+        admin: profile,
+        groupId: selectedGroupId,
+        effectiveDate: today
+      });
+
+      assertSelectedStudentScopeMatchesResolved(
+        {
+          masjidId: selectedMasjidId,
+          cohortId: selectedCohortId,
+          groupId: selectedGroupId
+        },
+        {
+          masjidId: group.masjid.id,
+          cohortId: group.cohort.id,
+          groupId: group.id
+        }
+      );
+
+      studentGroupId = group.id;
+    }
+  } catch (error) {
+    const params = new URLSearchParams({ status: adminScopeStatusForError(error), role: input.role });
+    redirect(`/admin/students/new?${params.toString()}`);
+  }
+
+  const { data: existingProfiles } = await adminSupabase
     .from("profiles")
     .select("id")
     .or(`email.eq.${input.email},phone.eq.${input.phone}`)
@@ -99,7 +109,6 @@ export async function createUser(formData: FormData) {
     redirect("/admin/students/new?status=exists");
   }
 
-  const adminSupabase = createSupabaseAdminClient();
   const { data: authData, error: authError } = await adminSupabase.auth.admin.createUser({
     email: input.email,
     password: input.password,
@@ -126,19 +135,17 @@ export async function createUser(formData: FormData) {
     redirect("/admin/students/new?status=profile-error");
   }
 
-  const primaryMasjidId = await loadPrimaryAdminMasjidId({ adminSupabase, adminId: profile.id });
+  if (input.role === "teacher") {
+    if (!teacherMasjidId) {
+      redirect("/admin/students/new?status=missing-scope&role=teacher");
+    }
 
-  if (!primaryMasjidId) {
-    redirect("/admin/students/new?status=assignment-error");
-  }
-
-  if (input.role === "admin" || input.role === "teacher") {
     const { error: membershipError } = await adminSupabase.from("masjid_staff_memberships").insert({
       profile_id: authData.user.id,
-      masjid_id: primaryMasjidId,
-      staff_role: input.role,
+      masjid_id: teacherMasjidId,
+      staff_role: "teacher",
       active: true,
-      starts_on: input.role === "teacher" ? weekStartForDate(todayDateString()) : todayDateString(),
+      starts_on: startsOn,
       created_by: profile.id
     });
 
@@ -148,16 +155,14 @@ export async function createUser(formData: FormData) {
   }
 
   if (input.role === "student") {
-    const defaultGroupId = await loadDefaultStudentGroupId({ adminSupabase, masjidId: primaryMasjidId });
-
-    if (!defaultGroupId) {
-      redirect("/admin/students/new?status=assignment-error");
+    if (!studentGroupId) {
+      redirect("/admin/students/new?status=missing-scope&role=student");
     }
 
     const { error: membershipError } = await adminSupabase.from("student_group_memberships").insert({
       student_id: authData.user.id,
-      group_id: defaultGroupId,
-      starts_on: weekStartForDate(todayDateString()),
+      group_id: studentGroupId,
+      starts_on: startsOn,
       assigned_by: profile.id
     });
 
