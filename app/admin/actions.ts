@@ -14,13 +14,13 @@ import {
   assertSelectedStudentScopeMatchesResolved
 } from "@/lib/admin-scope-rules";
 import { buildAdminUserCreateInput } from "@/lib/admin-users";
-import { adminCorrectionPayload, checkInItemPayloads, normalizeNote } from "@/lib/checkins";
+import { normalizeNote } from "@/lib/checkins";
 import { isValidDateString, todayDateString, weekStartForDate } from "@/lib/dates";
 import { PARTNER_RECITATION_ROUNDS, parsePartnerRecitationRounds, partnerRecitationPayloads } from "@/lib/partner-recitations";
-import { calculateDailySubmission, HALAQA_ATTENDANCE_POINTS } from "@/lib/scoring";
+import { HALAQA_ATTENDANCE_POINTS } from "@/lib/scoring";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
-import type { CheckIn, PartnerRecitation } from "@/lib/types";
+import type { PartnerRecitation } from "@/lib/types";
 import { WEEKLY_PLAN_BUCKET, weeklyPlanPathBelongsToStudent } from "@/lib/weekly-plans";
 
 function adminStudentStatusPath(studentId: string, status: string, weekStart?: string) {
@@ -184,7 +184,7 @@ export async function createUser(formData: FormData) {
 }
 
 export async function correctCheckIn(formData: FormData) {
-  const { supabase, profile } = await requireProfile(["admin"]);
+  const { supabase } = await requireProfile(["admin"]);
   const studentId = String(formData.get("student_id") ?? "");
   const date = String(formData.get("date") ?? "");
   const status = String(formData.get("status") ?? "submitted");
@@ -192,7 +192,11 @@ export async function correctCheckIn(formData: FormData) {
   const note = normalizeNote(formData.get("note"));
   const completedTaskKeys = formData.getAll("task_keys").filter((value): value is string => typeof value === "string");
 
-  if (!studentId || !date) {
+  if (
+    !studentId
+    || !isValidDateString(date)
+    || !["submitted", "missing"].includes(status)
+  ) {
     redirect("/admin?status=invalid-correction");
   }
 
@@ -203,60 +207,15 @@ export async function correctCheckIn(formData: FormData) {
     redirect("/admin?status=student-scope-denied");
   }
 
-  if (status === "missing") {
-    const { error } = await supabase.from("checkins").delete().eq("student_id", studentId).eq("date", date);
-
-    if (error) {
-      redirect(adminStudentStatusPath(studentId, "correction-error", redirectWeek));
-    }
-
-    revalidatePath("/admin");
-    revalidatePath(`/admin/students/${studentId}`);
-    redirect(adminStudentStatusPath(studentId, "corrected", redirectWeek));
-  }
-
-  const submission = calculateDailySubmission(date, completedTaskKeys);
-  const payload = adminCorrectionPayload({
-    adminId: profile.id,
-    studentId,
-    date,
-    completed: true,
-    note,
-    earnedWeight: submission.earnedWeight,
-    totalWeight: submission.totalWeight,
-    dailyScore: submission.dailyScore
+  const { error } = await supabase.rpc("apply_admin_checkin_correction", {
+    input_student_id: studentId,
+    input_date: date,
+    input_status: status,
+    input_note: note,
+    input_completed_task_keys: completedTaskKeys
   });
 
-  const { data: checkin, error } = await supabase
-    .from("checkins")
-    .upsert(payload, {
-      onConflict: "student_id,date"
-    })
-    .select("id,student_id,date,completed,note,earned_weight,total_weight,daily_score,submitted_at,updated_at,updated_by_admin")
-    .single<CheckIn>();
-
-  if (error || !checkin) {
-    redirect(adminStudentStatusPath(studentId, "correction-error", redirectWeek));
-  }
-
-  const { error: deleteItemsError } = await supabase.from("checkin_items").delete().eq("checkin_id", checkin.id);
-
-  if (deleteItemsError) {
-    redirect(adminStudentStatusPath(studentId, "correction-error", redirectWeek));
-  }
-
-  const { error: insertItemsError } = await supabase
-    .from("checkin_items")
-    .insert(
-      checkInItemPayloads({
-        checkinId: checkin.id,
-        studentId,
-        date,
-        completedTaskKeys
-      })
-    );
-
-  if (insertItemsError) {
+  if (error) {
     redirect(adminStudentStatusPath(studentId, "correction-error", redirectWeek));
   }
 
@@ -429,16 +388,27 @@ export async function deleteStudent(formData: FormData) {
   }
 
   const adminSupabase = createSupabaseAdminClient();
-  const { data: weeklyPlans } = await adminSupabase
+  const { data: weeklyPlans, error: weeklyPlansError } = await adminSupabase
     .from("weekly_plans")
     .select("file_path,week_start")
     .eq("student_id", student.id)
     .returns<Array<{ file_path: string; week_start: string }>>();
+
+  if (weeklyPlansError) {
+    redirect(`/admin/students/${student.id}?status=student-delete-error`);
+  }
+
+  const hasUnsafeWeeklyPlanPath = (weeklyPlans ?? []).some(
+    (plan) => !weeklyPlanPathBelongsToStudent(student.id, plan.week_start, plan.file_path)
+  );
+
+  if (hasUnsafeWeeklyPlanPath) {
+    redirect(`/admin/students/${student.id}?status=student-delete-error`);
+  }
+
   const weeklyPlanPaths = [
     ...new Set(
-      (weeklyPlans ?? [])
-        .filter((plan) => weeklyPlanPathBelongsToStudent(student.id, plan.week_start, plan.file_path))
-        .map((plan) => plan.file_path)
+      (weeklyPlans ?? []).map((plan) => plan.file_path)
     )
   ];
 
@@ -452,10 +422,19 @@ export async function deleteStudent(formData: FormData) {
   // change blocks the identity deletion, weekly-plan objects must remain intact
   // for the still-live metadata rows.
   if (weeklyPlanPaths.length) {
-    const { error: storageError } = await adminSupabase.storage.from(WEEKLY_PLAN_BUCKET).remove(weeklyPlanPaths);
+    const { data: removedObjects, error: storageError } = await adminSupabase.storage
+      .from(WEEKLY_PLAN_BUCKET)
+      .remove(weeklyPlanPaths);
 
-    if (storageError) {
-      redirect("/admin?status=student-delete-storage-cleanup-error");
+    if (storageError || removedObjects.length !== weeklyPlanPaths.length) {
+      console.warn("Student identity deleted, but weekly-plan Storage cleanup was incomplete.", {
+        studentId: student.id,
+        weeklyPlanPaths,
+        removedObjectCount: removedObjects?.length ?? 0,
+        storageError: storageError?.message ?? null
+      });
+      revalidatePath("/admin");
+      redirect("/admin?status=student-deleted-storage-cleanup-warning");
     }
   }
 

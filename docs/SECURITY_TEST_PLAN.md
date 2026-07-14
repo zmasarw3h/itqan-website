@@ -341,9 +341,17 @@ Phase 1 is not mergeable until a local disposable Supabase harness:
 - Tests `security definer` execute grants for `anon`, ordinary authenticated users, admins, and super admins.
 - Tests private weekly-plan Storage access and signed-link authorization.
 - Proves canonical checklist integrity, derived-score enforcement, foundation-history immutability, and audit-row update/delete immutability.
+- Proves signed students can create a canonical current check-in and checklist items, weekly-plan metadata,
+  and the currently open partner-recitation confirmation without a service-role client.
+- Proves rotation-run reads remain scoped while signed-session insert/update/delete are denied and the
+  guarded service-role generation transaction still succeeds.
+- Rejects non-Sunday week inputs to weekly projection RPCs.
+- Catalog-checks Storage policy command, role, permissiveness, and expressions, plus exact function and
+  audit-table privileges rather than relying only on behavioral happy paths.
 - Runs through a documented opt-in command with disposable credentials only. It must never target production.
 
-Keep `npm run check` deterministic. The RLS integration command may remain separate until the local Supabase harness is reliable in CI, but it is a required local merge gate for Phase 1.
+Keep `npm run check` deterministic. The Docker-backed RLS integration command runs as a separate GitHub
+Actions job and is a required Phase 1 merge gate.
 
 Run it only against the disposable local stack:
 

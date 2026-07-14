@@ -24,8 +24,14 @@ type UserName =
   | "expiredTeacher"
   | "futureTeacher"
   | "inactiveTeacher"
+  | "expiredAssignmentTeacher"
+  | "futureAssignmentTeacher"
   | "studentA"
   | "studentA2"
+  | "studentWriter"
+  | "studentNoMembership"
+  | "expiredMembershipStudent"
+  | "futureMembershipStudent"
   | "studentB"
   | "expiredAdmin"
   | "futureAdmin"
@@ -38,8 +44,16 @@ type SeedIds = {
   masjidB: string;
   cohortA: string;
   cohortB: string;
+  cohortWriter: string;
+  inactiveMasjid: string;
+  inactiveMasjidCohort: string;
+  inactiveMasjidGroup: string;
+  inactiveCohort: string;
+  inactiveCohortGroup: string;
+  inactiveGroup: string;
   groupA: string;
   groupB: string;
+  groupWriter: string;
   today: string;
   weekStart: string;
   previousWeekStart: string;
@@ -70,10 +84,16 @@ type SeedIds = {
   badgeB: string;
   studentMembershipA: string;
   studentMembershipB: string;
+  inactiveHistoricalMembershipA: string;
+  expiredStudentMembership: string;
+  futureStudentMembership: string;
   staffMembershipA: string;
   staffMembershipB: string;
   assignmentA: string;
   assignmentB: string;
+  assignmentWriter: string;
+  expiredTeacherAssignment: string;
+  futureTeacherAssignment: string;
   availabilityA: string;
   availabilityB: string;
   settingA: string;
@@ -88,10 +108,13 @@ function torontoDateString() {
     timeZone: "America/Toronto",
     year: "numeric",
     month: "2-digit",
-    day: "2-digit"
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23"
   }).formatToParts(new Date());
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
+  const calendarDate = `${values.year}-${values.month}-${values.day}`;
+  return Number(values.hour) < 1 ? addDays(calendarDate, -1) : calendarDate;
 }
 
 function addDays(date: string, days: number) {
@@ -151,8 +174,14 @@ async function seed(): Promise<SeedIds> {
     "expiredTeacher",
     "futureTeacher",
     "inactiveTeacher",
+    "expiredAssignmentTeacher",
+    "futureAssignmentTeacher",
     "studentA",
     "studentA2",
+    "studentWriter",
+    "studentNoMembership",
+    "expiredMembershipStudent",
+    "futureMembershipStudent",
     "studentB",
     "expiredAdmin",
     "futureAdmin",
@@ -192,31 +221,47 @@ async function seed(): Promise<SeedIds> {
     "insert masajid",
     admin.from("masajid").insert([
       { name: "RLS Masjid A", slug: "rls-masjid-a", active: true },
-      { name: "RLS Masjid B", slug: "rls-masjid-b", active: true }
+      { name: "RLS Masjid B", slug: "rls-masjid-b", active: true },
+      { name: "RLS Inactive Masjid", slug: "rls-inactive-masjid", active: false }
     ]).select("id,slug")
   );
   const masjidA = masajid.find((row) => row.slug === "rls-masjid-a")!.id;
   const masjidB = masajid.find((row) => row.slug === "rls-masjid-b")!.id;
+  const inactiveMasjid = masajid.find((row) => row.slug === "rls-inactive-masjid")!.id;
 
-  const cohorts = await requireData<Array<{ id: string; masjid_id: string }>>(
+  const cohorts = await requireData<Array<{ id: string; name: string }>>(
     "insert cohorts",
     admin.from("cohorts").insert([
       { masjid_id: masjidA, kind: "brothers", name: "A Brothers", active: true, sort_order: 10 },
-      { masjid_id: masjidB, kind: "brothers", name: "B Brothers", active: true, sort_order: 10 }
-    ]).select("id,masjid_id")
+      { masjid_id: masjidA, kind: "sisters", name: "A Writer", active: true, sort_order: 20 },
+      { masjid_id: masjidB, kind: "brothers", name: "B Brothers", active: true, sort_order: 10 },
+      { masjid_id: inactiveMasjid, kind: "brothers", name: "Inactive Masjid Cohort", active: true, sort_order: 10 },
+      { masjid_id: masjidA, kind: "brothers", name: "A Inactive Cohort", active: false, sort_order: 30 }
+    ]).select("id,name")
   );
-  const cohortA = cohorts.find((row) => row.masjid_id === masjidA)!.id;
-  const cohortB = cohorts.find((row) => row.masjid_id === masjidB)!.id;
+  const cohortA = cohorts.find((row) => row.name === "A Brothers")!.id;
+  const cohortWriter = cohorts.find((row) => row.name === "A Writer")!.id;
+  const cohortB = cohorts.find((row) => row.name === "B Brothers")!.id;
+  const inactiveMasjidCohort = cohorts.find((row) => row.name === "Inactive Masjid Cohort")!.id;
+  const inactiveCohort = cohorts.find((row) => row.name === "A Inactive Cohort")!.id;
 
-  const groups = await requireData<Array<{ id: string; cohort_id: string }>>(
+  const groups = await requireData<Array<{ id: string; name: string }>>(
     "insert groups",
     admin.from("halaqa_groups").insert([
       { cohort_id: cohortA, name: "A Group", active: true, sort_order: 10 },
-      { cohort_id: cohortB, name: "B Group", active: true, sort_order: 10 }
-    ]).select("id,cohort_id")
+      { cohort_id: cohortWriter, name: "A Writer Group", active: true, sort_order: 10 },
+      { cohort_id: cohortB, name: "B Group", active: true, sort_order: 10 },
+      { cohort_id: inactiveMasjidCohort, name: "Inactive Masjid Group", active: true, sort_order: 10 },
+      { cohort_id: inactiveCohort, name: "Inactive Cohort Group", active: true, sort_order: 10 },
+      { cohort_id: cohortA, name: "Inactive Group", active: false, sort_order: 20 }
+    ]).select("id,name")
   );
-  const groupA = groups.find((row) => row.cohort_id === cohortA)!.id;
-  const groupB = groups.find((row) => row.cohort_id === cohortB)!.id;
+  const groupA = groups.find((row) => row.name === "A Group")!.id;
+  const groupWriter = groups.find((row) => row.name === "A Writer Group")!.id;
+  const groupB = groups.find((row) => row.name === "B Group")!.id;
+  const inactiveMasjidGroup = groups.find((row) => row.name === "Inactive Masjid Group")!.id;
+  const inactiveCohortGroup = groups.find((row) => row.name === "Inactive Cohort Group")!.id;
+  const inactiveGroup = groups.find((row) => row.name === "Inactive Group")!.id;
 
   const today = torontoDateString();
   const weekStart = weekStartForDate(today);
@@ -225,34 +270,79 @@ async function seed(): Promise<SeedIds> {
   const startsOn = addDays(weekStart, -28);
   const historicalStartsOn = addDays(startsOn, -28);
   const historicalEndsOn = addDays(startsOn, -1);
+  const inactiveHistoricalStartsOn = addDays(historicalStartsOn, -28);
+  const inactiveHistoricalEndsOn = addDays(historicalStartsOn, -1);
   const yesterday = addDays(today, -1);
   const tomorrow = addDays(today, 1);
 
-  const studentMemberships = await requireData<Array<{ id: string; student_id: string }>>(
+  const studentMemberships = await requireData<Array<{ id: string; student_id: string; group_id: string }>>(
     "insert student memberships",
     admin.from("student_group_memberships").insert([
       { student_id: users.studentA, group_id: groupA, starts_on: startsOn, assigned_by: users.superAdmin },
       { student_id: users.studentA2, group_id: groupA, starts_on: startsOn, assigned_by: users.superAdmin },
+      { student_id: users.studentWriter, group_id: groupWriter, starts_on: startsOn, assigned_by: users.superAdmin },
       { student_id: users.studentB, group_id: groupB, starts_on: startsOn, assigned_by: users.superAdmin },
+      {
+        student_id: users.expiredMembershipStudent,
+        group_id: groupA,
+        starts_on: startsOn,
+        ends_on: addDays(weekStart, -1),
+        assigned_by: users.superAdmin
+      },
+      {
+        student_id: users.futureMembershipStudent,
+        group_id: groupA,
+        starts_on: addDays(weekStart, 7),
+        assigned_by: users.superAdmin
+      },
       {
         student_id: users.studentA,
         group_id: groupB,
         starts_on: historicalStartsOn,
         ends_on: historicalEndsOn,
         assigned_by: users.superAdmin
+      },
+      {
+        student_id: users.studentA,
+        group_id: inactiveGroup,
+        starts_on: inactiveHistoricalStartsOn,
+        ends_on: inactiveHistoricalEndsOn,
+        assigned_by: users.superAdmin
       }
-    ]).select("id,student_id")
+    ]).select("id,student_id,group_id")
   );
-  const studentMembershipA = studentMemberships.find((row) => row.student_id === users.studentA)!.id;
+  const studentMembershipA = studentMemberships.find((row) => row.student_id === users.studentA && row.group_id === groupA)!.id;
   const studentMembershipB = studentMemberships.find((row) => row.student_id === users.studentB)!.id;
+  const inactiveHistoricalMembershipA = studentMemberships.find((row) => row.group_id === inactiveGroup)!.id;
+  const expiredStudentMembership = studentMemberships.find(
+    (row) => row.student_id === users.expiredMembershipStudent
+  )!.id;
+  const futureStudentMembership = studentMemberships.find(
+    (row) => row.student_id === users.futureMembershipStudent
+  )!.id;
 
   const staffMemberships = await requireData<Array<{ id: string; profile_id: string }>>(
     "insert staff memberships",
     admin.from("masjid_staff_memberships").insert([
       { profile_id: users.adminA, masjid_id: masjidA, staff_role: "admin", active: true, starts_on: startsOn },
+      { profile_id: users.adminA, masjid_id: inactiveMasjid, staff_role: "admin", active: true, starts_on: startsOn },
       { profile_id: users.adminB, masjid_id: masjidB, staff_role: "admin", active: true, starts_on: startsOn },
       { profile_id: users.teacherA, masjid_id: masjidA, staff_role: "teacher", active: true, starts_on: startsOn },
       { profile_id: users.teacherB, masjid_id: masjidB, staff_role: "teacher", active: true, starts_on: startsOn },
+      {
+        profile_id: users.expiredAssignmentTeacher,
+        masjid_id: masjidA,
+        staff_role: "teacher",
+        active: true,
+        starts_on: startsOn
+      },
+      {
+        profile_id: users.futureAssignmentTeacher,
+        masjid_id: masjidA,
+        staff_role: "teacher",
+        active: true,
+        starts_on: startsOn
+      },
       {
         profile_id: users.expiredTeacher,
         masjid_id: masjidA,
@@ -279,15 +369,37 @@ async function seed(): Promise<SeedIds> {
   const staffMembershipA = staffMemberships.find((row) => row.profile_id === users.adminA)!.id;
   const staffMembershipB = staffMemberships.find((row) => row.profile_id === users.adminB)!.id;
 
-  const assignments = await requireData<Array<{ id: string; group_id: string }>>(
+  const assignments = await requireData<Array<{ id: string; group_id: string; teacher_id: string }>>(
     "insert teacher assignments",
     admin.from("group_teacher_assignments").insert([
       { group_id: groupA, teacher_id: users.teacherA, week_start: weekStart, active: true, assigned_by: users.adminA },
-      { group_id: groupB, teacher_id: users.teacherB, week_start: weekStart, active: true, assigned_by: users.adminB }
-    ]).select("id,group_id")
+      { group_id: groupWriter, teacher_id: users.teacherA, week_start: weekStart, active: true, assigned_by: users.superAdmin },
+      { group_id: groupB, teacher_id: users.teacherB, week_start: weekStart, active: true, assigned_by: users.adminB },
+      {
+        group_id: groupA,
+        teacher_id: users.expiredAssignmentTeacher,
+        week_start: previousWeekStart,
+        active: true,
+        assigned_by: users.superAdmin
+      },
+      {
+        group_id: groupA,
+        teacher_id: users.futureAssignmentTeacher,
+        week_start: addDays(weekStart, 7),
+        active: true,
+        assigned_by: users.superAdmin
+      }
+    ]).select("id,group_id,teacher_id")
   );
   const assignmentA = assignments.find((row) => row.group_id === groupA)!.id;
+  const assignmentWriter = assignments.find((row) => row.group_id === groupWriter)!.id;
   const assignmentB = assignments.find((row) => row.group_id === groupB)!.id;
+  const expiredTeacherAssignment = assignments.find(
+    (row) => row.teacher_id === users.expiredAssignmentTeacher
+  )!.id;
+  const futureTeacherAssignment = assignments.find(
+    (row) => row.teacher_id === users.futureAssignmentTeacher
+  )!.id;
 
   const submissionA = calculateDailySubmission(today, tasksForDate(today).map((task) => task.key));
   const submissionA2 = calculateDailySubmission(today, []);
@@ -489,10 +601,18 @@ async function seed(): Promise<SeedIds> {
     users,
     masjidA,
     masjidB,
+    inactiveMasjid,
     cohortA,
     cohortB,
+    cohortWriter,
+    inactiveMasjidCohort,
+    inactiveMasjidGroup,
+    inactiveCohort,
+    inactiveCohortGroup,
+    inactiveGroup,
     groupA,
     groupB,
+    groupWriter,
     today,
     weekStart,
     previousWeekStart,
@@ -523,10 +643,16 @@ async function seed(): Promise<SeedIds> {
     badgeB,
     studentMembershipA,
     studentMembershipB,
+    inactiveHistoricalMembershipA,
+    expiredStudentMembership,
+    futureStudentMembership,
     staffMembershipA,
     staffMembershipB,
     assignmentA,
     assignmentB,
+    assignmentWriter,
+    expiredTeacherAssignment,
+    futureTeacherAssignment,
     availabilityA,
     availabilityB,
     settingA,
@@ -587,24 +713,34 @@ async function runAssertions(ids: SeedIds) {
     teacherA,
     studentA,
     studentA2,
+    studentWriter,
     expiredAdmin,
     futureAdmin,
     inactiveAdmin,
     expiredTeacher,
     futureTeacher,
     inactiveTeacher,
+    expiredAssignmentTeacher,
+    futureAssignmentTeacher,
+    expiredMembershipStudent,
+    futureMembershipStudent,
     superAdmin
   ] = await Promise.all([
     signIn("adminA"),
     signIn("teacherA"),
     signIn("studentA"),
     signIn("studentA2"),
+    signIn("studentWriter"),
     signIn("expiredAdmin"),
     signIn("futureAdmin"),
     signIn("inactiveAdmin"),
     signIn("expiredTeacher"),
     signIn("futureTeacher"),
     signIn("inactiveTeacher"),
+    signIn("expiredAssignmentTeacher"),
+    signIn("futureAssignmentTeacher"),
+    signIn("expiredMembershipStudent"),
+    signIn("futureMembershipStudent"),
     signIn("superAdmin")
   ]);
 
@@ -636,6 +772,12 @@ async function runAssertions(ids: SeedIds) {
   await assertHidden(adminA, "cohorts", ids.cohortB);
   await assertVisible(adminA, "halaqa_groups", ids.groupA);
   await assertHidden(adminA, "halaqa_groups", ids.groupB);
+  await assertHidden(adminA, "masajid", ids.inactiveMasjid);
+  await assertHidden(adminA, "cohorts", ids.inactiveMasjidCohort);
+  await assertHidden(adminA, "halaqa_groups", ids.inactiveMasjidGroup);
+  await assertHidden(adminA, "cohorts", ids.inactiveCohort);
+  await assertHidden(adminA, "halaqa_groups", ids.inactiveCohortGroup);
+  await assertHidden(adminA, "halaqa_groups", ids.inactiveGroup);
   await assertVisible(adminA, "profiles", ids.users.studentA);
   await assertHidden(adminA, "profiles", ids.users.studentB);
   await assertUpdateBlocked(adminA, "profiles", ids.users.studentB, { active: false });
@@ -798,41 +940,87 @@ async function runAssertions(ids: SeedIds) {
     assigned_count: 0
   });
 
-  const { data: sameScopeMutation, error: sameScopeMutationError } = await adminA
-    .from("checkins")
-    .update({ note: "admin same-scope mutation" })
-    .eq("id", ids.checkinA)
-    .select("id");
-  assert.equal(sameScopeMutationError, null, sameScopeMutationError?.message);
-  assert.equal(sameScopeMutation?.length, 1, "same-scope admin mutation was over-denied");
-
-  const correctionDate = addDays(nextWeekStart, 1);
-  const { data: insertedCorrection, error: insertedCorrectionError } = await adminA
-    .from("checkins")
-    .insert({
-      student_id: ids.users.studentA,
-      date: correctionDate,
-      completed: true,
-      earned_weight: 0,
-      total_weight: 100,
-      daily_score: 0,
-      updated_by_admin: ids.users.adminA
-    })
-    .select("id")
-    .single<{ id: string }>();
-  assert.equal(insertedCorrectionError, null, `same-scope correction insert failed: ${insertedCorrectionError?.message}`);
-  assert.ok(insertedCorrection?.id, "same-scope correction insert returned no row");
-  const correctionTask = tasksForDate(correctionDate)[0];
-  const { error: insertedCorrectionItemError } = await adminA.from("checkin_items").insert({
-    checkin_id: insertedCorrection!.id,
+  await assertUpdateBlocked(adminA, "checkins", ids.checkinA, { note: "direct admin correction" });
+  await assertUpdateBlocked(adminA, "checkin_items", ids.itemA, { completed: false });
+  await assertInsertBlocked(adminA, "checkins", {
     student_id: ids.users.studentA,
-    date: correctionDate,
-    task_key: correctionTask.key,
-    task_label: correctionTask.label,
-    weight: correctionTask.weight,
-    completed: false
+    date: addDays(nextWeekStart, 1),
+    completed: true,
+    earned_weight: 0,
+    total_weight: 100,
+    daily_score: 0,
+    updated_by_admin: ids.users.adminA
   });
-  assert.equal(insertedCorrectionItemError, null, `same-scope correction item insert failed: ${insertedCorrectionItemError?.message}`);
+
+  const correctionTasks = tasksForDate(ids.today);
+  const correctedKeys = correctionTasks.slice(0, 2).map((task) => task.key);
+  const correctedSubmission = calculateDailySubmission(ids.today, correctedKeys);
+  const { data: correctedId, error: correctionError } = await adminA.rpc(
+    "apply_admin_checkin_correction",
+    {
+      input_student_id: ids.users.studentA,
+      input_date: ids.today,
+      input_status: "submitted",
+      input_note: "transactional correction",
+      input_completed_task_keys: correctedKeys
+    }
+  );
+  assert.equal(correctionError, null, `transactional correction failed: ${correctionError?.message}`);
+  assert.equal(correctedId, ids.checkinA, "correction replaced rather than updated the canonical check-in");
+  const { data: correctedParent, error: correctedParentError } = await adminA
+    .from("checkins")
+    .select("id,note,earned_weight,total_weight,daily_score,updated_by_admin")
+    .eq("id", ids.checkinA)
+    .single();
+  assert.equal(correctedParentError, null, correctedParentError?.message);
+  assert.equal(correctedParent?.note, "transactional correction");
+  assert.equal(correctedParent?.earned_weight, correctedSubmission.earnedWeight);
+  assert.equal(correctedParent?.total_weight, correctedSubmission.totalWeight);
+  assert.equal(Number(correctedParent?.daily_score), correctedSubmission.dailyScore);
+  assert.equal(correctedParent?.updated_by_admin, ids.users.adminA);
+  const { data: correctedItems, error: correctedItemsError } = await adminA
+    .from("checkin_items")
+    .select("id,task_key,task_label,weight,completed")
+    .eq("checkin_id", ids.checkinA)
+    .order("task_key");
+  assert.equal(correctedItemsError, null, correctedItemsError?.message);
+  assert.equal(correctedItems?.length, correctionTasks.length, "correction omitted canonical checklist items");
+  assert.deepEqual(
+    new Set((correctedItems ?? []).filter((row) => row.completed).map((row) => row.task_key)),
+    new Set(correctedKeys),
+    "correction stored the wrong completed tasks"
+  );
+  ids.itemA = correctedItems![0].id;
+
+  const parentBeforeRollback = structuredClone(correctedParent);
+  const itemsBeforeRollback = structuredClone(correctedItems);
+  const { error: rollbackError } = await adminA.rpc("apply_admin_checkin_correction", {
+    input_student_id: ids.users.studentA,
+    input_date: ids.today,
+    input_status: "submitted",
+    input_note: "must roll back",
+    input_completed_task_keys: [correctedKeys[0], "not_a_canonical_task"]
+  });
+  assert.ok(rollbackError, "invalid correction unexpectedly committed");
+  const { data: parentAfterRollback } = await adminA
+    .from("checkins")
+    .select("id,note,earned_weight,total_weight,daily_score,updated_by_admin")
+    .eq("id", ids.checkinA)
+    .single();
+  const { data: itemsAfterRollback } = await adminA
+    .from("checkin_items")
+    .select("id,task_key,task_label,weight,completed")
+    .eq("checkin_id", ids.checkinA)
+    .order("task_key");
+  assert.deepEqual(parentAfterRollback, parentBeforeRollback, "failed correction changed its parent row");
+  assert.deepEqual(itemsAfterRollback, itemsBeforeRollback, "failed correction changed its item rows");
+  await assertRpcDenied(adminA, "apply_admin_checkin_correction", {
+    input_student_id: ids.users.studentB,
+    input_date: ids.today,
+    input_status: "submitted",
+    input_note: "cross-masjid",
+    input_completed_task_keys: correctedKeys
+  });
 
   await assertDeleteBlocked(adminA, "student_group_memberships", ids.studentMembershipA);
   await assertDeleteBlocked(adminA, "masjid_staff_memberships", ids.staffMembershipA);
@@ -853,6 +1041,97 @@ async function runAssertions(ids: SeedIds) {
     input_week_start: ids.weekStart,
     input_generated_by: ids.users.adminA
   });
+
+  // Signed admins can read rotation runs but cannot write them directly.
+  await assertInsertBlocked(adminA, "teacher_rotation_runs", {
+    cohort_id: ids.cohortA,
+    week_start: nextWeekStart,
+    generated_by: ids.users.adminA,
+    available_teacher_count: 0,
+    group_count: 0,
+    assigned_count: 0
+  });
+  await assertUpdateBlocked(adminA, "teacher_rotation_runs", ids.rotationRunA, { warning_count: 2 });
+  await assertDeleteBlocked(adminA, "teacher_rotation_runs", ids.rotationRunA);
+
+  // The guarded server-only RPC remains the sole positive mutation route.
+  const service = localClient(serviceRoleKey);
+  const { data: generatedRunId, error: generatedRunError } = await service.rpc(
+    "apply_teacher_rotation_generation",
+    {
+      input_cohort_id: ids.cohortWriter,
+      input_week_start: ids.weekStart,
+      input_generated_by: ids.users.adminA,
+      membership_closes: [],
+      membership_inserts: [],
+      membership_replaces: [],
+      assignment_upserts: [{
+        group_id: ids.groupWriter,
+        teacher_id: ids.users.teacherA,
+        week_start: ids.weekStart
+      }],
+      assignment_deactivations: [],
+      available_teacher_count: 1,
+      group_count: 1,
+      assigned_count: 1,
+      warning_count: 0
+    }
+  );
+  assert.equal(generatedRunError, null, `guarded rotation generation failed: ${generatedRunError?.message}`);
+  assert.ok(generatedRunId, "guarded rotation generation returned no run id");
+  await assertVisible(adminA, "teacher_rotation_runs", String(generatedRunId));
+  const { data: rotationAssignment, error: rotationAssignmentError } = await adminA
+    .from("group_teacher_assignments")
+    .select("teacher_id,group_id,week_start,assigned_by,active")
+    .eq("id", ids.assignmentWriter)
+    .single();
+  assert.equal(rotationAssignmentError, null, rotationAssignmentError?.message);
+  assert.equal(rotationAssignment?.assigned_by, ids.users.adminA, "service RPC did not update assignment attribution");
+
+  // A signed admin may deliberately close/deactivate authorization, but may
+  // never rewrite who, where, when, or by whom the history was established.
+  await assertUpdateBlocked(adminA, "student_group_memberships", ids.studentMembershipA, {
+    student_id: ids.users.studentNoMembership,
+    group_id: ids.groupWriter,
+    starts_on: addDays(ids.weekStart, -21),
+    assigned_by: ids.users.adminA,
+    created_at: new Date(0).toISOString()
+  });
+  const { data: membershipIdentity } = await adminA
+    .from("student_group_memberships")
+    .select("student_id,group_id,starts_on,assigned_by")
+    .eq("id", ids.studentMembershipA)
+    .single();
+  assert.equal(membershipIdentity?.student_id, ids.users.studentA);
+  assert.equal(membershipIdentity?.group_id, ids.groupA);
+  const { data: closedMembership, error: closeMembershipError } = await adminA
+    .from("student_group_memberships")
+    .update({ ends_on: ids.today })
+    .eq("id", ids.studentMembershipA)
+    .select("id,ends_on")
+    .single();
+  assert.equal(closeMembershipError, null, `deliberate membership closure failed: ${closeMembershipError?.message}`);
+  assert.equal(closedMembership?.ends_on, ids.today);
+  await assertUpdateBlocked(adminA, "student_group_memberships", ids.studentMembershipA, { ends_on: null });
+
+  for (const payload of [
+    { teacher_id: ids.users.teacherB },
+    { group_id: ids.groupA },
+    { week_start: nextWeekStart },
+    { assigned_by: ids.users.superAdmin },
+    { created_at: new Date(0).toISOString() }
+  ]) {
+    await assertUpdateBlocked(adminA, "group_teacher_assignments", ids.assignmentWriter, payload);
+  }
+  const { data: deactivatedAssignment, error: deactivateAssignmentError } = await adminA
+    .from("group_teacher_assignments")
+    .update({ active: false })
+    .eq("id", ids.assignmentWriter)
+    .select("id,active")
+    .single();
+  assert.equal(deactivateAssignmentError, null, `deliberate assignment deactivation failed: ${deactivateAssignmentError?.message}`);
+  assert.equal(deactivatedAssignment?.active, false);
+  await assertUpdateBlocked(adminA, "group_teacher_assignments", ids.assignmentWriter, { active: true });
 
   for (const [table, ownId, crossId] of [
     ["checkins", ids.checkinA, ids.checkinB],
@@ -903,6 +1182,88 @@ async function runAssertions(ids: SeedIds) {
   await assertHidden(studentA, "badge_awards", ids.badgeB);
   await assertHidden(studentA, "profiles", ids.users.studentA2);
   await assertHidden(studentA, "profiles", ids.users.studentB);
+  await assertVisible(studentA, "student_group_memberships", ids.inactiveHistoricalMembershipA);
+  await assertHidden(studentA, "halaqa_groups", ids.inactiveGroup);
+
+  // All positive student writes below use a signed anon-key client. The
+  // service role created fixtures only and does not perform these writes.
+  const writerSubmission = calculateDailySubmission(
+    ids.today,
+    tasksForDate(ids.today).map((task) => task.key)
+  );
+  const { data: writerCheckin, error: writerCheckinError } = await studentWriter
+    .from("checkins")
+    .insert({
+      student_id: ids.users.studentWriter,
+      date: ids.today,
+      completed: true,
+      earned_weight: 0,
+      total_weight: writerSubmission.totalWeight,
+      daily_score: 0
+    })
+    .select("id,masjid_id,cohort_id,halaqa_group_id")
+    .single();
+  assert.equal(writerCheckinError, null, `signed student check-in insert failed: ${writerCheckinError?.message}`);
+  assert.equal(writerCheckin?.masjid_id, ids.masjidA);
+  assert.equal(writerCheckin?.cohort_id, ids.cohortWriter);
+  assert.equal(writerCheckin?.halaqa_group_id, ids.groupWriter);
+  const { error: writerItemsError } = await studentWriter.from("checkin_items").insert(
+    writerSubmission.items.map((item) => ({
+      checkin_id: writerCheckin!.id,
+      student_id: ids.users.studentWriter,
+      date: ids.today,
+      task_key: item.key,
+      task_label: item.label,
+      weight: item.weight,
+      completed: item.completed
+    }))
+  );
+  assert.equal(writerItemsError, null, `signed student canonical item insert failed: ${writerItemsError?.message}`);
+  const { data: writerParent } = await studentWriter
+    .from("checkins")
+    .select("earned_weight,total_weight,daily_score")
+    .eq("id", writerCheckin!.id)
+    .single();
+  assert.equal(writerParent?.earned_weight, writerSubmission.earnedWeight);
+  assert.equal(writerParent?.total_weight, writerSubmission.totalWeight);
+  assert.equal(Number(writerParent?.daily_score), writerSubmission.dailyScore);
+
+  const writerPlanPath = `${ids.users.studentWriter}/${ids.weekStart}/plan.pdf`;
+  const { data: writerPlan, error: writerPlanError } = await studentWriter
+    .from("weekly_plans")
+    .insert({
+      student_id: ids.users.studentWriter,
+      week_start: ids.weekStart,
+      file_path: writerPlanPath,
+      file_name: "plan.pdf",
+      file_type: "application/pdf",
+      file_size: 4
+    })
+    .select("id,masjid_id,cohort_id,halaqa_group_id")
+    .single();
+  assert.equal(writerPlanError, null, `signed student weekly-plan metadata insert failed: ${writerPlanError?.message}`);
+  assert.equal(writerPlan?.masjid_id, ids.masjidA);
+  assert.equal(writerPlan?.cohort_id, ids.cohortWriter);
+  assert.equal(writerPlan?.halaqa_group_id, ids.groupWriter);
+
+  const { data: currentRound, error: currentRoundError } = await studentWriter.rpc(
+    "current_partner_recitation_round"
+  );
+  assert.equal(currentRoundError, null, currentRoundError?.message);
+  const { data: writerPartner, error: writerPartnerError } = await studentWriter
+    .from("partner_recitations")
+    .insert({
+      student_id: ids.users.studentWriter,
+      week_start: ids.weekStart,
+      round: currentRound,
+      points: 75
+    })
+    .select("id,masjid_id,cohort_id,halaqa_group_id")
+    .single();
+  assert.equal(writerPartnerError, null, `signed student partner confirmation failed: ${writerPartnerError?.message}`);
+  assert.equal(writerPartner?.masjid_id, ids.masjidA);
+  assert.equal(writerPartner?.cohort_id, ids.cohortWriter);
+  assert.equal(writerPartner?.halaqa_group_id, ids.groupWriter);
 
   const { data: ownAutosave, error: ownAutosaveError } = await studentA
     .from("checkins")
@@ -974,6 +1335,22 @@ async function runAssertions(ids: SeedIds) {
   const currentLeaderboardRow = (leaderboard ?? []).find((row) => row.is_current_student);
   assert.ok(Number(currentLeaderboardRow?.score_percentage) <= 100, "leaderboard score exceeded 100%");
   assert.equal(currentLeaderboardRow?.previous_rank, null, "inactive prior week fabricated a previous rank");
+  const midweek = addDays(ids.weekStart, 2);
+  await assertRpcDenied(studentA, "student_cohort_leaderboard_for_week", { input_week_start: midweek });
+  await assertRpcDenied(studentA, "student_weekly_teacher_name", { input_week_start: midweek });
+  await assertRpcDenied(adminA, "admin_students_for_week", { input_week_start: midweek });
+  await assertRpcDenied(studentA, "student_group_for_week", {
+    input_student_id: ids.users.studentA,
+    input_week_start: midweek
+  });
+  await assertRpcDenied(studentA, "student_cohort_for_week", {
+    input_student_id: ids.users.studentA,
+    input_week_start: midweek
+  });
+  await assertRpcDenied(studentA, "student_masjid_for_week", {
+    input_student_id: ids.users.studentA,
+    input_week_start: midweek
+  });
   await assertRpcDenied(studentA, "student_cohort_students_for_week", {
     input_student_id: ids.users.studentA,
     input_week_start: ids.weekStart
@@ -1074,8 +1451,51 @@ async function runAssertions(ids: SeedIds) {
     await assertHidden(client, "checkins", ids.checkinA);
   }
 
+  for (const [name, client, studentId, membershipId] of [
+    ["expired student", expiredMembershipStudent, ids.users.expiredMembershipStudent, ids.expiredStudentMembership],
+    ["future student", futureMembershipStudent, ids.users.futureMembershipStudent, ids.futureStudentMembership]
+  ] as const) {
+    // Students retain their own authorization history, but a non-current
+    // relationship to an otherwise active group cannot expose its hierarchy.
+    await assertVisible(client, "student_group_memberships", membershipId);
+    await assertHidden(client, "masajid", ids.masjidA);
+    await assertHidden(client, "cohorts", ids.cohortA);
+    await assertHidden(client, "halaqa_groups", ids.groupA);
+    const { data: currentGroup, error: currentGroupError } = await client.rpc(
+      "student_group_for_week",
+      {
+        input_student_id: studentId,
+        input_week_start: ids.weekStart
+      }
+    );
+    assert.equal(currentGroupError, null, `${name} current group helper error: ${currentGroupError?.message}`);
+    assert.equal(currentGroup, null, `${name} relationship resolved a current group`);
+  }
+
+  for (const [name, client, assignmentId] of [
+    ["expired assignment", expiredAssignmentTeacher, ids.expiredTeacherAssignment],
+    ["future assignment", futureAssignmentTeacher, ids.futureTeacherAssignment]
+  ] as const) {
+    await assertHidden(client, "group_teacher_assignments", assignmentId);
+    await assertHidden(client, "masajid", ids.masjidA);
+    await assertHidden(client, "cohorts", ids.cohortA);
+    await assertHidden(client, "halaqa_groups", ids.groupA);
+    const { data: currentTeacher, error: currentTeacherError } = await client.rpc(
+      "is_teacher_for_group_week",
+      { input_group_id: ids.groupA, input_week_start: ids.weekStart }
+    );
+    assert.equal(currentTeacherError, null, `${name} current assignment helper error: ${currentTeacherError?.message}`);
+    assert.equal(currentTeacher, false, `${name} granted current teacher scope`);
+  }
+
   await assertVisible(superAdmin, "checkins", ids.checkinA);
   await assertVisible(superAdmin, "checkins", ids.checkinB);
+  await assertVisible(superAdmin, "masajid", ids.inactiveMasjid);
+  await assertVisible(superAdmin, "cohorts", ids.inactiveMasjidCohort);
+  await assertVisible(superAdmin, "halaqa_groups", ids.inactiveMasjidGroup);
+  await assertVisible(superAdmin, "cohorts", ids.inactiveCohort);
+  await assertVisible(superAdmin, "halaqa_groups", ids.inactiveCohortGroup);
+  await assertVisible(superAdmin, "halaqa_groups", ids.inactiveGroup);
   const { data: superProfileUpdate, error: superProfileError } = await superAdmin
     .from("profiles")
     .update({ phone: null })

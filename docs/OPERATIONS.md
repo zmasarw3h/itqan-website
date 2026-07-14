@@ -82,7 +82,8 @@ The import tooling predates multi-masjid scope. After importing new users, verif
 
 Manual through Vercel/Git integration:
 
-1. Merge the approved PR to `main` after `npm run check` passes.
+1. Merge the approved PR to `main` after both `npm run check` and the Docker-backed `npm run test:rls`
+   GitHub Actions jobs pass.
 2. Confirm Vercel has these environment variables:
 
    ```bash
@@ -136,6 +137,24 @@ npm run test:rls
 
 The suite starts and destroys its own local Supabase stack. Never point it at staging or production.
 
+## Delete A Student And Handle Storage Cleanup Warnings
+
+Student deletion first verifies the signed-in admin, current student scope, all historical authorization
+scope, and every weekly-plan object path. It then deletes the Supabase Auth identity, whose database
+cascade removes the profile and owned operational metadata, before deleting the private weekly-plan
+Storage objects.
+
+Auth/Postgres deletion and Storage cleanup cannot be one atomic transaction. If identity deletion
+succeeds but Storage cleanup fails or removes fewer objects than expected, the app reports that the
+student identity was deleted and shows an amber cleanup warning; it does not report the identity
+deletion itself as failed. The server log includes the deleted student UUID and the expected orphaned
+paths. An operator should verify the UUID/path prefix and remove those objects from the private
+`weekly-plans` bucket. Do not remove objects outside the logged student-owned paths.
+
+This orphan cleanup procedure is the accepted residual limitation of the Supabase Auth Admin API and
+Storage boundary. Keep the existing pre-deletion scope and path checks strong; cleanup warnings are not
+permission to retry identity deletion or broaden a Storage path.
+
 ## Roll Back a Vercel Deployment
 
 Manual in Vercel:
@@ -157,7 +176,9 @@ Manual in the app:
 4. Add a correction note when context matters.
 5. Re-check the dashboard filters and CSV export for the affected date.
 
-The app prevents duplicate student/date check-ins at the database level.
+The app submits the parent correction, canonical checklist-item replacement, and derived totals through
+one scoped database RPC. The transaction commits all of those changes together or rolls all of them
+back. The app also prevents duplicate student/date check-ins at the database level.
 
 ## Handle Bad Halaqa Data
 
@@ -192,6 +213,17 @@ when an admin intentionally runs the rotation action.
 Current limitation: the rotation page resolves one active brothers cohort from the signed-in admin's
 masjid memberships. It does not yet provide an explicit masjid/cohort selector and cannot operate a
 sisters cohort. Server-side checks still verify that the signed-in admin manages the resolved masjid.
+
+## Weekly Incentive Run Constraint Limitation
+
+`weekly_incentive_runs_week_start_key` remains globally unique by `week_start`. Consequently, a run for
+one masjid prevents another masjid from recording an incentive run for that same tracker week. Do not
+drop or replace this production constraint as part of routine operations or Phase 1 authorization
+deployment.
+
+Resolve it in a separate reviewed migration after auditing existing rows. That migration should replace
+the global key with uniqueness on `(masjid_id, week_start)` and include explicit staging validation,
+production rollout, and rollback steps.
 
 ## Super Admin Setup
 

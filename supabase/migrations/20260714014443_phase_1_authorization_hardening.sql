@@ -210,7 +210,25 @@ as $$
     );
 $$;
 
-revoke all on all functions in schema private from public, anon, authenticated;
+create or replace function private.require_tracker_week_start(input_week_start date)
+returns boolean
+language plpgsql
+stable
+set search_path = ''
+as $$
+begin
+  if input_week_start is null
+    or input_week_start <> public.week_start_for_date(input_week_start) then
+    raise exception using
+      errcode = '22023',
+      message = 'input_week_start must be a Sunday tracker week start.';
+  end if;
+
+  return true;
+end;
+$$;
+
+revoke all on all functions in schema private from public, anon, authenticated, service_role;
 
 -- Public helpers below expose only caller-relative answers. Raw cross-user ID
 -- resolution stays in the unexposed private schema.
@@ -423,16 +441,22 @@ create or replace function public.student_group_for_week(
   input_week_start date
 )
 returns uuid
-language sql
+language plpgsql
 stable
 security definer
 set search_path = ''
 as $$
-  select case
+begin
+  perform private.require_tracker_week_start(input_week_start);
+
+  return (
+    select case
     when private.raw_can_read_student_for_week(
       (select auth.uid()), input_student_id, input_week_start
     ) then private.raw_student_group_for_week(input_student_id, input_week_start)
-  end;
+    end
+  );
+end;
 $$;
 
 create or replace function public.student_cohort_for_week(
@@ -440,16 +464,22 @@ create or replace function public.student_cohort_for_week(
   input_week_start date
 )
 returns uuid
-language sql
+language plpgsql
 stable
 security definer
 set search_path = ''
 as $$
-  select case
+begin
+  perform private.require_tracker_week_start(input_week_start);
+
+  return (
+    select case
     when private.raw_can_read_student_for_week(
       (select auth.uid()), input_student_id, input_week_start
     ) then private.raw_student_cohort_for_week(input_student_id, input_week_start)
-  end;
+    end
+  );
+end;
 $$;
 
 create or replace function public.student_masjid_for_week(
@@ -457,16 +487,22 @@ create or replace function public.student_masjid_for_week(
   input_week_start date
 )
 returns uuid
-language sql
+language plpgsql
 stable
 security definer
 set search_path = ''
 as $$
-  select case
+begin
+  perform private.require_tracker_week_start(input_week_start);
+
+  return (
+    select case
     when private.raw_can_read_student_for_week(
       (select auth.uid()), input_student_id, input_week_start
     ) then private.raw_student_masjid_for_week(input_student_id, input_week_start)
-  end;
+    end
+  );
+end;
 $$;
 
 create or replace function public.student_current_group_id(input_student_id uuid)
@@ -490,29 +526,46 @@ security definer
 set search_path = ''
 as $$
   select private.raw_is_active_super_admin((select auth.uid()))
-    or private.raw_is_admin_for_masjid(
-      (select auth.uid()), input_masjid_id, public.current_effective_date()
-    )
-    or exists (
-      select 1
-      from public.student_group_memberships as memberships
-      join public.halaqa_groups as groups on groups.id = memberships.group_id
-      join public.cohorts on cohorts.id = groups.cohort_id
-      join public.profiles on profiles.id = memberships.student_id
-      where memberships.student_id = (select auth.uid())
-        and profiles.role = 'student'
-        and profiles.active = true
-        and cohorts.masjid_id = input_masjid_id
-    )
-    or exists (
-      select 1
-      from public.group_teacher_assignments as assignments
-      where assignments.teacher_id = (select auth.uid())
-        and assignments.active = true
-        and private.raw_group_masjid_id(assignments.group_id) = input_masjid_id
-        and private.raw_is_teacher_for_group_week(
-          (select auth.uid()), assignments.group_id, assignments.week_start
+    or (
+      exists (
+        select 1 from public.masajid
+        where masajid.id = input_masjid_id and masajid.active = true
+      )
+      and (
+        private.raw_is_admin_for_masjid(
+          (select auth.uid()), input_masjid_id, public.current_effective_date()
         )
+        or exists (
+          select 1
+          from public.student_group_memberships as memberships
+          join public.halaqa_groups as groups on groups.id = memberships.group_id
+          join public.cohorts on cohorts.id = groups.cohort_id
+          join public.profiles on profiles.id = memberships.student_id
+          where memberships.student_id = (select auth.uid())
+            and profiles.role = 'student'
+            and profiles.active = true
+            and memberships.starts_on <= public.current_effective_date()
+            and (memberships.ends_on is null or memberships.ends_on >= public.current_effective_date())
+            and groups.active = true
+            and cohorts.active = true
+            and cohorts.masjid_id = input_masjid_id
+        )
+        or exists (
+          select 1
+          from public.group_teacher_assignments as assignments
+          join public.halaqa_groups as groups on groups.id = assignments.group_id
+          join public.cohorts on cohorts.id = groups.cohort_id
+          where assignments.teacher_id = (select auth.uid())
+            and assignments.active = true
+            and assignments.week_start = public.week_start_for_date(public.current_effective_date())
+            and groups.active = true
+            and cohorts.active = true
+            and cohorts.masjid_id = input_masjid_id
+            and private.raw_is_teacher_for_group_week(
+              (select auth.uid()), assignments.group_id, assignments.week_start
+            )
+        )
+      )
     );
 $$;
 
@@ -524,31 +577,48 @@ security definer
 set search_path = ''
 as $$
   select private.raw_is_active_super_admin((select auth.uid()))
-    or private.raw_is_admin_for_masjid(
-      (select auth.uid()),
-      private.raw_cohort_masjid_id(input_cohort_id),
-      public.current_effective_date()
-    )
-    or exists (
-      select 1
-      from public.student_group_memberships as memberships
-      join public.halaqa_groups as groups on groups.id = memberships.group_id
-      join public.profiles on profiles.id = memberships.student_id
-      where memberships.student_id = (select auth.uid())
-        and profiles.role = 'student'
-        and profiles.active = true
-        and groups.cohort_id = input_cohort_id
-    )
-    or exists (
-      select 1
-      from public.group_teacher_assignments as assignments
-      join public.halaqa_groups as groups on groups.id = assignments.group_id
-      where assignments.teacher_id = (select auth.uid())
-        and assignments.active = true
-        and groups.cohort_id = input_cohort_id
-        and private.raw_is_teacher_for_group_week(
-          (select auth.uid()), assignments.group_id, assignments.week_start
+    or (
+      exists (
+        select 1
+        from public.cohorts
+        join public.masajid on masajid.id = cohorts.masjid_id
+        where cohorts.id = input_cohort_id
+          and cohorts.active = true
+          and masajid.active = true
+      )
+      and (
+        private.raw_is_admin_for_masjid(
+          (select auth.uid()),
+          private.raw_cohort_masjid_id(input_cohort_id),
+          public.current_effective_date()
         )
+        or exists (
+          select 1
+          from public.student_group_memberships as memberships
+          join public.halaqa_groups as groups on groups.id = memberships.group_id
+          join public.profiles on profiles.id = memberships.student_id
+          where memberships.student_id = (select auth.uid())
+            and profiles.role = 'student'
+            and profiles.active = true
+            and memberships.starts_on <= public.current_effective_date()
+            and (memberships.ends_on is null or memberships.ends_on >= public.current_effective_date())
+            and groups.active = true
+            and groups.cohort_id = input_cohort_id
+        )
+        or exists (
+          select 1
+          from public.group_teacher_assignments as assignments
+          join public.halaqa_groups as groups on groups.id = assignments.group_id
+          where assignments.teacher_id = (select auth.uid())
+            and assignments.active = true
+            and assignments.week_start = public.week_start_for_date(public.current_effective_date())
+            and groups.active = true
+            and groups.cohort_id = input_cohort_id
+            and private.raw_is_teacher_for_group_week(
+              (select auth.uid()), assignments.group_id, assignments.week_start
+            )
+        )
+      )
     );
 $$;
 
@@ -560,29 +630,61 @@ security definer
 set search_path = ''
 as $$
   select private.raw_is_active_super_admin((select auth.uid()))
+    or (
+      exists (
+        select 1
+        from public.halaqa_groups as groups
+        join public.cohorts on cohorts.id = groups.cohort_id
+        join public.masajid on masajid.id = cohorts.masjid_id
+        where groups.id = input_group_id
+          and groups.active = true
+          and cohorts.active = true
+          and masajid.active = true
+      )
+      and (
+        private.raw_is_admin_for_masjid(
+          (select auth.uid()),
+          private.raw_group_masjid_id(input_group_id),
+          public.current_effective_date()
+        )
+        or exists (
+          select 1
+          from public.student_group_memberships as memberships
+          join public.profiles on profiles.id = memberships.student_id
+          where memberships.student_id = (select auth.uid())
+            and memberships.group_id = input_group_id
+            and profiles.role = 'student'
+            and profiles.active = true
+            and memberships.starts_on <= public.current_effective_date()
+            and (memberships.ends_on is null or memberships.ends_on >= public.current_effective_date())
+        )
+        or exists (
+          select 1
+          from public.group_teacher_assignments as assignments
+          where assignments.teacher_id = (select auth.uid())
+            and assignments.group_id = input_group_id
+            and assignments.active = true
+            and assignments.week_start = public.week_start_for_date(public.current_effective_date())
+            and private.raw_is_teacher_for_group_week(
+              (select auth.uid()), assignments.group_id, assignments.week_start
+            )
+        )
+      )
+    );
+$$;
+
+create or replace function public.can_admin_manage_group_history(input_group_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select private.raw_is_active_super_admin((select auth.uid()))
     or private.raw_is_admin_for_masjid(
       (select auth.uid()),
       private.raw_group_masjid_id(input_group_id),
       public.current_effective_date()
-    )
-    or exists (
-      select 1
-      from public.student_group_memberships as memberships
-      join public.profiles on profiles.id = memberships.student_id
-      where memberships.student_id = (select auth.uid())
-        and memberships.group_id = input_group_id
-        and profiles.role = 'student'
-        and profiles.active = true
-    )
-    or exists (
-      select 1
-      from public.group_teacher_assignments as assignments
-      where assignments.teacher_id = (select auth.uid())
-        and assignments.group_id = input_group_id
-        and assignments.active = true
-        and private.raw_is_teacher_for_group_week(
-          (select auth.uid()), assignments.group_id, assignments.week_start
-        )
     );
 $$;
 
@@ -804,11 +906,15 @@ create or replace function public.student_weekly_teacher_name(
   input_week_start date
 )
 returns table (teacher_name text)
-language sql
+language plpgsql
 stable
 security definer
 set search_path = ''
 as $$
+begin
+  perform private.require_tracker_week_start(input_week_start);
+
+  return query
   select profiles.name
   from public.group_teacher_assignments as assignments
   join public.profiles on profiles.id = assignments.teacher_id
@@ -829,6 +935,7 @@ as $$
     )
   order by assignments.created_at desc
   limit 1;
+end;
 $$;
 
 create or replace function public.student_cohort_leaderboard_for_week(
@@ -844,11 +951,15 @@ returns table (
   is_current_student boolean,
   status_label text
 )
-language sql
+language plpgsql
 stable
 security definer
 set search_path = ''
 as $$
+begin
+  perform private.require_tracker_week_start(input_week_start);
+
+  return query
   with caller as (
     select profiles.id,
            private.raw_student_cohort_for_week(profiles.id, input_week_start) as cohort_id,
@@ -865,6 +976,7 @@ as $$
     join public.student_group_memberships as memberships on memberships.group_id = groups.id
     join public.profiles on profiles.id = memberships.student_id
     where caller.cohort_id is not null
+      and groups.active = true
       and memberships.starts_on <= input_week_start
       and (memberships.ends_on is null or memberships.ends_on >= input_week_start)
       and profiles.role = 'student'
@@ -909,6 +1021,7 @@ as $$
     join public.student_group_memberships as memberships on memberships.group_id = groups.id
     join public.profiles on profiles.id = memberships.student_id
     where caller.previous_cohort_id is not null
+      and groups.active = true
       and memberships.starts_on <= input_week_start - 7
       and (memberships.ends_on is null or memberships.ends_on >= input_week_start - 7)
       and profiles.role = 'student'
@@ -990,6 +1103,7 @@ as $$
   from current_ranked
   left join previous_ranked on previous_ranked.id = current_ranked.id
   order by current_ranked.rank;
+end;
 $$;
 
 create or replace function public.student_leaderboard_available_weeks()
@@ -1029,6 +1143,59 @@ as $$
   order by candidate_weeks.week_start desc;
 $$;
 
+create or replace function public.admin_students_for_week(input_week_start date)
+returns table (
+  student_id uuid,
+  student_name text,
+  student_email text,
+  student_phone text,
+  student_created_at timestamptz,
+  masjid_id uuid,
+  cohort_id uuid,
+  cohort_kind text,
+  cohort_name text,
+  group_id uuid,
+  group_name text
+)
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+  perform private.require_tracker_week_start(input_week_start);
+
+  return query
+  select profiles.id,
+         profiles.name,
+         profiles.email,
+         profiles.phone,
+         profiles.created_at,
+         cohorts.masjid_id,
+         cohorts.id,
+         cohorts.kind,
+         cohorts.name,
+         groups.id,
+         groups.name
+  from public.student_group_memberships as memberships
+  join public.profiles on profiles.id = memberships.student_id
+  join public.halaqa_groups as groups on groups.id = memberships.group_id
+  join public.cohorts on cohorts.id = groups.cohort_id
+  join public.masajid on masajid.id = cohorts.masjid_id
+  where memberships.starts_on <= input_week_start
+    and (memberships.ends_on is null or memberships.ends_on >= input_week_start)
+    and profiles.role = 'student'
+    and profiles.active = true
+    and groups.active = true
+    and cohorts.active = true
+    and masajid.active = true
+    and private.raw_is_admin_for_masjid(
+      (select auth.uid()), cohorts.masjid_id, public.current_effective_date()
+    )
+  order by cohorts.sort_order asc, groups.sort_order asc, profiles.name asc;
+end;
+$$;
+
 -- Existing application RPCs are retained for compatibility, but the two
 -- superseded student RPCs are no longer executable by browser roles.
 revoke all on function public.student_weekly_teacher(uuid, date) from public, anon, authenticated;
@@ -1061,6 +1228,176 @@ as $$
   ) as definitions(task_key, task_label, weight, weekdays)
   where extract(dow from input_date)::integer = any(definitions.weekdays)
     and (input_task_key is null or definitions.task_key = input_task_key);
+$$;
+
+revoke all on function private.checkin_task_definition(date, text)
+  from public, anon, authenticated, service_role;
+
+create or replace function public.apply_admin_checkin_correction(
+  input_student_id uuid,
+  input_date date,
+  input_status text,
+  input_note text,
+  input_completed_task_keys text[]
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  actor_id uuid := (select auth.uid());
+  target_week_start date;
+  target_masjid_id uuid;
+  corrected_checkin_id uuid;
+  expected_total integer;
+  expected_earned integer;
+  completed_keys text[] := coalesce(input_completed_task_keys, array[]::text[]);
+begin
+  if input_student_id is null or input_date is null then
+    raise exception using errcode = '22023', message = 'Student and date are required.';
+  end if;
+
+  if input_status not in ('submitted', 'missing') then
+    raise exception using errcode = '22023', message = 'Invalid correction status.';
+  end if;
+
+  if not exists (
+    select 1 from public.profiles
+    where profiles.id = input_student_id
+      and profiles.role = 'student'
+      and profiles.active = true
+  ) then
+    raise exception 'Invalid active student.';
+  end if;
+
+  target_week_start := public.week_start_for_date(input_date);
+
+  -- Existing immutable snapshots remain correct even if the historical group
+  -- is later deactivated. New corrections require an active effective scope.
+  select checkins.id, checkins.masjid_id
+  into corrected_checkin_id, target_masjid_id
+  from public.checkins
+  where checkins.student_id = input_student_id
+    and checkins.date = input_date;
+
+  if corrected_checkin_id is null then
+    target_masjid_id := private.raw_student_masjid_for_week(input_student_id, target_week_start);
+  end if;
+
+  if target_masjid_id is null
+    or not (
+      private.raw_is_active_super_admin(actor_id)
+      or private.raw_is_admin_for_masjid(
+        actor_id, target_masjid_id, public.current_effective_date()
+      )
+    ) then
+    raise exception 'Actor is not authorized for this student correction.';
+  end if;
+
+  if input_status = 'missing' then
+    delete from public.checkins
+    where checkins.student_id = input_student_id
+      and checkins.date = input_date;
+    return corrected_checkin_id;
+  end if;
+
+  select coalesce(sum(definitions.weight), 0)
+  into expected_total
+  from private.checkin_task_definition(input_date) as definitions;
+
+  if expected_total = 0 then
+    raise exception 'No canonical checklist exists for the correction date.';
+  end if;
+
+  insert into public.checkins (
+    student_id,
+    date,
+    completed,
+    note,
+    earned_weight,
+    total_weight,
+    daily_score,
+    updated_at,
+    updated_by_admin
+  )
+  values (
+    input_student_id,
+    input_date,
+    true,
+    input_note,
+    0,
+    expected_total,
+    0,
+    now(),
+    actor_id
+  )
+  on conflict (student_id, date) do update
+  set completed = true,
+      note = excluded.note,
+      earned_weight = 0,
+      total_weight = excluded.total_weight,
+      daily_score = 0,
+      updated_at = excluded.updated_at,
+      updated_by_admin = excluded.updated_by_admin
+  returning checkins.id into corrected_checkin_id;
+
+  delete from public.checkin_items
+  where checkin_items.checkin_id = corrected_checkin_id;
+
+  -- Validation intentionally remains inside the same transaction after the
+  -- parent/item mutations so any exception proves the complete correction is
+  -- rolled back rather than leaving a partial parent or item set.
+  if exists (
+      select 1
+      from unnest(completed_keys) as submitted(task_key)
+      where submitted.task_key is null
+        or not exists (
+          select 1
+          from private.checkin_task_definition(input_date, submitted.task_key)
+        )
+    )
+    or cardinality(completed_keys) <> (
+      select count(distinct submitted.task_key)
+      from unnest(completed_keys) as submitted(task_key)
+    ) then
+    raise exception using errcode = '22023', message = 'Invalid canonical checklist task selection.';
+  end if;
+
+  insert into public.checkin_items (
+    checkin_id,
+    student_id,
+    date,
+    task_key,
+    task_label,
+    weight,
+    completed
+  )
+  select corrected_checkin_id,
+         input_student_id,
+         input_date,
+         definitions.task_key,
+         definitions.task_label,
+         definitions.weight,
+         definitions.task_key = any(completed_keys)
+  from private.checkin_task_definition(input_date) as definitions;
+
+  select coalesce(sum(definitions.weight) filter (
+           where definitions.task_key = any(completed_keys)
+         ), 0)
+  into expected_earned
+  from private.checkin_task_definition(input_date) as definitions;
+
+  update public.checkins
+  set earned_weight = expected_earned,
+      total_weight = expected_total,
+      daily_score = round((expected_earned::numeric / expected_total::numeric) * 100, 2),
+      updated_at = now(),
+      updated_by_admin = actor_id
+  where checkins.id = corrected_checkin_id;
+
+  return corrected_checkin_id;
+end;
 $$;
 
 create or replace function public.enforce_student_checkin_integrity()
@@ -1329,28 +1666,53 @@ security definer
 set search_path = ''
 as $$
 begin
-  if tg_table_name = 'student_group_memberships'
-    and new.student_id is distinct from old.student_id then
-    raise exception 'student_id is immutable; close and create a membership instead.';
+  -- Rotation/setup mutations already passed a guarded server-side scope check
+  -- and need to replace same-week membership/assignment rows atomically.
+  if coalesce((select auth.jwt() ->> 'role'), '') = 'service_role' then
+    return new;
   end if;
 
-  if tg_table_name = 'masjid_staff_memberships'
-    and (
-      new.profile_id is distinct from old.profile_id
+  -- Keep table-specific record fields in separate branches. PostgreSQL may
+  -- evaluate boolean terms in any order, so a heterogeneous NEW record must
+  -- never reference columns belonging to another trigger table.
+  if tg_table_name = 'student_group_memberships' then
+    if new.id is distinct from old.id
+      or new.student_id is distinct from old.student_id
+      or new.group_id is distinct from old.group_id
+      or new.starts_on is distinct from old.starts_on
+      or new.assigned_by is distinct from old.assigned_by
+      or new.created_at is distinct from old.created_at
+      or (old.ends_on is not null and new.ends_on is distinct from old.ends_on)
+    then
+      raise exception 'Membership history is immutable; close the open membership instead.';
+    end if;
+  elsif tg_table_name = 'masjid_staff_memberships' then
+    if new.id is distinct from old.id
+      or new.profile_id is distinct from old.profile_id
       or new.masjid_id is distinct from old.masjid_id
       or new.staff_role is distinct from old.staff_role
+      or new.starts_on is distinct from old.starts_on
       or new.created_by is distinct from old.created_by
-    ) then
-    raise exception 'staff membership identity and creator are immutable; close and create a membership instead.';
+      or new.created_at is distinct from old.created_at
+      or (old.ends_on is not null and new.ends_on is distinct from old.ends_on)
+      or (old.active = false and new.active = true)
+    then
+      raise exception 'Staff history is immutable; close or deactivate the open membership instead.';
+    end if;
+  elsif tg_table_name = 'group_teacher_assignments' then
+    if new.id is distinct from old.id
+      or new.group_id is distinct from old.group_id
+      or new.teacher_id is distinct from old.teacher_id
+      or new.week_start is distinct from old.week_start
+      or new.assigned_by is distinct from old.assigned_by
+      or new.created_at is distinct from old.created_at
+      or (old.active = false and new.active = true)
+    then
+      raise exception 'Teacher assignment history is immutable; deactivate the assignment instead.';
+    end if;
   end if;
 
-  if tg_table_name = 'group_teacher_assignments'
-    and (
-      new.group_id is distinct from old.group_id
-      or new.week_start is distinct from old.week_start
-    ) then
-    raise exception 'teacher assignment group and week are immutable.';
-  end if;
+  new.updated_at := now();
 
   return new;
 end;
@@ -1452,36 +1814,18 @@ alter policy "Admins can read all checkins"
 alter policy "Admins can insert checkins"
   on public.checkins
   to authenticated
-  with check (
-    public.is_admin_for_masjid(masjid_id)
-    and public.student_scope_snapshot_matches(
-      student_id,
-      public.week_start_for_date(date),
-      masjid_id,
-      cohort_id,
-      halaqa_group_id
-    )
-  );
+  with check (false);
 
 alter policy "Admins can update checkins"
   on public.checkins
   to authenticated
-  using (public.is_admin_for_masjid(masjid_id))
-  with check (
-    public.is_admin_for_masjid(masjid_id)
-    and public.student_scope_snapshot_matches(
-      student_id,
-      public.week_start_for_date(date),
-      masjid_id,
-      cohort_id,
-      halaqa_group_id
-    )
-  );
+  using (false)
+  with check (false);
 
 alter policy "Admins can delete checkins"
   on public.checkins
   to authenticated
-  using (public.is_admin_for_masjid(masjid_id));
+  using (false);
 
 -- Check-in items inherit their authorization and row identity from the parent.
 alter policy "Students can read own checkin items"
@@ -1547,46 +1891,18 @@ alter policy "Admins can read all checkin items"
 alter policy "Admins can insert checkin items"
   on public.checkin_items
   to authenticated
-  with check (
-    exists (
-      select 1 from public.checkins
-      where checkins.id = checkin_items.checkin_id
-        and checkins.student_id = checkin_items.student_id
-        and checkins.date = checkin_items.date
-        and public.is_admin_for_masjid(checkins.masjid_id)
-    )
-  );
+  with check (false);
 
 alter policy "Admins can update checkin items"
   on public.checkin_items
   to authenticated
-  using (
-    exists (
-      select 1 from public.checkins
-      where checkins.id = checkin_items.checkin_id
-        and public.is_admin_for_masjid(checkins.masjid_id)
-    )
-  )
-  with check (
-    exists (
-      select 1 from public.checkins
-      where checkins.id = checkin_items.checkin_id
-        and checkins.student_id = checkin_items.student_id
-        and checkins.date = checkin_items.date
-        and public.is_admin_for_masjid(checkins.masjid_id)
-    )
-  );
+  using (false)
+  with check (false);
 
 alter policy "Admins can delete checkin items"
   on public.checkin_items
   to authenticated
-  using (
-    exists (
-      select 1 from public.checkins
-      where checkins.id = checkin_items.checkin_id
-        and public.is_admin_for_masjid(checkins.masjid_id)
-    )
-  );
+  using (false);
 
 -- Weekly plan metadata and storage-path ownership.
 alter policy "Students can read own weekly plans"
@@ -1864,13 +2180,18 @@ alter policy "Teachers can read assigned group memberships"
   to authenticated
   using (public.teacher_can_read_membership(group_id, starts_on, ends_on));
 
-alter policy "Admins can manage student group memberships"
+drop policy "Admins can manage student group memberships" on public.student_group_memberships;
+
+create policy "Admins can read student membership history"
   on public.student_group_memberships
+  for select
   to authenticated
-  using (
-    (select public.is_active_super_admin())
-    or public.is_admin_for_masjid(public.group_masjid_id(group_id))
-  )
+  using (public.can_admin_manage_group_history(group_id));
+
+create policy "Admins can insert student memberships"
+  on public.student_group_memberships
+  for insert
+  to authenticated
   with check (
     (select public.is_active_super_admin())
     or (
@@ -1886,6 +2207,19 @@ alter policy "Admins can manage student group memberships"
     )
   );
 
+create policy "Admins can close student memberships"
+  on public.student_group_memberships
+  for update
+  to authenticated
+  using (public.can_admin_manage_group_history(group_id))
+  with check (public.can_admin_manage_group_history(group_id));
+
+create policy "Super admins can delete student membership history"
+  on public.student_group_memberships
+  for delete
+  to authenticated
+  using ((select public.is_active_super_admin()));
+
 alter policy "Users can read own staff memberships"
   on public.masjid_staff_memberships
   to authenticated
@@ -1899,13 +2233,21 @@ alter policy "Users can read own staff memberships"
     )
   );
 
-alter policy "Admins can manage staff memberships"
+drop policy "Admins can manage staff memberships" on public.masjid_staff_memberships;
+
+create policy "Admins can read staff membership history"
   on public.masjid_staff_memberships
+  for select
   to authenticated
   using (
     (select public.is_active_super_admin())
     or (staff_role = 'teacher' and public.is_admin_for_masjid(masjid_id))
-  )
+  );
+
+create policy "Admins can insert teacher staff memberships"
+  on public.masjid_staff_memberships
+  for insert
+  to authenticated
   with check (
     (select public.is_active_super_admin())
     or (
@@ -1922,6 +2264,25 @@ alter policy "Admins can manage staff memberships"
     )
   );
 
+create policy "Admins can close teacher staff memberships"
+  on public.masjid_staff_memberships
+  for update
+  to authenticated
+  using (
+    (select public.is_active_super_admin())
+    or (staff_role = 'teacher' and public.is_admin_for_masjid(masjid_id))
+  )
+  with check (
+    (select public.is_active_super_admin())
+    or (staff_role = 'teacher' and public.is_admin_for_masjid(masjid_id))
+  );
+
+create policy "Super admins can delete staff membership history"
+  on public.masjid_staff_memberships
+  for delete
+  to authenticated
+  using ((select public.is_active_super_admin()));
+
 alter policy "Teachers can read own group assignments"
   on public.group_teacher_assignments
   to authenticated
@@ -1935,13 +2296,18 @@ alter policy "Teachers can read own group assignments"
     )
   );
 
-alter policy "Admins can manage group teacher assignments"
+drop policy "Admins can manage group teacher assignments" on public.group_teacher_assignments;
+
+create policy "Admins can read teacher assignment history"
   on public.group_teacher_assignments
+  for select
   to authenticated
-  using (
-    (select public.is_active_super_admin())
-    or public.is_admin_for_masjid(public.group_masjid_id(group_id))
-  )
+  using (public.can_admin_manage_group_history(group_id));
+
+create policy "Admins can insert teacher assignments"
+  on public.group_teacher_assignments
+  for insert
+  to authenticated
   with check (
     (select public.is_active_super_admin())
     or (
@@ -1955,26 +2321,15 @@ alter policy "Admins can manage group teacher assignments"
     )
   );
 
--- Membership and assignment history is closed/deactivated, never erased by a
--- normal admin. Restrictive delete policies also apply alongside the legacy
--- FOR ALL policies whose commands cannot be changed with ALTER POLICY.
-create policy "Only super admins can delete student group membership history"
-  on public.student_group_memberships
-  as restrictive
-  for delete
-  to authenticated
-  using ((select public.is_active_super_admin()));
-
-create policy "Only super admins can delete staff membership history"
-  on public.masjid_staff_memberships
-  as restrictive
-  for delete
-  to authenticated
-  using ((select public.is_active_super_admin()));
-
-create policy "Only super admins can delete teacher assignment history"
+create policy "Admins can deactivate teacher assignments"
   on public.group_teacher_assignments
-  as restrictive
+  for update
+  to authenticated
+  using (public.can_admin_manage_group_history(group_id))
+  with check (public.can_admin_manage_group_history(group_id));
+
+create policy "Super admins can delete teacher assignment history"
+  on public.group_teacher_assignments
   for delete
   to authenticated
   using ((select public.is_active_super_admin()));
@@ -2000,11 +2355,13 @@ alter policy "Admins can manage cohort rotation settings"
   using (public.is_admin_for_masjid(masjid_id))
   with check (public.is_admin_for_masjid(masjid_id));
 
-alter policy "Admins can manage teacher rotation runs"
+drop policy "Admins can manage teacher rotation runs" on public.teacher_rotation_runs;
+
+create policy "Admins can read teacher rotation runs"
   on public.teacher_rotation_runs
+  for select
   to authenticated
-  using (public.is_admin_for_masjid(public.cohort_masjid_id(cohort_id)))
-  with check (public.is_admin_for_masjid(public.cohort_masjid_id(cohort_id)));
+  using (public.is_admin_for_masjid(public.cohort_masjid_id(cohort_id)));
 
 -- Weekly-plan objects are mutated only by guarded server actions. Signed-in
 -- clients retain scoped SELECT for signed-link creation, but cannot bypass the
@@ -2104,28 +2461,141 @@ begin
 end;
 $$;
 
+-- Restrictive policies make direct signed-client writes impossible even if an
+-- existing deployment has additional permissive policies under other names.
+create policy "Weekly plan object inserts are server-only"
+  on storage.objects
+  as restrictive
+  for insert
+  to authenticated
+  with check (bucket_id <> 'weekly-plans');
+
+create policy "Weekly plan object updates are server-only"
+  on storage.objects
+  as restrictive
+  for update
+  to authenticated
+  using (bucket_id <> 'weekly-plans')
+  with check (bucket_id <> 'weekly-plans');
+
+create policy "Weekly plan object deletes are server-only"
+  on storage.objects
+  as restrictive
+  for delete
+  to authenticated
+  using (bucket_id <> 'weekly-plans');
+
 -- Audit events remain immutable to ordinary roles even if table defaults vary.
 revoke all on table public.super_admin_audit_events from public, anon, authenticated;
 grant select on table public.super_admin_audit_events to authenticated;
+revoke all on table public.super_admin_audit_events from service_role;
+grant select, insert on table public.super_admin_audit_events to service_role;
+
+-- This trigger must keep enforcing rotation row snapshots when the guarded
+-- service-role workflow writes them. Run its internal helper calls as the
+-- application owner without exposing the trigger function as an RPC.
+alter function public.teacher_rotation_row_scope_matches() security definer;
+alter function public.teacher_rotation_row_scope_matches() set search_path = '';
 
 -- Harden function ownership boundaries. PostgreSQL grants EXECUTE to PUBLIC by
--- default, so first remove inherited access from every application-owned
--- SECURITY DEFINER function and then restore only the exact caller-relative
--- helpers/RPCs required by RLS and the application. Limit this sweep to definer
--- functions so extension-owned functions installed into public are untouched.
+-- default. Keep the application-owned SECURITY DEFINER surface explicit so an
+-- extension or externally managed function installed in public is never swept
+-- by this migration. The disposable catalog test consumes this same allowlist.
+create or replace function private.application_security_definer_oids()
+returns table (function_oid oid)
+language sql
+stable
+set search_path = ''
+as $$
+  select signature::regprocedure::oid
+  from unnest(array[
+    'public.admin_students_for_week(date)',
+    'public.apply_admin_checkin_correction(uuid,date,text,text,text[])',
+    'public.apply_teacher_rotation_generation(uuid,date,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,integer,integer,integer,integer)',
+    'public.can_admin_delete_student(uuid)',
+    'public.can_admin_manage_group_history(uuid)',
+    'public.can_admin_manage_student_for_week(uuid,date)',
+    'public.can_admin_read_weekly_plan_path(text)',
+    'public.can_grade_student_for_week(uuid,date)',
+    'public.can_read_cohort(uuid)',
+    'public.can_read_group(uuid)',
+    'public.can_read_masjid(uuid)',
+    'public.can_read_operational_student_row(uuid,uuid,date)',
+    'public.can_read_profile(uuid)',
+    'public.can_read_student_for_week(uuid,date)',
+    'public.cohort_masjid_id(uuid)',
+    'public.current_effective_date()',
+    'public.current_partner_recitation_round()',
+    'public.enforce_student_accountability_attestation()',
+    'public.enforce_student_checkin_integrity()',
+    'public.enforce_student_checkin_item_integrity()',
+    'public.group_masjid_id(uuid)',
+    'public.is_active_admin()',
+    'public.is_active_student()',
+    'public.is_active_super_admin()',
+    'public.is_active_teacher()',
+    'public.is_admin_for_masjid(uuid)',
+    'public.is_rotation_teacher_for_masjid_week(uuid,uuid,date)',
+    'public.is_staff_for_masjid(uuid)',
+    'public.is_teacher_for_group_week(uuid,date)',
+    'public.protect_foundation_row_identity()',
+    'public.recalculate_student_checkin_score()',
+    'public.set_student_scope_snapshot()',
+    'public.student_cohort_for_week(uuid,date)',
+    'public.student_cohort_leaderboard_for_week(date)',
+    'public.student_cohort_students_for_week(uuid,date)',
+    'public.student_current_group_id(uuid)',
+    'public.student_group_for_week(uuid,date)',
+    'public.student_leaderboard_available_weeks()',
+    'public.student_masjid_for_week(uuid,date)',
+    'public.student_scope_snapshot_matches(uuid,date,uuid,uuid,uuid)',
+    'public.student_weekly_teacher_name(date)',
+    'public.student_weekly_teacher(uuid,date)',
+    'public.teacher_can_read_membership(uuid,date,date)',
+    'public.teacher_rotation_row_scope_matches()'
+  ]::text[]) as listed(signature);
+$$;
+
+revoke all on function private.application_security_definer_oids()
+  from public, anon, authenticated, service_role;
+
 do $$
 declare
   function_signature text;
+  invalid_functions text;
 begin
+  select string_agg(p.oid::regprocedure::text, ', ' order by p.oid::regprocedure::text)
+  into invalid_functions
+  from private.application_security_definer_oids() listed
+  join pg_proc p on p.oid = listed.function_oid
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname <> 'public'
+    or not p.prosecdef
+    or p.proowner <> (
+      select anchor.proowner
+      from pg_proc anchor
+      where anchor.oid = 'public.is_active_admin()'::regprocedure
+    )
+    or exists (
+      select 1
+      from pg_depend dependency
+      join pg_extension extension on extension.oid = dependency.refobjid
+      where dependency.classid = 'pg_proc'::regclass
+        and dependency.objid = p.oid
+        and dependency.refclassid = 'pg_extension'::regclass
+        and dependency.deptype = 'e'
+    );
+
+  if invalid_functions is not null then
+    raise exception 'Invalid application SECURITY DEFINER allowlist entries: %', invalid_functions;
+  end if;
+
   for function_signature in
-    select p.oid::regprocedure::text
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public'
-      and p.prosecdef
+    select listed.function_oid::regprocedure::text
+    from private.application_security_definer_oids() listed
   loop
     execute format(
-      'revoke execute on function %s from public, anon, authenticated',
+      'revoke execute on function %s from public, anon, authenticated, service_role',
       function_signature
     );
   end loop;
@@ -2148,6 +2618,7 @@ grant execute on function public.can_read_student_for_week(uuid, date) to authen
 grant execute on function public.can_grade_student_for_week(uuid, date) to authenticated;
 grant execute on function public.can_admin_manage_student_for_week(uuid, date) to authenticated;
 grant execute on function public.can_admin_delete_student(uuid) to authenticated;
+grant execute on function public.can_admin_manage_group_history(uuid) to authenticated;
 grant execute on function public.student_group_for_week(uuid, date) to authenticated;
 grant execute on function public.student_current_group_id(uuid) to authenticated;
 grant execute on function public.student_cohort_for_week(uuid, date) to authenticated;
@@ -2168,6 +2639,7 @@ grant execute on function public.student_weekly_teacher_name(date) to authentica
 grant execute on function public.student_cohort_leaderboard_for_week(date) to authenticated;
 grant execute on function public.student_leaderboard_available_weeks() to authenticated;
 grant execute on function public.admin_students_for_week(date) to authenticated;
+grant execute on function public.apply_admin_checkin_correction(uuid, date, text, text, text[]) to authenticated;
 
 grant execute on function public.apply_teacher_rotation_generation(
   uuid,

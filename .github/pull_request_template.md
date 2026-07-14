@@ -5,6 +5,7 @@
 ## Verification
 
 - [ ] `npm run check` passes
+- [ ] `npm run test:rls` passes for authorization or database changes
 - [ ] UI changes reviewed locally, if applicable
 - [ ] Database migrations tested on staging first, if applicable
 
