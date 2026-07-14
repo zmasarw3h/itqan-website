@@ -1,5 +1,9 @@
 # Super Admin Architecture Brief
 
+> Status as of July 13, 2026: Phase 0, Phase 1A, Phase 1B, and scoped admin delegation are implemented.
+> `/super-admin/people` and `/super-admin/masajid` are live. Phase 3B repair UI is deferred until scoped
+> operational RLS, privileged-function permissions, and transactional mutation primitives are complete.
+
 ## Purpose
 
 This brief is the implementation source of truth for adding a super-admin operations console to ITQAN Lite.
@@ -14,12 +18,12 @@ The console exists to replace risky production SQL edits for operational tasks s
 
 This is not a broad analytics dashboard. The first release must be a small, safe operations surface.
 
-## Current Findings
+## Findings At Planning Time
 
 - `profiles.role` already supports `student | teacher | admin | super_admin`.
 - `super_admin` exists in the database role constraint and helper functions.
-- There is no `/super-admin` route yet.
-- Current role routing sends unknown or unsupported role experiences toward account/password pages.
+- At planning time there was no `/super-admin` route; the people and masjid setup routes now exist.
+- Teacher role routing still falls back to the account/password page until the teacher dashboard is implemented.
 - `profiles.role` is a routing/default-experience hint.
 - Actual scoped access comes from:
   - `student_group_memberships`

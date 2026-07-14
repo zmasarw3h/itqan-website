@@ -1,14 +1,15 @@
 # Security Test Plan
 
-This plan verifies the app access model and Supabase row-level security (RLS) policies for the ITQAN emergency app. It is intended for staging or a local Supabase project, not production.
+This plan verifies the scoped multi-masjid access model and Supabase row-level security (RLS) policies for ITQAN Lite. It is intended for a local Supabase project or disposable staging environment, not production.
 
 ## Scope
 
 Verify these enforcement layers:
 
-- App routes and server actions call `requireProfile(["student"])` or `requireProfile(["admin"])` before accessing protected data.
+- App routes and server actions enforce the signed-in profile role plus effective masjid, cohort, group, or super-admin scope before accessing protected data.
 - Browser/server Supabase clients use the signed-in user's session and the anon key, so public table access is constrained by RLS.
-- Admin-only service role usage stays server-side and is limited to Auth user creation plus private weekly-plan Storage upload, cleanup, and signed URL creation.
+- Guarded service-role usage stays server-side. Every mutation validates the actor and target scope before creating an admin client; the read-only login resolver is the pre-auth exception.
+- `security definer` functions expose only the minimum required `execute` grants and enforce their own actor/scope checks.
 - Database constraints block duplicate records where RLS alone is not enough.
 
 Do not use the Supabase SQL editor, service role key, or `createSupabaseAdminClient()` for RLS assertions. Those can bypass RLS and will produce false positives. Use a signed-in anon client, the deployed staging app, or a one-off local script that signs in as each test user.
@@ -29,6 +30,12 @@ Tables with RLS enabled:
 - `public.student_group_memberships`
 - `public.masjid_staff_memberships`
 - `public.group_teacher_assignments`
+- `public.weekly_incentive_runs`
+- `public.accountability_obligations`
+- `public.badge_awards`
+- `public.teacher_rotation_availability`
+- `public.cohort_rotation_settings`
+- `public.teacher_rotation_runs`
 - `public.super_admin_audit_events`
 
 Helper functions used by policies:
@@ -54,11 +61,14 @@ Uniqueness and check constraints that are security-relevant:
 
 ## Test Data
 
-Create these users in a disposable Supabase project with matching `public.profiles` rows:
+Create two active masjids with cohorts and groups, then create these users with matching `public.profiles` rows:
 
-- `admin_a`: active admin
-- `student_a`: active student
-- `student_b`: active student
+- `super_admin_a`: active super admin
+- `admin_a`: active admin staff member for masjid A only
+- `admin_b`: active admin staff member for masjid B only
+- `teacher_a`: active teacher staff member for masjid A only
+- `student_a` and `student_a_2`: active students in masjid A
+- `student_b`: active student in masjid B
 - `inactive_student`: inactive student, optional but useful for negative checks
 
 Seed at least one row owned by `student_a` and one row owned by `student_b` in each owned table:
@@ -86,8 +96,10 @@ As `student_a`:
 
 As `admin_a`:
 
-- Select all profiles.
-- Expected: all profiles intended for admin management are visible.
+- Load students through the scoped admin RPC/app query.
+- Expected: only students effectively assigned to masjid A are returned.
+- Select all profiles directly.
+- Expected: the query must not expose people whose only access is in masjid B. Broad global profile visibility is forbidden.
 - Insert or update `profiles.role` / `profiles.active` directly through the signed-in client.
 - Expected: fails unless the actor is an active super admin. Normal app student/teacher creation uses guarded server-side service-role code.
 
@@ -123,6 +135,26 @@ As `admin_a`:
 - Insert/update a `student_group_memberships` or `group_teacher_assignments` row outside `admin_a`'s active admin masjid.
 - Expected: fails.
 
+As `teacher_a`:
+
+- Read the assigned group and students for an effective week in masjid A.
+- Expected: only the assigned group/week is visible.
+- Read an unassigned group or any masjid B group.
+- Expected: zero rows or permission denial.
+
+### Privileged Functions
+
+For every application-facing `security definer` function:
+
+- Execute as unauthenticated/`anon`.
+- Expected: permission denied unless the function is the explicitly documented read-only pre-auth login resolver.
+- Execute as each authenticated role outside its intended scope.
+- Expected: permission denied or zero scoped rows.
+- Execute scoped read RPCs such as `admin_students_for_week` as `admin_a`.
+- Expected: masjid A rows only; no masjid B identifiers or records appear.
+
+Trigger helpers and internal-only maintenance functions must not be executable by `anon` or ordinary `authenticated` users.
+
 ### Check-Ins
 
 As `student_a`:
@@ -142,9 +174,9 @@ As `student_a`:
 
 As `admin_a`:
 
-- Select check-ins for all students.
-- Insert, update, and delete intended correction rows.
-- Expected: succeeds for active admin.
+- Select check-ins for students in masjid A and masjid B.
+- Insert, update, and delete intended correction rows for both masjids.
+- Expected: masjid A operations succeed; masjid B rows are hidden and writes fail.
 
 ### Check-In Items
 
@@ -165,8 +197,8 @@ As `student_a`:
 
 As `admin_a`:
 
-- Select, insert, update, and delete intended correction items.
-- Expected: succeeds for active admin.
+- Select, insert, update, and delete intended correction items in both masjids.
+- Expected: masjid A operations succeed; masjid B rows are hidden and writes fail.
 
 ### Weekly Plans
 
@@ -189,8 +221,8 @@ As `student_a`:
 
 As `admin_a`:
 
-- Select weekly-plan metadata for all students.
-- Expected: succeeds for active admin.
+- Select weekly-plan metadata for students in both masjids.
+- Expected: only masjid A metadata is returned.
 - Insert, update, or delete weekly-plan metadata directly.
 - Expected: fails unless a future migration intentionally adds admin management policies. Current intended admin access is read-only metadata plus server-side signed file links.
 
@@ -223,8 +255,8 @@ As `student_a`:
 
 As `admin_a`:
 
-- Select, insert, update, and delete intended partner-recitation rows.
-- Expected: succeeds for active admin, subject to table constraints.
+- Select, insert, update, and delete intended partner-recitation rows in both masjids.
+- Expected: masjid A operations succeed subject to constraints; masjid B rows are hidden and writes fail.
 
 ### Halaqa Grades
 
@@ -244,9 +276,9 @@ As `student_a` or unauthenticated:
 
 As `admin_a`:
 
-- Select all halaqa grades.
-- Insert and update intended halaqa grade rows.
-- Expected: succeeds for active admin when values satisfy `halaqa_grades_points_check`.
+- Select halaqa grades in both masjids.
+- Insert and update intended halaqa grade rows in both masjids.
+- Expected: masjid A operations succeed when values satisfy `halaqa_grades_points_check`; masjid B rows are hidden and writes fail.
 - Delete a halaqa grade.
 - Expected: fails unless a future migration intentionally adds an admin delete policy.
 
@@ -258,7 +290,10 @@ Run these checks through the app using staging users:
 - Student pages show only the signed-in student's current check-in status, history, weekly plan, partner recitation, and grades.
 - Direct navigation to `/admin`, `/admin/export`, `/admin/students/new`, and `/admin/students/[id]` as a student redirects away or returns not found.
 - Admin login lands on `/admin`.
-- Admin dashboard, filters, correction form, student creation, halaqa grade form, and CSV export work for intended records.
+- Admin dashboard, filters, correction form, student/teacher creation, halaqa grade form, and CSV export expose only the admin's effective masjid scope.
+- A super admin can open `/super-admin`, `/super-admin/people`, and `/super-admin/masajid`; all other roles are rejected server-side.
+- A teacher's database reads are limited to their effective assignment. The teacher-facing dashboard remains a separate implementation phase.
+- Switching between test users from masjid A and masjid B never leaks names, counts, IDs, files, grades, or leaderboard data across masjids.
 - Browser DevTools Network responses for student pages do not include another student's profile, check-ins, check-in items, weekly plans, partner recitations, or halaqa grades.
 - Browser bundles do not contain `SUPABASE_SERVICE_ROLE_KEY`.
 
@@ -276,13 +311,18 @@ The current unit tests cover pure helper behavior that supports the access model
 
 These are not substitutes for RLS tests. They only guard app-side pure functions.
 
-## Future Automated RLS Integration Tests
+## Required Phase 1 Automated RLS Integration Tests
 
-TODO:
+Phase 1 is not mergeable until a local disposable Supabase harness:
 
-- Add a local Supabase test harness that can start a disposable Supabase stack, apply `supabase/migrations`, seed Auth users and profiles, and run assertions with signed-in anon clients.
-- Add RLS integration tests for each table in the manual matrix above.
-- Add negative tests for inactive profiles to confirm `is_active_admin()` and `is_active_student()` deny access.
-- Add Storage policy tests if direct authenticated Storage access is enabled in addition to the current server-side service-role Storage flow.
-- Add CI support for the RLS suite with disposable credentials only. Do not run it against production.
-- Keep `npm run check` focused on deterministic local checks, and run RLS integration tests through a separate opt-in command until the harness is stable.
+- Applies all migrations and seeds the two-masjid role matrix above.
+- Runs table and RPC assertions with signed-in anon clients, never the service role.
+- Proves normal admins cannot read or mutate another masjid's operational data.
+- Proves students cannot read another student's owned operational records, including a student in the same cohort. The intentional cohort leaderboard RPC may expose only its documented leaderboard fields.
+- Proves teachers are limited to their effective assigned group/week.
+- Proves inactive profiles and expired/future memberships do not grant current access.
+- Tests `security definer` execute grants for `anon`, ordinary authenticated users, admins, and super admins.
+- Tests private weekly-plan Storage access and signed-link authorization.
+- Runs through a documented opt-in command with disposable credentials only. It must never target production.
+
+Keep `npm run check` deterministic. The RLS integration command may remain separate until the local Supabase harness is reliable in CI, but it is a required local merge gate for Phase 1.
