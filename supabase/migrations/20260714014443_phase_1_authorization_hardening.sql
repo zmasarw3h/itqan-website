@@ -1262,6 +1262,10 @@ begin
     raise exception using errcode = '22023', message = 'Invalid correction status.';
   end if;
 
+  if input_date > public.current_effective_date() then
+    raise exception using errcode = '22023', message = 'Correction date cannot be in the future.';
+  end if;
+
   if not exists (
     select 1 from public.profiles
     where profiles.id = input_student_id

@@ -200,6 +200,10 @@ export async function correctCheckIn(formData: FormData) {
     redirect("/admin?status=invalid-correction");
   }
 
+  if (date > todayDateString()) {
+    redirect(adminStudentStatusPath(studentId, "correction-future-date", redirectWeek));
+  }
+
   const correctionWeekStart = weekStartForDate(date);
   const canManageStudent = await canAdminManageStudentForWeek(supabase, studentId, correctionWeekStart);
 

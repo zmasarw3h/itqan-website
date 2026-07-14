@@ -125,7 +125,11 @@ export default async function AdminStudentPage({
   const selectedWeekDateSet = new Set(selectedWeekDates);
   const selectedPlanWeekStart = selectedWeekStart;
   const selectedWeekComplete = weekIsComplete(selectedWeekStart, today);
-  const correctionInitialDate = selectedWeekDates.includes(today) ? today : selectedWeekDates[0];
+  const correctionInitialDate = selectedWeekDates.includes(today)
+    ? today
+    : selectedWeekDates[0] > today
+      ? today
+      : selectedWeekDates[0];
   const canManageStudent = await canAdminManageStudentForWeek(supabase, resolvedParams.id, selectedWeekStart);
 
   if (!canManageStudent) {
@@ -263,6 +267,11 @@ export default async function AdminStudentPage({
         {resolvedSearchParams.status === "correction-error" ? (
           <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
             Unable to save correction.
+          </p>
+        ) : null}
+        {resolvedSearchParams.status === "correction-future-date" ? (
+          <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+            Correction dates cannot be later than today.
           </p>
         ) : null}
         {resolvedSearchParams.status === "partner-corrected" ? (
@@ -539,6 +548,7 @@ export default async function AdminStudentPage({
             existingCheckIns={correctionCheckIns}
             initialDate={correctionInitialDate}
             key={selectedWeekStart}
+            maxDate={today}
             redirectWeek={selectedWeekStart}
             studentId={student.id}
           />

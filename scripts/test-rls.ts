@@ -1021,6 +1021,34 @@ async function runAssertions(ids: SeedIds) {
     input_note: "cross-masjid",
     input_completed_task_keys: correctedKeys
   });
+  const futureCorrectionDate = addDays(ids.today, 1);
+  const { error: futureCorrectionError } = await adminA.rpc("apply_admin_checkin_correction", {
+    input_student_id: ids.users.studentA,
+    input_date: futureCorrectionDate,
+    input_status: "submitted",
+    input_note: "future correction",
+    input_completed_task_keys: tasksForDate(futureCorrectionDate).slice(0, 1).map((task) => task.key)
+  });
+  assert.equal(futureCorrectionError?.code, "22023", "future correction should fail with invalid-parameter error");
+  assert.match(
+    futureCorrectionError?.message ?? "",
+    /future/i,
+    "future correction should explain the date is not allowed"
+  );
+  const { data: futureParents, error: futureParentsError } = await adminA
+    .from("checkins")
+    .select("id")
+    .eq("student_id", ids.users.studentA)
+    .eq("date", futureCorrectionDate);
+  assert.equal(futureParentsError, null, futureParentsError?.message);
+  assert.deepEqual(futureParents, [], "future correction wrote a parent check-in row");
+  const { data: futureItems, error: futureItemsError } = await adminA
+    .from("checkin_items")
+    .select("id")
+    .eq("student_id", ids.users.studentA)
+    .eq("date", futureCorrectionDate);
+  assert.equal(futureItemsError, null, futureItemsError?.message);
+  assert.deepEqual(futureItems, [], "future correction wrote checklist items");
 
   await assertDeleteBlocked(adminA, "student_group_memberships", ids.studentMembershipA);
   await assertDeleteBlocked(adminA, "masjid_staff_memberships", ids.staffMembershipA);
