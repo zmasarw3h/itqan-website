@@ -37,12 +37,17 @@ Core tables:
 - `teacher_rotation_runs`: audit metadata for generated weekly rotation runs.
 - `super_admin_audit_events`: append-only audit target for future super-admin mutations and account recovery actions.
 
-Server-side helper functions expose narrow scoped views used by the app:
+Server-side helper functions expose narrow caller-relative views used by the app:
 
-- `student_weekly_teacher(student_id, week_start)`: returns the assigned teacher display name for that student's group/week.
-- `student_cohort_students_for_week(student_id, week_start)`: returns student names in the same cohort for the student-facing leaderboard.
-- `admin_students_for_week(week_start)`: returns active students in masajid the signed-in admin serves.
-- `cohort_masjid_id(cohort_id)`: resolves a cohort to its masjid for scoped RLS checks.
+- `student_weekly_teacher_name(week_start)`: returns only the signed-in student's assigned teacher display name.
+- `student_cohort_leaderboard_for_week(week_start)`: returns the minimum documented same-cohort leaderboard projection without peer UUIDs or contact details.
+- `student_leaderboard_available_weeks()`: returns weeks with activity in the signed-in student's effective cohort.
+- `admin_students_for_week(week_start)`: returns active students only in masajid the signed-in admin currently serves.
+- `cohort_masjid_id(cohort_id)`: returns a cohort's masjid only when the caller can read that cohort.
+
+The superseded `student_weekly_teacher(student_id, week_start)` and
+`student_cohort_students_for_week(student_id, week_start)` functions remain in the schema for migration
+compatibility but have no browser-role execute grant.
 
 ## Weekly Rotation Foundation
 
@@ -95,7 +100,9 @@ Existing admins receive TIC admin staff memberships. Existing active students re
 - One teacher availability row per teacher, cohort, and tracker week.
 - One active rotation settings row per cohort.
 - Students can only view and submit their own records. Student leaderboard rows are limited to the student's cohort for the selected week.
+- Student checklist items must match the canonical task key/label/weight for the date. Database triggers protect check-in identity, scope, date, and attribution and recalculate score-bearing columns from task completion.
 - Active students without an effective group membership see setup-incomplete screens and cannot create check-ins, weekly plans, or partner recitations.
 - Admin app queries and mutations are scoped by masjid membership. Phase 0 also tightens direct Data API write policies so normal admins cannot grant admin access, mutate global foundation setup, or change other masajid through broad RLS.
 - Active super admins can read `super_admin_audit_events`; browser/client writes to the audit table are not exposed.
+- Normal admins close or deactivate membership/assignment rows instead of deleting foundation history. Direct deletes of those history rows are super-admin-only.
 - Teachers are eventually scoped by assigned group/week and can grade/view weekly plans only for assigned students.

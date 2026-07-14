@@ -127,6 +127,15 @@ supabase db push
 
 Or paste the SQL files into the Supabase SQL editor in filename order. Dashboard schema edits are manual and should only be used for production emergencies.
 
+Before applying authorization migrations to staging, run the disposable local RLS suite with a running
+Docker daemon:
+
+```bash
+npm run test:rls
+```
+
+The suite starts and destroys its own local Supabase stack. Never point it at staging or production.
+
 ## Roll Back a Vercel Deployment
 
 Manual in Vercel:

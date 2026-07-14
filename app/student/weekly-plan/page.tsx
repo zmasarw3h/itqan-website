@@ -6,7 +6,11 @@ import { loadStudentWeekContext } from "@/lib/student-scope";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import type { WeeklyPlan } from "@/lib/types";
-import { WEEKLY_PLAN_BUCKET, WEEKLY_PLAN_MAX_SIZE_LABEL } from "@/lib/weekly-plans";
+import {
+  WEEKLY_PLAN_BUCKET,
+  WEEKLY_PLAN_MAX_SIZE_LABEL,
+  weeklyPlanPathBelongsToStudent
+} from "@/lib/weekly-plans";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +48,6 @@ export default async function StudentWeeklyPlanPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["student"]);
-  const storageSupabase = createSupabaseAdminClient();
   const weekStart = weekStartForDate(todayDateString());
   const studentContext = await loadStudentWeekContext(supabase, profile.id, weekStart);
 
@@ -59,7 +62,9 @@ export default async function StudentWeeklyPlanPage({
     .eq("week_start", weekStart)
     .maybeSingle<WeeklyPlan>();
 
-  const signedUrl = weeklyPlan
+  const storageSupabase = createSupabaseAdminClient();
+
+  const signedUrl = weeklyPlan && weeklyPlanPathBelongsToStudent(profile.id, weekStart, weeklyPlan.file_path)
     ? (
         await storageSupabase.storage
           .from(WEEKLY_PLAN_BUCKET)

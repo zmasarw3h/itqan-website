@@ -151,9 +151,8 @@ async function loadAdminRotationMasjids(supabase: SupabaseClient) {
     return [];
   }
 
-  const adminSupabase = createSupabaseAdminClient();
   const today = todayDateString();
-  const { data, error } = await adminSupabase
+  const { data, error } = await supabase
     .from("masjid_staff_memberships")
     .select("masjid_id,starts_on,created_at,masajid!inner(id,name,slug)")
     .eq("profile_id", user.id)
@@ -191,11 +190,10 @@ async function loadAdminRotationMasjids(supabase: SupabaseClient) {
 export async function resolveAdminBrothersRotationContext(
   supabase: SupabaseClient
 ): Promise<RotationContext | null> {
-  const adminSupabase = createSupabaseAdminClient();
   const masjids = await loadAdminRotationMasjids(supabase);
 
   for (const masjid of masjids) {
-    const { data: cohort } = await adminSupabase
+    const { data: cohort } = await supabase
       .from("cohorts")
       .select("id,name,kind,masjid_id")
       .eq("masjid_id", masjid.id)

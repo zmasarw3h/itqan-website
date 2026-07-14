@@ -373,3 +373,11 @@ export async function canAdminManageStudentForWeek(
 
   return data === true;
 }
+
+export async function canAdminDeleteStudent(supabase: SupabaseClient, studentId: string) {
+  const { data, error } = await supabase.rpc("can_admin_delete_student", {
+    input_student_id: studentId
+  });
+
+  return !error && data === true;
+}

@@ -23,7 +23,7 @@ import { calculateDailyScoreProgress, calculateWeeklyScore, formatScore } from "
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn, CheckInItem, HalaqaGrade, PartnerRecitation, Profile, WeeklyPlan } from "@/lib/types";
-import { WEEKLY_PLAN_BUCKET } from "@/lib/weekly-plans";
+import { WEEKLY_PLAN_BUCKET, weeklyPlanPathBelongsToStudent } from "@/lib/weekly-plans";
 
 export const dynamic = "force-dynamic";
 
@@ -118,7 +118,6 @@ export default async function AdminStudentPage({
   const resolvedParams = await params;
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["admin"]);
-  const storageSupabase = createSupabaseAdminClient();
   const today = todayDateString();
   const currentTrackerWeekStart = weekStartForDate(today);
   const selectedWeekStart = validWeekStart(resolvedSearchParams.week, currentTrackerWeekStart);
@@ -132,6 +131,8 @@ export default async function AdminStudentPage({
   if (!canManageStudent) {
     notFound();
   }
+
+  const storageSupabase = createSupabaseAdminClient();
 
   const { data: student } = await supabase
     .from("profiles")
@@ -229,7 +230,7 @@ export default async function AdminStudentPage({
     .eq("student_id", student.id)
     .eq("week_start", selectedPlanWeekStart)
     .maybeSingle<WeeklyPlan>();
-  const weeklyPlanUrl = weeklyPlan
+  const weeklyPlanUrl = weeklyPlan && weeklyPlanPathBelongsToStudent(student.id, selectedPlanWeekStart, weeklyPlan.file_path)
     ? (
         await storageSupabase.storage
           .from(WEEKLY_PLAN_BUCKET)

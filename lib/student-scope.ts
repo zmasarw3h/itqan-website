@@ -40,14 +40,7 @@ export type StudentWeekScope = {
 };
 
 export type StudentWeekTeacher = {
-  teacher_id: string;
   teacher_name: string;
-};
-
-export type CohortStudentForWeek = {
-  student_id: string;
-  student_name: string;
-  student_created_at: string | null;
 };
 
 function mapScopeRow(
@@ -104,12 +97,10 @@ export async function loadStudentScopeForWeek(
 
 export async function loadStudentWeekTeacher(
   supabase: SupabaseClient,
-  studentId: string,
   weekStart: string
 ): Promise<StudentWeekTeacher | null> {
   const { data, error } = await supabase
-    .rpc("student_weekly_teacher", {
-      input_student_id: studentId,
+    .rpc("student_weekly_teacher_name", {
       input_week_start: weekStart
     })
     .maybeSingle<StudentWeekTeacher>();
@@ -130,7 +121,7 @@ export async function loadStudentWeekContext(
 
   return {
     scope,
-    teacher: scope ? await loadStudentWeekTeacher(supabase, studentId, weekStart) : null
+    teacher: scope ? await loadStudentWeekTeacher(supabase, weekStart) : null
   };
 }
 
@@ -146,22 +137,4 @@ export async function requireStudentScopeForWeek(
   }
 
   return scope;
-}
-
-export async function loadCohortStudentsForWeek(
-  supabase: SupabaseClient,
-  studentId: string,
-  weekStart: string
-) {
-  const { data, error } = await supabase
-    .rpc("student_cohort_students_for_week", {
-      input_student_id: studentId,
-      input_week_start: weekStart
-    });
-
-  if (error) {
-    throw new Error("Unable to load cohort students.");
-  }
-
-  return Array.isArray(data) ? (data as CohortStudentForWeek[]) : [];
 }

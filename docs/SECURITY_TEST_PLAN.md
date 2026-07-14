@@ -48,6 +48,8 @@ Helper functions used by policies:
 - `public.current_effective_date()`
 - `public.week_start_for_date(date)`
 - `public.current_partner_recitation_round()`
+- Caller-relative scope helpers documented in `docs/AUTHORIZATION_MATRIX.md`.
+- Raw cross-user scope resolution lives in the unexposed `private` schema.
 
 Uniqueness and check constraints that are security-relevant:
 
@@ -163,14 +165,18 @@ As `student_a`:
 - Expected: only `student_a` check-ins are returned.
 - Select `checkins` where `student_id = student_b.id`.
 - Expected: zero rows.
-- Insert a check-in with `student_id = student_a.id` for a date without an existing row.
-- Expected: succeeds.
+- Insert today's check-in with `student_id = student_a.id`, canonical total weight, zero earned weight/score, and no admin attribution.
+- Expected: succeeds when today's row does not already exist; a different date or forged score/attribution fails.
 - Insert a second check-in for the same `student_id` and `date`.
 - Expected: fails on `checkins_student_date_unique`.
 - Insert a check-in with `student_id = student_b.id`.
 - Expected: fails with RLS/permission error.
-- Update or delete any check-in.
-- Expected: fails because students have no update/delete policies.
+- Update the student's own note or canonical task completion through autosave.
+- Expected: succeeds while ownership, date, attribution, and the effective scope snapshot remain unchanged. Task completion recalculates score-bearing columns in the database.
+- Directly update `earned_weight`, `total_weight`, `daily_score`, `updated_by_admin`, or the check-in date.
+- Expected: fails; these are derived or protected fields.
+- Update another student's check-in or delete any check-in.
+- Expected: fails or affects zero rows.
 
 As `admin_a`:
 
@@ -186,14 +192,18 @@ As `student_a`:
 - Expected: only `student_a` items are returned.
 - Select `checkin_items` where `student_id = student_b.id`.
 - Expected: zero rows.
-- Insert an item with `student_id = student_a.id` and a `checkin_id` that belongs to `student_a`.
-- Expected: succeeds when the task is not already present for that check-in.
+- Insert a canonical item with `student_id = student_a.id` and a current-day `checkin_id` that belongs to `student_a`.
+- Expected: succeeds when its key, label, and weight match the checklist definition and the task is not already present.
+- Insert an invented task or change a task key, label, weight, identity, date, or creation timestamp.
+- Expected: fails at the database integrity trigger.
 - Insert an item with `student_id = student_a.id` and a `checkin_id` that belongs to `student_b`.
 - Expected: fails with RLS/permission error because the referenced check-in is not owned by the signed-in student.
 - Insert an item with `student_id = student_b.id`.
 - Expected: fails with RLS/permission error.
-- Update or delete any item.
-- Expected: fails because students have no update/delete policies.
+- Update only the student's own existing item's `completed` flag while its canonical identity remains consistent.
+- Expected: succeeds for autosave and atomically recalculates the parent score.
+- Update another student's item or delete any item.
+- Expected: fails or affects zero rows.
 
 As `admin_a`:
 
@@ -202,7 +212,7 @@ As `admin_a`:
 
 ### Weekly Plans
 
-This section covers `public.weekly_plans` metadata. Weekly-plan Storage objects are private and are currently uploaded/read by server-side service role code after the app checks the signed-in user's role.
+This section covers `public.weekly_plans` metadata. Weekly-plan Storage objects are private and are uploaded/replaced/deleted by guarded server actions after checking the signed-in user and target path. Signed sessions have scoped read access for signed-link authorization but no direct object mutation access.
 
 As `student_a`:
 
@@ -225,6 +235,13 @@ As `admin_a`:
 - Expected: only masjid A metadata is returned.
 - Insert, update, or delete weekly-plan metadata directly.
 - Expected: fails unless a future migration intentionally adds admin management policies. Current intended admin access is read-only metadata plus server-side signed file links.
+
+For private Storage as `student_a`:
+
+- Create a signed URL for `student_a`'s current object, then try student B's object.
+- Expected: own signing succeeds and peer/cross-masjid signing fails.
+- Directly upload, replace, or delete an object, including under `student_a`'s path.
+- Expected: fails or affects zero objects; the existing plan remains signable.
 
 ### Partner Recitations
 
@@ -323,6 +340,18 @@ Phase 1 is not mergeable until a local disposable Supabase harness:
 - Proves inactive profiles and expired/future memberships do not grant current access.
 - Tests `security definer` execute grants for `anon`, ordinary authenticated users, admins, and super admins.
 - Tests private weekly-plan Storage access and signed-link authorization.
+- Proves canonical checklist integrity, derived-score enforcement, foundation-history immutability, and audit-row update/delete immutability.
 - Runs through a documented opt-in command with disposable credentials only. It must never target production.
 
 Keep `npm run check` deterministic. The RLS integration command may remain separate until the local Supabase harness is reliable in CI, but it is a required local merge gate for Phase 1.
+
+Run it only against the disposable local stack:
+
+```bash
+npm run test:rls
+```
+
+The command refuses non-local URLs, uses the service role only for fixture setup/teardown, and performs
+every data-authorization assertion through signed-in anon-key clients. A separate catalog assertion,
+executed inside the disposable Postgres container, verifies the exhaustive `SECURITY DEFINER` grant set
+and empty `search_path` configuration; it never connects to a remote database.

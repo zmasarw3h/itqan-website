@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import {
   assertAdminCanManageGroup,
   assertAdminCanManageMasjid,
+  canAdminDeleteStudent,
   canAdminManageStudentForWeek,
   requireScopedAdmin
 } from "@/lib/admin-scope";
@@ -20,7 +21,7 @@ import { calculateDailySubmission, HALAQA_ATTENDANCE_POINTS } from "@/lib/scorin
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn, PartnerRecitation } from "@/lib/types";
-import { WEEKLY_PLAN_BUCKET } from "@/lib/weekly-plans";
+import { WEEKLY_PLAN_BUCKET, weeklyPlanPathBelongsToStudent } from "@/lib/weekly-plans";
 
 function adminStudentStatusPath(studentId: string, status: string, weekStart?: string) {
   const params = new URLSearchParams({ status });
@@ -423,26 +424,39 @@ export async function deleteStudent(formData: FormData) {
     redirect("/admin?status=student-scope-denied");
   }
 
+  if (!(await canAdminDeleteStudent(supabase, student.id))) {
+    redirect("/admin?status=student-scope-denied");
+  }
+
   const adminSupabase = createSupabaseAdminClient();
   const { data: weeklyPlans } = await adminSupabase
     .from("weekly_plans")
-    .select("file_path")
+    .select("file_path,week_start")
     .eq("student_id", student.id)
-    .returns<Array<{ file_path: string }>>();
-  const weeklyPlanPaths = [...new Set((weeklyPlans ?? []).map((plan) => plan.file_path).filter(Boolean))];
-
-  if (weeklyPlanPaths.length) {
-    const { error: storageError } = await adminSupabase.storage.from(WEEKLY_PLAN_BUCKET).remove(weeklyPlanPaths);
-
-    if (storageError) {
-      redirect(`/admin/students/${student.id}?status=student-delete-error`);
-    }
-  }
+    .returns<Array<{ file_path: string; week_start: string }>>();
+  const weeklyPlanPaths = [
+    ...new Set(
+      (weeklyPlans ?? [])
+        .filter((plan) => weeklyPlanPathBelongsToStudent(student.id, plan.week_start, plan.file_path))
+        .map((plan) => plan.file_path)
+    )
+  ];
 
   const { error } = await adminSupabase.auth.admin.deleteUser(student.id);
 
   if (error) {
     redirect(`/admin/students/${student.id}?status=student-delete-error`);
+  }
+
+  // Delete Auth/profile data first. If a restrictive FK or a concurrent scope
+  // change blocks the identity deletion, weekly-plan objects must remain intact
+  // for the still-live metadata rows.
+  if (weeklyPlanPaths.length) {
+    const { error: storageError } = await adminSupabase.storage.from(WEEKLY_PLAN_BUCKET).remove(weeklyPlanPaths);
+
+    if (storageError) {
+      redirect("/admin?status=student-delete-storage-cleanup-error");
+    }
   }
 
   revalidatePath("/admin");

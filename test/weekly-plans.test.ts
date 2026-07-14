@@ -8,6 +8,7 @@ import {
   validateWeeklyPlanFile,
   WEEKLY_PLAN_MAX_BYTES,
   weeklyPlanBlocksCheckIn,
+  weeklyPlanPathBelongsToStudent,
   weeklyPlanRequiredWeekStart,
   weeklyPlanStoragePath
 } from "@/lib/weekly-plans";
@@ -58,6 +59,12 @@ describe("weekly plan upload rules", () => {
     expect(weeklyPlanStoragePath("student-1", "2026-05-09", " My Plan.PDF ")).toBe(
       "student-1/2026-05-09/my-plan.pdf"
     );
+  });
+
+  it("rejects weekly-plan paths outside the student's week folder", () => {
+    expect(weeklyPlanPathBelongsToStudent("student-1", "2026-05-10", "student-1/2026-05-10/plan.pdf")).toBe(true);
+    expect(weeklyPlanPathBelongsToStudent("student-1", "2026-05-10", "student-2/2026-05-10/plan.pdf")).toBe(false);
+    expect(weeklyPlanPathBelongsToStudent("student-1", "2026-05-10", "student-1/2026-05-10/../secret.pdf")).toBe(false);
   });
 });
 
