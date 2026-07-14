@@ -16,7 +16,9 @@ Staging and production should use separate Supabase projects. Do not point Previ
 
 Vercel Preview deployments should be enabled for pull requests and branches. Preview deployments are for review, QA, and staging verification before merging to `main`.
 
-Vercel Production should deploy from `main` only. Merge approved pull requests to `main` after `npm run check` passes, then let Vercel create the production deployment from that commit.
+Vercel Production should deploy from `main` only. Merge approved pull requests to `main` after the
+deterministic `npm run check` job and separate Docker-backed `npm run test:rls` job pass, then let Vercel
+create the production deployment from that commit.
 
 Do not add GitHub Actions deployment workflows for this app yet. GitHub Actions may run checks, but production deployment should remain controlled through Vercel's Git integration.
 
@@ -52,12 +54,15 @@ All database schema changes must be stored as migration files under `supabase/mi
 Use this process for every database change:
 
 1. Create a migration.
-2. Test the migration locally.
+2. Run `npm run test:rls` against its disposable local Supabase stack and run `npm run check`.
 3. Apply the migration to staging.
 4. Verify the app against staging.
 5. Apply the migration to production manually.
 
 Production database migrations should not be automated until staging has a reliable history of catching migration and app compatibility issues.
+
+`npm run test:rls` is a local/CI destructive harness for its own disposable stack. Never configure or
+adapt it to target staging or production.
 
 Apply migrations with the Supabase CLI or the Supabase SQL editor in filename order. Avoid dashboard schema edits except for emergencies, and capture any emergency schema change in a migration afterward.
 

@@ -23,7 +23,7 @@ import { calculateDailyScoreProgress, calculateWeeklyScore, formatScore } from "
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn, CheckInItem, HalaqaGrade, PartnerRecitation, Profile, WeeklyPlan } from "@/lib/types";
-import { WEEKLY_PLAN_BUCKET } from "@/lib/weekly-plans";
+import { WEEKLY_PLAN_BUCKET, weeklyPlanPathBelongsToStudent } from "@/lib/weekly-plans";
 
 export const dynamic = "force-dynamic";
 
@@ -118,7 +118,6 @@ export default async function AdminStudentPage({
   const resolvedParams = await params;
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["admin"]);
-  const storageSupabase = createSupabaseAdminClient();
   const today = todayDateString();
   const currentTrackerWeekStart = weekStartForDate(today);
   const selectedWeekStart = validWeekStart(resolvedSearchParams.week, currentTrackerWeekStart);
@@ -126,12 +125,18 @@ export default async function AdminStudentPage({
   const selectedWeekDateSet = new Set(selectedWeekDates);
   const selectedPlanWeekStart = selectedWeekStart;
   const selectedWeekComplete = weekIsComplete(selectedWeekStart, today);
-  const correctionInitialDate = selectedWeekDates.includes(today) ? today : selectedWeekDates[0];
+  const correctionInitialDate = selectedWeekDates.includes(today)
+    ? today
+    : selectedWeekDates[0] > today
+      ? today
+      : selectedWeekDates[0];
   const canManageStudent = await canAdminManageStudentForWeek(supabase, resolvedParams.id, selectedWeekStart);
 
   if (!canManageStudent) {
     notFound();
   }
+
+  const storageSupabase = createSupabaseAdminClient();
 
   const { data: student } = await supabase
     .from("profiles")
@@ -229,7 +234,7 @@ export default async function AdminStudentPage({
     .eq("student_id", student.id)
     .eq("week_start", selectedPlanWeekStart)
     .maybeSingle<WeeklyPlan>();
-  const weeklyPlanUrl = weeklyPlan
+  const weeklyPlanUrl = weeklyPlan && weeklyPlanPathBelongsToStudent(student.id, selectedPlanWeekStart, weeklyPlan.file_path)
     ? (
         await storageSupabase.storage
           .from(WEEKLY_PLAN_BUCKET)
@@ -262,6 +267,11 @@ export default async function AdminStudentPage({
         {resolvedSearchParams.status === "correction-error" ? (
           <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
             Unable to save correction.
+          </p>
+        ) : null}
+        {resolvedSearchParams.status === "correction-future-date" ? (
+          <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+            Correction dates cannot be later than today.
           </p>
         ) : null}
         {resolvedSearchParams.status === "partner-corrected" ? (
@@ -538,6 +548,7 @@ export default async function AdminStudentPage({
             existingCheckIns={correctionCheckIns}
             initialDate={correctionInitialDate}
             key={selectedWeekStart}
+            maxDate={today}
             redirectWeek={selectedWeekStart}
             studentId={student.id}
           />

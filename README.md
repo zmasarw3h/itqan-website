@@ -59,60 +59,7 @@ SUPABASE_SERVICE_ROLE_KEY=
    - File size limit: 3 MB if configured in the dashboard
    - Allowed MIME types: `image/png`, `image/jpeg`, `application/pdf` if configured in the dashboard
 
-   The app performs private Storage uploads and signed URL creation from server actions with `SUPABASE_SERVICE_ROLE_KEY`, after checking the signed-in user's role. Do not expose that key to the browser.
-
-   If you also want direct authenticated-user access to Storage objects outside the app server, add these Storage RLS policies for `storage.objects`:
-
-   ```sql
-   create policy "Students can upload own weekly plan files"
-     on storage.objects
-     for insert
-     with check (
-       bucket_id = 'weekly-plans'
-       and auth.uid()::text = (storage.foldername(name))[1]
-       and public.is_active_student()
-     );
-
-   create policy "Students can update own weekly plan files"
-     on storage.objects
-     for update
-     using (
-       bucket_id = 'weekly-plans'
-       and auth.uid()::text = (storage.foldername(name))[1]
-       and public.is_active_student()
-     )
-     with check (
-       bucket_id = 'weekly-plans'
-       and auth.uid()::text = (storage.foldername(name))[1]
-       and public.is_active_student()
-     );
-
-   create policy "Students can read own weekly plan files"
-     on storage.objects
-     for select
-     using (
-       bucket_id = 'weekly-plans'
-       and auth.uid()::text = (storage.foldername(name))[1]
-       and public.is_active_student()
-     );
-
-   create policy "Students can delete replaced weekly plan files"
-     on storage.objects
-     for delete
-     using (
-       bucket_id = 'weekly-plans'
-       and auth.uid()::text = (storage.foldername(name))[1]
-       and public.is_active_student()
-     );
-
-   create policy "Admins can read weekly plan files"
-     on storage.objects
-     for select
-     using (
-       bucket_id = 'weekly-plans'
-       and public.is_active_admin()
-     );
-   ```
+   The app performs private Storage uploads and signed URL creation from server actions with `SUPABASE_SERVICE_ROLE_KEY`, after checking the signed-in user's role and target path. Do not expose that key to the browser. The Phase 1 migration creates or replaces the `storage.objects` policies for student-owned and masjid-scoped admin reads, disables direct signed-client object mutations, and replaces the older global-admin read policy in existing deployments.
 
    Weekly plan metadata is stored in `public.weekly_plans` by the migration. Uploaded files are stored in Supabase Storage, not in the database.
 
@@ -179,7 +126,23 @@ E2E_TEST_STUDENT_PHONE=
 E2E_TEST_STUDENT_PASSWORD=
 ```
 
-Normal CI still runs `npm run check` only. The E2E workflow is manual for now and can be run from GitHub Actions when a browser smoke check is needed.
+Normal CI runs the deterministic `npm run check` job and a separate Docker-backed `npm run test:rls`
+job. The E2E workflow is manual for now and can be run from GitHub Actions when a browser smoke check
+is needed.
+
+## Local RLS Integration Suite
+
+Run the Phase 1 authorization suite against a disposable local Supabase stack:
+
+```bash
+npm run test:rls
+```
+
+Prerequisites are a running Docker daemon and the repository's pinned Supabase CLI dependency. The
+command starts a local stack, applies every migration, seeds two isolated masajid and signed-in role
+fixtures, runs assertions through anon-key clients, then stops the stack and deletes its volumes. It
+refuses non-local Supabase URLs. The same command is a required, separate GitHub Actions merge gate.
+Never adapt this command to point at production.
 
 ## Backup and Restore
 
@@ -227,6 +190,12 @@ Students use `Partner Recitation` to confirm the currently open round. The serve
 Admins enter halaqa grades from `/admin/students/[id]`. If a student did not attend, both attendance and recitation points are stored as 0. If they attended, recitation mark must be 2-10. Students use `Grades` to view attendance, recitation mark, stored recitation points, total halaqa points, and feedback entered in the grade notes field.
 
 Completed weeks below 70% create self-attested required sadaqa obligations when the student check-in gate evaluates prior scores; the app does not process payments, collect card details, or integrate with payment providers. Completed weeks above 90% count toward badge awards automatically. Students can view accumulated badges from `Rewards`, and admins can view weekly incentive reports plus a monthly badge leaderboard.
+
+Known multi-masjid limitation: `weekly_incentive_runs_week_start_key` is still globally unique by
+`week_start`, so only one masjid can own an incentive run for a given tracker week. Phase 1 deliberately
+does not replace this production constraint. A separate reviewed migration should first audit existing
+rows, then replace it with a masjid-and-week uniqueness rule and include an explicit rollout/rollback
+plan.
 
 ## Import Users From CSV
 
@@ -290,13 +259,18 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY` must stay server-only. Database page and action behavior uses the signed-in user's Supabase session and RLS where students read or write their own records. Private weekly-plan file upload, replacement cleanup, signed URL creation, and the sanitized student leaderboard read model use the service-role key only on the server after role checks.
+`SUPABASE_SERVICE_ROLE_KEY` must stay server-only. Database page and action behavior uses the signed-in user's Supabase session and RLS where students read or write their own records. Checklist triggers accept only canonical task definitions, protect date/scope/attribution, and derive score columns from completion rows. Private weekly-plan file upload, replacement cleanup, and signed URL creation use the service-role key only on the server after role and target-scope checks; signed clients cannot mutate Storage objects directly. The student leaderboard uses a signed-session, minimum-field cohort RPC and does not expose peer profile IDs or raw operational rows.
 
-Apply all files in `supabase/migrations` to the production Supabase project before using the deployed app. The weighted checklist migration keeps `public.checkins`, adds aggregate score columns, and stores each saved task snapshot in `public.checkin_items` so historical labels and weights remain stable.
+Apply all files in `supabase/migrations` to the production Supabase project before using the deployed app. The weighted checklist migration keeps `public.checkins`, adds aggregate score columns, and stores each saved task snapshot in `public.checkin_items` so historical labels and weights remain stable. Never run `npm run test:rls` against production; it owns and destroys a disposable local stack.
 
 ## CI
 
-GitHub Actions runs `npm run check` on every pull request to `main` and every push to `main`. Every PR must pass this check before merging.
+GitHub Actions runs two independent jobs on every pull request to `main` and every push to `main`:
+
+- `npm run check` for lint, types, unit tests, and the production build.
+- `npm run test:rls` in a Docker-backed disposable local Supabase stack.
+
+Both jobs must pass before merging authorization or database changes.
 
 ## Required Checks
 

@@ -11,12 +11,12 @@ import {
   WEEKLY_PLAN_BUCKET,
   WEEKLY_PLAN_MAX_BYTES,
   validateWeeklyPlanFile,
+  weeklyPlanPathBelongsToStudent,
   weeklyPlanStoragePath
 } from "@/lib/weekly-plans";
 
 export async function uploadWeeklyPlan(formData: FormData) {
   const { supabase, profile } = await requireProfile(["student"]);
-  const storageSupabase = createSupabaseAdminClient();
   const file = formData.get("plan");
   const weekStart = weekStartForDate(todayDateString());
   try {
@@ -33,6 +33,8 @@ export async function uploadWeeklyPlan(formData: FormData) {
   if (validationError) {
     redirect(`/student/weekly-plan?status=${file.size > WEEKLY_PLAN_MAX_BYTES ? "too-large" : "invalid"}`);
   }
+
+  const storageSupabase = createSupabaseAdminClient();
 
   const { data: existingPlan } = await supabase
     .from("weekly_plans")
@@ -72,7 +74,11 @@ export async function uploadWeeklyPlan(formData: FormData) {
     redirect("/student/weekly-plan?status=save-error");
   }
 
-  if (existingPlan?.file_path && existingPlan.file_path !== filePath) {
+  if (
+    existingPlan?.file_path &&
+    existingPlan.file_path !== filePath &&
+    weeklyPlanPathBelongsToStudent(profile.id, weekStart, existingPlan.file_path)
+  ) {
     await storageSupabase.storage.from(WEEKLY_PLAN_BUCKET).remove([existingPlan.file_path]);
   }
 

@@ -29,6 +29,12 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
         {resolvedSearchParams.status === "student-deleted" ? (
           <p className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">Student deleted.</p>
         ) : null}
+        {resolvedSearchParams.status === "student-deleted-storage-cleanup-warning" ? (
+          <p className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            Student identity and database records were deleted, but one or more weekly-plan files could not be cleaned
+            up. Ask an operator to remove the orphaned private Storage objects.
+          </p>
+        ) : null}
         {resolvedSearchParams.status === "invalid-delete" || resolvedSearchParams.status === "student-delete-missing" ? (
           <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
             Unable to delete student.

@@ -46,6 +46,10 @@ export function weeklyPlanStoragePath(studentId: string, weekStart: string, file
   return `${studentId}/${weekStart}/${safeWeeklyPlanFileName(fileName)}`;
 }
 
+export function weeklyPlanPathBelongsToStudent(studentId: string, weekStart: string, filePath: string) {
+  return filePath.startsWith(`${studentId}/${weekStart}/`) && !filePath.includes("..");
+}
+
 export const WEEKLY_PLAN_GATE_COPY = {
   heading: "Upload this week's plan to unlock today's checklist",
   support: "Weekly plans are due at the start of the week. Upload this week's plan before continuing today's checklist.",

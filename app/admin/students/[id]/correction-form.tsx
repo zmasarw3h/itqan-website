@@ -24,11 +24,13 @@ function completedKeysForDate(date: string, existing: CorrectionFormCheckIn | un
 export default function CorrectionForm({
   studentId,
   initialDate,
+  maxDate,
   redirectWeek,
   existingCheckIns
 }: {
   studentId: string;
   initialDate: string;
+  maxDate: string;
   redirectWeek: string;
   existingCheckIns: CorrectionFormCheckIn[];
 }) {
@@ -72,6 +74,7 @@ export default function CorrectionForm({
         <span className="text-sm font-medium text-ink">Date</span>
         <input
           className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
+          max={maxDate}
           name="date"
           onChange={(event) => handleDateChange(event.target.value)}
           onInput={(event) => handleDateChange(event.currentTarget.value)}
