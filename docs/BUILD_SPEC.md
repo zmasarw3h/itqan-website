@@ -1,8 +1,11 @@
-# ITQAN Lite — Current Build Spec
+# ITQAN Lite - Historical Build Spec
+
+> Status: historical one-masjid baseline. Use `README.md`, `AGENTS.md`, current routes, current
+> migrations, and the multi-masjid/super-admin briefs for current product scope.
 
 ## Purpose
 
-Maintain ITQAN Lite, a one-masjid masjid operations app for students and admins.
+This document records the earlier one-masjid student/admin build baseline.
 
 The app started as a temporary Canvas replacement, but the maintained product now includes daily weighted checklist tracking, partner recitation, weekly plan uploads, weekly grades, Saturday halaqa grading, admin leaderboard/scoring, CSV exports, and operations tooling.
 

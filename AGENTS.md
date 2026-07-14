@@ -2,20 +2,27 @@
 
 ## Mission
 
-Maintain ITQAN Lite, a one-masjid masjid operations app for students and admins.
+Maintain ITQAN Lite, a scoped multi-masjid operations app for students, teachers, masjid admins, and super admins.
 
 The app started as an emergency Canvas replacement, but the current product is larger than the original MVP. Do not reduce the app back to the original emergency scope.
 
 `README.md`, the current routes, and the current database migrations are the source of truth for product scope. If an older brief conflicts with existing app behavior, preserve the existing app behavior and update the stale brief instead of deleting features.
 
-## Roles
+## Roles And Scope
 
-The app has two roles:
+`profiles.role` supports:
 
-- Student
-- Admin
+- `student`
+- `teacher`
+- `admin`
+- `super_admin`
 
-Do not add teacher, parent, or multi-masjid roles unless explicitly requested.
+Scoped access comes from `student_group_memberships`, `masjid_staff_memberships`, and
+`group_teacher_assignments`. An admin-teacher remains `profiles.role = 'admin'` and also has an active
+teacher staff membership for the relevant masjid. Do not add a separate `admin_teacher` role.
+
+The teacher-facing dashboard is planned but not implemented yet. Do not claim that teacher workflows
+are complete until the teacher routes, assigned-group access, weekly plans, and grading experience exist.
 
 ## Current Core Features
 
@@ -33,8 +40,8 @@ Students can:
 Admins can:
 
 - Log in.
-- Add students.
-- View all active students.
+- Add students and teachers inside masajid they actively administer.
+- View active students inside their scoped masajid.
 - View weekly leaderboard/scoring data.
 - Filter dashboard data by week/status where supported.
 - Open individual student admin pages.
@@ -42,6 +49,17 @@ Admins can:
 - Enter Saturday halaqa grades.
 - View/download a student's current weekly plan.
 - Export CSV data.
+- Configure and generate the weekly teacher rotation for the currently supported cohort context.
+
+Super admins can:
+
+- Search and inspect people and their historical access.
+- Change profile access and reset passwords.
+- Create and maintain masajid, cohorts, and halaqa groups.
+- Grant scoped admin or admin-teacher access.
+
+The current rotation UI supports one resolved brothers cohort at a time. Explicit masjid/cohort
+selection and sisters-cohort rotation remain planned work.
 
 ## Preserved Features
 
@@ -63,13 +81,11 @@ Do not add migrations that drop tables, columns, functions, policies, or storage
 
 Do not build unrelated new features such as:
 
-- Teacher role
 - Plan approval workflow
 - Plan comments
 - Plan parsing/OCR
 - Sadaqa
 - Announcements
-- Multi-masjid support
 - Payments
 - Booking/scheduling
 - Parent accounts
@@ -81,6 +97,8 @@ Do not build unrelated new features such as:
 - Keep changes focused and practical.
 - Protect all admin data server-side.
 - Students must never see other students' data.
+- Normal admins must never read or mutate data outside masajid they actively administer.
+- Teachers must never read students outside groups assigned to them for the relevant week.
 - Use server-side role checks plus Supabase RLS.
 - Use a single configured timezone for effective dates.
 - Store schema changes as migrations.
@@ -124,6 +142,9 @@ For broad app changes, the project is healthy only when:
 - Halaqa grading works.
 - CSV export works.
 - Server-side role protection works.
+- Supabase RLS independently enforces masjid, cohort, group, and role boundaries.
+- Super-admin service-role access is created only after a server-side super-admin guard.
+- Database mutations and their audit events are atomic where the workflow spans multiple rows.
 - Supabase migrations match the intended schema.
 - Setup and operations docs stay accurate.
 - `npm run check` passes.

@@ -180,8 +180,9 @@ warning. If more teachers are available than groups, extra teachers remain unass
 surface a warning. Do not rebalance student groups based on weekly teacher availability; rebalance only
 when an admin intentionally runs the rotation action.
 
-The first operational release is scoped to the TIC brothers cohort. Server-side checks still enforce that
-the signed-in admin can manage the TIC masjid before any rotation data is read or written.
+Current limitation: the rotation page resolves one active brothers cohort from the signed-in admin's
+masjid memberships. It does not yet provide an explicit masjid/cohort selector and cannot operate a
+sisters cohort. Server-side checks still verify that the signed-in admin manages the resolved masjid.
 
 ## Super Admin Setup
 

@@ -1,8 +1,13 @@
 # Multi-Masjid Architecture Brief
 
+> Status: implemented foundation with remaining experience work. The database hierarchy, scoped
+> memberships, teacher rotation foundation, and super-admin console now exist. The teacher dashboard,
+> explicit multi-masjid/cohort rotation selection, sisters rotation, and final RLS hardening remain open.
+
 ## Purpose
 
-This brief is the shared source of truth for planning the move from a one-masjid ITQAN Lite app to a scoped multi-masjid system with brothers/sisters cohorts, teacher assignments, and role-specific experiences.
+This brief records the architecture used to move ITQAN Lite from one masjid to a scoped multi-masjid
+system with brothers/sisters cohorts, teacher assignments, and role-specific experiences.
 
 Use this document before splitting work across database/security, product/role experience, and UI/UX planning. Sub-plans must fit this brief unless a deliberate product decision changes it.
 

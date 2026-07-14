@@ -4,6 +4,18 @@ This brief is the implementation source of truth for the first super-admin repai
 It follows Phase 0, Phase 1A, Phase 1B, and scoped admin delegation. It intentionally does not add an
 audit log UI.
 
+## Implementation Prerequisites
+
+Do not begin Phase 3B until all of these are complete:
+
+- Production and local migration history are reconciled.
+- Operational-table RLS is hardened for effective masjid scope and verified with signed-in integration tests.
+- `security definer` function privileges are audited and reduced to the minimum required grants.
+- Each repair mutation has a database transaction boundary that includes the mutation and audit insert.
+- The teacher dashboard and explicit multi-cohort rotation selection are delivered or deliberately rescheduled by the coordinator so repair work does not hide those operational gaps.
+
+Backend/security implementation and review use `high` effort. Frontend implementation and UX review use `medium` effort. Do not request a higher effort level.
+
 ## Goal
 
 Give super admins a safe way to find and fix common setup inconsistencies without writing SQL.
@@ -103,11 +115,27 @@ Every repair mutation must:
 - Validate effective dates with existing date helpers.
 - Respect existing no-overlap membership expectations.
 - Be idempotent when safely repeated.
-- Write a `super_admin_audit_events` row on success.
+- Re-read the authoritative rows and rebuild the repair plan immediately before mutation.
+- Treat an issue that was already resolved or changed as a safe no-op/stale-state response, not as permission to apply the old preview.
+- Apply the data mutation and `super_admin_audit_events` insert in the same database transaction. If either fails, both roll back.
+- Never trust client-submitted preview text, masjid IDs, cohort IDs, role claims, or issue state.
 - Never log plaintext passwords.
 - Never create, delete, promote, demote, deactivate, or password-reset a super admin in repair flows.
 - Never remove the last active admin from an active masjid.
 - Never mutate Auth users in 3B except optional read-only lookup for diagnostics.
+
+Effective-date rules:
+
+- Student and teacher membership `starts_on` dates used by week-scoped access must be Sunday tracker week starts.
+- Assigning a currently stranded student may start on the current tracker week; moving a student with existing access defaults to the next tracker week.
+- Closing a future-dated membership cannot set `ends_on` before `starts_on`. Treat cancellation of a future membership as a separate explicit operation or leave it read-only in 3B.
+
+Issue identity and deduplication:
+
+- Give every issue a stable key derived from issue type and affected record IDs.
+- Emit at most one actionable issue for the same root cause.
+- Prefer Auth/Profile mismatches, then inactive open memberships, then specific student/teacher access defects, then generic `active_profile_without_access`.
+- Repairing `active_masjid_without_admin` may select only a compatible existing active profile. If the candidate is a student or teacher-only profile, the preview must include the full role/access transition; never silently promote them.
 
 ## UX Requirements
 
@@ -165,6 +193,7 @@ The backend implementation agent owns:
 - tests for issue detection and repair planning
 - audit event payloads
 - server-side validation and guardrails
+- transactional database functions/RPC adapters for mutation plus audit
 
 Expected backend functions:
 
@@ -264,6 +293,10 @@ Add focused tests for:
 - repair plans are idempotent where applicable
 - confirmation mismatch mapping
 - normal users cannot reach repair data/actions
+- stale previews and concurrent repair attempts
+- transaction rollback when the mutation or audit insert fails
+- Sunday tracker-week boundaries and future-dated memberships
+- issue-key stability and root-cause deduplication
 
 Run before handoff:
 
@@ -273,9 +306,9 @@ npm run check
 
 ## Deployment Notes
 
-No schema migration is expected for 3B unless implementation discovers a missing constraint or helper
-that cannot be safely handled in app code. If a migration becomes necessary, stop and review it before
-implementation continues.
+Transactional repair functions are a prerequisite. If they are not already present, Phase 3B requires
+an additive migration and review before UI implementation continues. Do not implement mutation plus audit
+as sequential application-side Supabase calls.
 
 Deploy through the normal protected-main PR flow. After deployment, smoke test:
 

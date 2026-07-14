@@ -1,8 +1,11 @@
-# ITQAN Lite — Current Feature Brief
+# ITQAN Lite - Historical Emergency Feature Brief
+
+> Status: historical emergency baseline. It does not describe the current multi-masjid, teacher,
+> rotation, or super-admin architecture.
 
 ## Purpose
 
-ITQAN Lite is a one-masjid masjid operations app for students and admins.
+ITQAN Lite began as a one-masjid operations app for students and admins.
 
 It began as an emergency Canvas replacement, but the current app includes daily Quran checklist tracking, weekly scoring, partner recitation, weekly plan uploads, student leaderboard views, halaqa grading, admin leaderboard views, CSV exports, and operational tooling. This document reflects the current maintained product scope, not only the original emergency MVP.
 
@@ -12,12 +15,13 @@ Use `README.md`, current routes, and current Supabase migrations as the source o
 
 Do not remove existing functionality just because an older note described it as out of scope. If documentation conflicts with the current app, update the documentation rather than shrinking the app.
 
-## Roles
+## Historical Roles
 
 - Student
 - Admin
 
-No teacher, parent, or multi-masjid roles exist in the current product.
+Teacher, multi-masjid, and super-admin capabilities were added after this brief. Do not use this
+section as the current authorization model.
 
 ## Current Student Scope
 
