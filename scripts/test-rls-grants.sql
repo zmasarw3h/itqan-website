@@ -143,8 +143,10 @@ begin
     from (values
       ('apply_scoped_user_setup(uuid,uuid,uuid,text,text,text,text,date,uuid,uuid)'),
       ('apply_super_admin_access_change(uuid,uuid,uuid,text,date,uuid,uuid,jsonb)'),
+      ('apply_super_admin_staff_membership_end(uuid,uuid,uuid,uuid,date,jsonb)'),
       ('apply_teacher_rotation_generation(uuid,date,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,integer,integer,integer,integer)'),
-      ('get_person_access_state(uuid,uuid)')
+      ('get_person_access_state(uuid,uuid)'),
+      ('get_scoped_user_setup_request_result(uuid,uuid,text,text,text,text,date,uuid,uuid)')
     ) expected_service(signature)
   ) difference;
 
@@ -183,7 +185,15 @@ begin
     'EXECUTE'
   ) or not has_function_privilege(
     'service_role',
+    'public.get_scoped_user_setup_request_result(uuid,uuid,text,text,text,text,date,uuid,uuid)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
     'public.apply_super_admin_access_change(uuid,uuid,uuid,text,date,uuid,uuid,jsonb)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.apply_super_admin_staff_membership_end(uuid,uuid,uuid,uuid,date,jsonb)',
     'EXECUTE'
   ) or not has_function_privilege(
     'service_role',
@@ -192,6 +202,70 @@ begin
   ) then
     raise exception 'service_role lacks transactional workflow RPC EXECUTE';
   end if;
+end;
+$$;
+
+-- The signed super-admin role is intentionally read-capable but cannot own
+-- direct profile/access-history writes. These policy-shape assertions catch a
+-- future migration that accidentally restores the Data API bypass.
+do $$
+declare
+  policy_expression text;
+begin
+  select lower(regexp_replace(coalesce(with_check, ''), '[()[:space:]]', '', 'g'))
+  into policy_expression
+  from pg_policies
+  where schemaname = 'public'
+    and tablename = 'profiles'
+    and policyname = 'Admins can insert profiles';
+  if policy_expression is distinct from 'false' then
+    raise exception 'profiles insert policy is not deny-only: %', policy_expression;
+  end if;
+
+  select lower(regexp_replace(coalesce(qual, '') || coalesce(with_check, ''), '[()[:space:]]', '', 'g'))
+  into policy_expression
+  from pg_policies
+  where schemaname = 'public'
+    and tablename = 'profiles'
+    and policyname = 'Admins can update profiles';
+  if policy_expression is distinct from 'falsefalse' then
+    raise exception 'profiles update policy is not deny-only: %', policy_expression;
+  end if;
+
+  for policy_expression in
+    select lower(coalesce(with_check, '') || coalesce(qual, ''))
+    from pg_policies
+    where schemaname = 'public'
+      and (
+        (tablename = 'student_group_memberships' and policyname in (
+          'Admins can insert student memberships',
+          'Admins can close student memberships'
+        ))
+        or (tablename = 'masjid_staff_memberships' and policyname in (
+          'Admins can insert teacher staff memberships',
+          'Admins can close teacher staff memberships'
+        ))
+      )
+  loop
+    if position('is_active_super_admin' in policy_expression) = 0
+      or position('not' in policy_expression) = 0 then
+      raise exception 'scoped membership policy does not explicitly exclude signed super admins: %', policy_expression;
+    end if;
+  end loop;
+
+  for policy_expression in
+    select lower(regexp_replace(coalesce(qual, ''), '[()[:space:]]', '', 'g'))
+    from pg_policies
+    where schemaname = 'public'
+      and (
+        (tablename = 'student_group_memberships' and policyname = 'Super admins can delete student membership history')
+        or (tablename = 'masjid_staff_memberships' and policyname = 'Super admins can delete staff membership history')
+      )
+  loop
+    if policy_expression is distinct from 'false' then
+      raise exception 'membership delete policy is not deny-only: %', policy_expression;
+    end if;
+  end loop;
 end;
 $$;
 

@@ -29,11 +29,20 @@ from the normal admin app. Use the super-admin console for those operations.
 Admins can also participate in teacher rotation. Keep their profile role as `admin` and add an active
 `masjid_staff_memberships` row with `staff_role = 'teacher'` for the relevant masjid.
 
-Supabase Auth creation and the PostgreSQL transaction cannot share one transaction. If database setup
-fails, the app checks whether the atomic transaction committed despite a response error. It never deletes
-a confirmed completed account. When setup did not commit, it deletes the newly created Auth user as
-compensation. If that cleanup cannot be confirmed, the app reports a distinct error and the server log
-includes the affected profile UUID for super-admin repair; do not retry until that account is inspected.
+Supabase Auth creation and the PostgreSQL transaction cannot share one transaction. Before creating an
+Auth user, an exact retry checks `get_scoped_user_setup_request_result(...)`; a completed request returns
+its original result without calling Auth again. An unknown setup-RPC response is retried with the same
+request UUID and then checked for boundedly before any cleanup decision. The app never deletes the Auth
+identity after an unresolved response. It reports `setup-uncertain` and logs only request/profile IDs and
+error codes for operator review. Only a definitive database rejection triggers Auth deletion compensation;
+cleanup success and failure remain distinct statuses.
+
+An Auth Admin API response can be lost before PostgreSQL setup begins. This cannot be made atomic across
+Supabase Auth and Postgres. The first attempt reports `auth-uncertain`; unknown Auth failures are not
+reported as an existing account. Inspect Auth for a user whose `app_metadata.setup_request_id` matches the
+logged request. If the Auth identity exists without a profile, scoped membership, or completed workflow
+request, delete that orphaned Auth identity after verifying the UUID, then resubmit account creation. Do
+not delete an identity that has a matching profile or completed request.
 
 ## Transactional Workflow Rollout
 
@@ -44,10 +53,10 @@ idempotency state and new service-only functions without removing or changing cu
 After applying the migration:
 
 1. Run the schema sanity query and `supabase migration list`.
-2. Confirm `service_role` alone can execute `apply_scoped_user_setup`, `get_person_access_state`, and `apply_super_admin_access_change`.
+2. Confirm `service_role` alone can execute `apply_scoped_user_setup`, `get_scoped_user_setup_request_result`, `get_person_access_state`, `apply_super_admin_access_change`, and `apply_super_admin_staff_membership_end`.
 3. Confirm `anon` and `authenticated` cannot execute those functions.
 4. Deploy the Phase 1B application wiring only after those checks pass. Do not deploy Phase 1B before
-   the migration because both user creation and composite access changes now depend on these RPCs.
+   the migration because user creation, composite access changes, and standalone staff-membership closure now depend on these RPCs.
 
 Each rendered mutation form carries one request UUID through its server action. Retrying the exact same
 request UUID and payload returns the stored result. Reusing a request UUID with different input is
@@ -57,6 +66,11 @@ submission. On the normal path it passes the freshly loaded canonical snapshot. 
 differs, PostgreSQL accepts it only for an already-completed exact request replay; otherwise the database
 stale-state comparison rejects it and the UI asks the operator to review current access before submitting
 again.
+
+Unknown or malformed super-admin mutation responses are retried once with the same request UUID and
+payload. If both responses remain unresolved, the UI reports `access-uncertain`; review the freshly loaded
+canonical access state before submitting a new request. The person editor's displayed role/memberships,
+form defaults, and expected-state token all come from the same service-only canonical snapshot.
 
 ## Masjid Setup
 

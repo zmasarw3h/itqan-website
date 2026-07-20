@@ -44,12 +44,27 @@ function statusMessage(status: string | undefined, role: Role | undefined) {
     case "setup-error":
       return {
         tone: "error",
-        text: "Account setup failed and the new login was removed. Check the selected scope and try again."
+        text: "Account setup was rejected. Check the selected scope and try again."
       };
     case "setup-cleanup-error":
       return {
         tone: "error",
         text: "Account setup failed and login cleanup could not be confirmed. Contact a super admin before retrying."
+      };
+    case "setup-uncertain":
+      return {
+        tone: "error",
+        text: "Account setup may have completed, but confirmation was lost. Contact a super admin before retrying."
+      };
+    case "auth-error":
+      return {
+        tone: "error",
+        text: "The login service rejected account creation. Check the account details or contact a super admin."
+      };
+    case "auth-uncertain":
+      return {
+        tone: "error",
+        text: "The login service did not confirm whether the account was created. Contact a super admin before retrying."
       };
     default:
       return null;

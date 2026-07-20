@@ -1,6 +1,7 @@
 export type TransactionalWorkflowError = {
   code?: string | null;
   message?: string | null;
+  status?: number | null;
 };
 
 export type TransactionalWorkflowErrorKind =
@@ -41,11 +42,20 @@ export type ScopedUserSetupOutcome =
       profileId: string;
       result: ScopedUserSetupResult | null;
       recoveredAfterError: boolean;
+      replayedBeforeAuth: boolean;
     }
   | {
       ok: false;
       stage: "auth";
       error: TransactionalWorkflowError;
+      authErrorKind: "exists" | "error" | "uncertain";
+    }
+  | {
+      ok: false;
+      stage: "lookup";
+      error: TransactionalWorkflowError;
+      errorKind: TransactionalWorkflowErrorKind;
+      uncertain: boolean;
     }
   | {
       ok: false;
@@ -53,8 +63,9 @@ export type ScopedUserSetupOutcome =
       profileId: string;
       error: TransactionalWorkflowError;
       errorKind: TransactionalWorkflowErrorKind;
-      cleanup: "succeeded" | "failed";
+      cleanup: "succeeded" | "failed" | "not-attempted";
       cleanupError: TransactionalWorkflowError | null;
+      uncertain: boolean;
     };
 
 export type PersonAccessState = Record<string, unknown>;
@@ -90,6 +101,38 @@ export type SuperAdminAccessChangeOutcome =
       stage: "state" | "database";
       error: TransactionalWorkflowError;
       errorKind: TransactionalWorkflowErrorKind;
+      uncertain: boolean;
+    };
+
+export type StaffMembershipEndInput = {
+  requestId: string;
+  actorId: string;
+  targetProfileId: string;
+  membershipId: string;
+  endsOn: string;
+  submittedExpectedState?: PersonAccessState | null;
+};
+
+export type StaffMembershipEndResult = {
+  profile_id: string;
+  membership_id: string;
+  ends_on: string;
+  access_state: PersonAccessState;
+};
+
+export type StaffMembershipEndOutcome =
+  | {
+      ok: true;
+      currentState: PersonAccessState;
+      expectedState: PersonAccessState;
+      result: StaffMembershipEndResult;
+    }
+  | {
+      ok: false;
+      stage: "state" | "database";
+      error: TransactionalWorkflowError;
+      errorKind: TransactionalWorkflowErrorKind;
+      uncertain: boolean;
     };
 
 export function scopedUserSetupRpcArguments(profileId: string, input: ScopedUserSetupInput) {
@@ -97,6 +140,20 @@ export function scopedUserSetupRpcArguments(profileId: string, input: ScopedUser
     input_request_id: input.requestId,
     input_actor_id: input.actorId,
     input_profile_id: profileId,
+    input_name: input.name,
+    input_email: input.email,
+    input_phone: input.phone,
+    input_role: input.role,
+    input_starts_on: input.startsOn,
+    input_masjid_id: input.masjidId,
+    input_group_id: input.groupId
+  };
+}
+
+export function scopedUserSetupLookupRpcArguments(input: ScopedUserSetupInput) {
+  return {
+    input_request_id: input.requestId,
+    input_actor_id: input.actorId,
     input_name: input.name,
     input_email: input.email,
     input_phone: input.phone,
@@ -119,6 +176,20 @@ export function superAdminAccessChangeRpcArguments(
     input_starts_on: input.startsOn,
     input_selected_masjid_id: input.selectedMasjidId,
     input_selected_group_id: input.selectedGroupId,
+    input_expected_state: expectedState
+  };
+}
+
+export function staffMembershipEndRpcArguments(
+  input: StaffMembershipEndInput,
+  expectedState: PersonAccessState
+) {
+  return {
+    input_request_id: input.requestId,
+    input_actor_id: input.actorId,
+    input_target_profile_id: input.targetProfileId,
+    input_membership_id: input.membershipId,
+    input_ends_on: input.endsOn,
     input_expected_state: expectedState
   };
 }
@@ -200,19 +271,93 @@ export function classifyTransactionalWorkflowError(
 
 function workflowErrorFromUnknown(error: unknown): TransactionalWorkflowError {
   if (error && typeof error === "object") {
-    const candidate = error as { code?: unknown; message?: unknown };
+    const candidate = error as { code?: unknown; message?: unknown; status?: unknown };
     return {
       code: typeof candidate.code === "string" ? candidate.code : null,
-      message: typeof candidate.message === "string" ? candidate.message : "Workflow call failed."
+      message: typeof candidate.message === "string" ? candidate.message : "Workflow call failed.",
+      status: typeof candidate.status === "number" ? candidate.status : null
     };
   }
 
   return { message: "Workflow call failed." };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isScopedUserSetupResult(
+  value: unknown,
+  input: ScopedUserSetupInput,
+  profileId?: string
+): value is ScopedUserSetupResult {
+  if (!isRecord(value)) return false;
+
+  return (
+    typeof value.profile_id === "string" &&
+    (!profileId || value.profile_id === profileId) &&
+    typeof value.membership_id === "string" &&
+    value.role === input.role &&
+    value.masjid_id === input.masjidId &&
+    value.group_id === input.groupId
+  );
+}
+
+function isSuperAdminAccessChangeResult(
+  value: unknown,
+  input: SuperAdminAccessChangeInput
+): value is SuperAdminAccessChangeResult {
+  if (!isRecord(value)) return false;
+
+  return (
+    value.profile_id === input.targetProfileId &&
+    value.preset === input.preset &&
+    ["student", "teacher", "admin", "super_admin"].includes(String(value.role)) &&
+    typeof value.active === "boolean" &&
+    isRecord(value.access_state)
+  );
+}
+
+function isStaffMembershipEndResult(
+  value: unknown,
+  input: StaffMembershipEndInput
+): value is StaffMembershipEndResult {
+  if (!isRecord(value)) return false;
+
+  return (
+    value.profile_id === input.targetProfileId &&
+    value.membership_id === input.membershipId &&
+    value.ends_on === input.endsOn &&
+    isRecord(value.access_state)
+  );
+}
+
+export function classifyAuthUserCreationError(
+  error: TransactionalWorkflowError | null | undefined
+): "exists" | "error" | "uncertain" {
+  if (error?.code === "email_exists" || error?.code === "user_already_exists") {
+    return "exists";
+  }
+
+  if (!error || error.status == null || error.status >= 500) {
+    return "uncertain";
+  }
+
+  return "error";
+}
+
+async function callWorkflow<T>(call: () => Promise<WorkflowCallResult<T>>): Promise<WorkflowCallResult<T>> {
+  try {
+    return await call();
+  } catch (error) {
+    return { data: null, error: workflowErrorFromUnknown(error) };
+  }
+}
+
 export async function createScopedUserTransactionally(
   input: ScopedUserSetupInput,
   dependencies: {
+    lookupCompletedSetup: (input: ScopedUserSetupInput) => Promise<WorkflowCallResult<ScopedUserSetupResult>>;
     createAuthUser: () => Promise<WorkflowCallResult<{ id: string }>>;
     applyScopedUserSetup: (
       profileId: string,
@@ -220,73 +365,116 @@ export async function createScopedUserTransactionally(
     ) => Promise<WorkflowCallResult<ScopedUserSetupResult>>;
     isScopedUserSetupCommitted?: (profileId: string) => Promise<WorkflowCallResult<boolean>>;
     deleteAuthUser: (profileId: string) => Promise<{ error: TransactionalWorkflowError | null }>;
+    waitBeforeVerification?: (attempt: number) => Promise<void>;
   }
 ): Promise<ScopedUserSetupOutcome> {
-  let authResult: WorkflowCallResult<{ id: string }>;
+  const lookupResult = await callWorkflow(() => dependencies.lookupCompletedSetup(input));
 
-  try {
-    authResult = await dependencies.createAuthUser();
-  } catch (error) {
-    authResult = { data: null, error: workflowErrorFromUnknown(error) };
+  if (!lookupResult.error && lookupResult.data && isScopedUserSetupResult(lookupResult.data, input)) {
+    return {
+      ok: true,
+      profileId: lookupResult.data.profile_id,
+      result: lookupResult.data,
+      recoveredAfterError: false,
+      replayedBeforeAuth: true
+    };
   }
 
-  if (authResult.error || !authResult.data) {
+  if (!lookupResult.error && lookupResult.data) {
+    return {
+      ok: false,
+      stage: "lookup",
+      error: { message: "Completed setup lookup returned a malformed result." },
+      errorKind: "unknown",
+      uncertain: true
+    };
+  }
+
+  if (lookupResult.error) {
+    const errorKind = classifyTransactionalWorkflowError(lookupResult.error);
+    return {
+      ok: false,
+      stage: "lookup",
+      error: lookupResult.error,
+      errorKind,
+      uncertain: errorKind === "unknown"
+    };
+  }
+
+  const authResult = await callWorkflow(() => dependencies.createAuthUser());
+
+  if (authResult.error || !authResult.data || typeof authResult.data.id !== "string" || !authResult.data.id) {
+    const error = authResult.error ?? { message: "Auth user was not returned." };
     return {
       ok: false,
       stage: "auth",
-      error: authResult.error ?? { message: "Auth user was not returned." }
+      error,
+      authErrorKind: classifyAuthUserCreationError(authResult.error)
     };
   }
 
   const profileId = authResult.data.id;
-  let setupResult: WorkflowCallResult<ScopedUserSetupResult>;
+  let setupError: TransactionalWorkflowError = { message: "Database setup result was not returned." };
+  let errorKind: TransactionalWorkflowErrorKind = "unknown";
 
-  try {
-    setupResult = await dependencies.applyScopedUserSetup(profileId, input);
-  } catch (error) {
-    setupResult = { data: null, error: workflowErrorFromUnknown(error) };
-  }
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const setupResult = await callWorkflow(() => dependencies.applyScopedUserSetup(profileId, input));
 
-  if (!setupResult.error && setupResult.data) {
-    return {
-      ok: true,
-      profileId,
-      result: setupResult.data,
-      recoveredAfterError: false
-    };
-  }
-
-  const setupError = setupResult.error ?? { message: "Database setup result was not returned." };
-
-  if (dependencies.isScopedUserSetupCommitted) {
-    let verificationResult: WorkflowCallResult<boolean>;
-
-    try {
-      verificationResult = await dependencies.isScopedUserSetupCommitted(profileId);
-    } catch (error) {
-      verificationResult = { data: null, error: workflowErrorFromUnknown(error) };
-    }
-
-    if (!verificationResult.error && verificationResult.data === true) {
+    if (!setupResult.error && setupResult.data && isScopedUserSetupResult(setupResult.data, input, profileId)) {
       return {
         ok: true,
         profileId,
-        result: null,
-        recoveredAfterError: true
+        result: setupResult.data,
+        recoveredAfterError: attempt > 0,
+        replayedBeforeAuth: false
       };
     }
 
-    if (verificationResult.error || verificationResult.data === null) {
-      return {
-        ok: false,
-        stage: "database",
-        profileId,
-        error: setupError,
-        errorKind: classifyTransactionalWorkflowError(setupError),
-        cleanup: "failed",
-        cleanupError: verificationResult.error ?? { message: "Setup commit status could not be verified." }
-      };
+    setupError = setupResult.error ?? {
+      message: setupResult.data
+        ? "Database setup returned a malformed result."
+        : "Database setup result was not returned."
+    };
+    errorKind = classifyTransactionalWorkflowError(setupError);
+
+    if (errorKind !== "unknown") {
+      break;
     }
+  }
+
+  if (errorKind === "unknown") {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (dependencies.waitBeforeVerification) {
+        await dependencies.waitBeforeVerification(attempt);
+      }
+
+      if (!dependencies.isScopedUserSetupCommitted) {
+        break;
+      }
+
+      const verificationResult = await callWorkflow(() => dependencies.isScopedUserSetupCommitted!(profileId));
+
+      if (!verificationResult.error && verificationResult.data === true) {
+        return {
+          ok: true,
+          profileId,
+          result: null,
+          recoveredAfterError: true,
+          replayedBeforeAuth: false
+        };
+      }
+    }
+
+    return {
+      ok: false,
+      stage: "database",
+      profileId,
+      error: setupError,
+      errorKind,
+      cleanup: "not-attempted",
+      cleanupError: null,
+      uncertain: true
+    };
   }
 
   let cleanupResult: { error: TransactionalWorkflowError | null };
@@ -304,8 +492,43 @@ export async function createScopedUserTransactionally(
     error: setupError,
     errorKind: classifyTransactionalWorkflowError(setupError),
     cleanup: cleanupResult.error ? "failed" : "succeeded",
-    cleanupError: cleanupResult.error
+    cleanupError: cleanupResult.error,
+    uncertain: false
   };
+}
+
+function expectedStateForMutation(
+  currentState: PersonAccessState,
+  submittedExpectedState: PersonAccessState | null | undefined
+) {
+  return submittedExpectedState && canonicalJson(submittedExpectedState) !== canonicalJson(currentState)
+    ? submittedExpectedState
+    : currentState;
+}
+
+async function applyMutationWithAmbiguousRetry<T>(
+  call: () => Promise<WorkflowCallResult<T>>,
+  isValidResult: (value: unknown) => value is T
+): Promise<WorkflowCallResult<T> & { uncertain: boolean }> {
+  let lastError: TransactionalWorkflowError = { message: "Mutation result was not returned." };
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const result = await callWorkflow(call);
+
+    if (!result.error && result.data && isValidResult(result.data)) {
+      return { ...result, uncertain: false };
+    }
+
+    lastError = result.error ?? {
+      message: result.data ? "Mutation returned a malformed result." : "Mutation result was not returned."
+    };
+
+    if (classifyTransactionalWorkflowError(lastError) !== "unknown") {
+      return { data: null, error: lastError, uncertain: false };
+    }
+  }
+
+  return { data: null, error: lastError, uncertain: true };
 }
 
 export async function applySuperAdminAccessChangeTransactionally(
@@ -321,13 +544,7 @@ export async function applySuperAdminAccessChangeTransactionally(
     ) => Promise<WorkflowCallResult<SuperAdminAccessChangeResult>>;
   }
 ): Promise<SuperAdminAccessChangeOutcome> {
-  let stateResult: WorkflowCallResult<PersonAccessState>;
-
-  try {
-    stateResult = await dependencies.getPersonAccessState(input.actorId, input.targetProfileId);
-  } catch (error) {
-    stateResult = { data: null, error: workflowErrorFromUnknown(error) };
-  }
+  const stateResult = await callWorkflow(() => dependencies.getPersonAccessState(input.actorId, input.targetProfileId));
 
   if (stateResult.error || !stateResult.data) {
     const error = stateResult.error ?? { message: "Access state was not returned." };
@@ -336,21 +553,16 @@ export async function applySuperAdminAccessChangeTransactionally(
       ok: false,
       stage: "state",
       error,
-      errorKind: classifyTransactionalWorkflowError(error)
+      errorKind: classifyTransactionalWorkflowError(error),
+      uncertain: false
     };
   }
 
-  const submittedExpectedState = input.submittedExpectedState ?? null;
-  const expectedState = submittedExpectedState && canonicalJson(submittedExpectedState) !== canonicalJson(stateResult.data)
-    ? submittedExpectedState
-    : stateResult.data;
-  let changeResult: WorkflowCallResult<SuperAdminAccessChangeResult>;
-
-  try {
-    changeResult = await dependencies.applyAccessChange(input, expectedState);
-  } catch (error) {
-    changeResult = { data: null, error: workflowErrorFromUnknown(error) };
-  }
+  const expectedState = expectedStateForMutation(stateResult.data, input.submittedExpectedState);
+  const changeResult = await applyMutationWithAmbiguousRetry(
+    () => dependencies.applyAccessChange(input, expectedState),
+    (value): value is SuperAdminAccessChangeResult => isSuperAdminAccessChangeResult(value, input)
+  );
 
   if (changeResult.error || !changeResult.data) {
     const error = changeResult.error ?? { message: "Access change result was not returned." };
@@ -359,7 +571,8 @@ export async function applySuperAdminAccessChangeTransactionally(
       ok: false,
       stage: "database",
       error,
-      errorKind: classifyTransactionalWorkflowError(error)
+      errorKind: classifyTransactionalWorkflowError(error),
+      uncertain: changeResult.uncertain
     };
   }
 
@@ -371,9 +584,70 @@ export async function applySuperAdminAccessChangeTransactionally(
   };
 }
 
+export async function endStaffMembershipTransactionally(
+  input: StaffMembershipEndInput,
+  dependencies: {
+    getPersonAccessState: (
+      actorId: string,
+      targetProfileId: string
+    ) => Promise<WorkflowCallResult<PersonAccessState>>;
+    applyMembershipEnd: (
+      input: StaffMembershipEndInput,
+      expectedState: PersonAccessState
+    ) => Promise<WorkflowCallResult<StaffMembershipEndResult>>;
+  }
+): Promise<StaffMembershipEndOutcome> {
+  const stateResult = await callWorkflow(() => dependencies.getPersonAccessState(input.actorId, input.targetProfileId));
+
+  if (stateResult.error || !stateResult.data) {
+    const error = stateResult.error ?? { message: "Access state was not returned." };
+    return {
+      ok: false,
+      stage: "state",
+      error,
+      errorKind: classifyTransactionalWorkflowError(error),
+      uncertain: false
+    };
+  }
+
+  const expectedState = expectedStateForMutation(stateResult.data, input.submittedExpectedState);
+  const endResult = await applyMutationWithAmbiguousRetry(
+    () => dependencies.applyMembershipEnd(input, expectedState),
+    (value): value is StaffMembershipEndResult => isStaffMembershipEndResult(value, input)
+  );
+
+  if (endResult.error || !endResult.data) {
+    const error = endResult.error ?? { message: "Membership end result was not returned." };
+    return {
+      ok: false,
+      stage: "database",
+      error,
+      errorKind: classifyTransactionalWorkflowError(error),
+      uncertain: endResult.uncertain
+    };
+  }
+
+  return {
+    ok: true,
+    currentState: stateResult.data,
+    expectedState,
+    result: endResult.data
+  };
+}
+
 export function scopedUserSetupStatusForOutcome(outcome: Exclude<ScopedUserSetupOutcome, { ok: true }>) {
   if (outcome.stage === "auth") {
-    return "exists";
+    if (outcome.authErrorKind === "exists") return "exists";
+    if (outcome.authErrorKind === "uncertain") return "auth-uncertain";
+    return "auth-error";
+  }
+
+  if (outcome.stage === "lookup") {
+    return outcome.uncertain ? "setup-uncertain" : "setup-error";
+  }
+
+  if (outcome.uncertain || outcome.cleanup === "not-attempted") {
+    return "setup-uncertain";
   }
 
   if (outcome.cleanup === "failed") {
@@ -407,4 +681,10 @@ export function superAdminAccessStatusForError(error: TransactionalWorkflowError
   }
 
   return "save-error";
+}
+
+export function superAdminMutationStatusForOutcome(
+  outcome: Exclude<SuperAdminAccessChangeOutcome | StaffMembershipEndOutcome, { ok: true }>
+) {
+  return outcome.uncertain ? "access-uncertain" : superAdminAccessStatusForError(outcome.error);
 }

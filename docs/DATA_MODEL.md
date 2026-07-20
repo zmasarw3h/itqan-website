@@ -56,10 +56,12 @@ compatibility but have no browser-role execute grant.
 Service-only transactional functions added for Phase 1A and used by the Phase 1B server actions:
 
 - `apply_scoped_user_setup(...)`: validates the Auth user, actor, active hierarchy, and masjid scope before creating the profile, one student/teacher membership, and one audit event atomically.
+- `get_scoped_user_setup_request_result(...)`: validates the current actor and exact original setup payload before returning a completed request result. This lets an identical form retry finish without creating a second Auth user.
 - `get_person_access_state(actor_id, target_profile_id)`: returns a canonical profile/membership snapshot only after verifying that the passed actor is currently an active super admin.
 - `apply_super_admin_access_change(...)`: locks and compares that snapshot, derives the access transition in PostgreSQL, writes profile/membership/audit changes atomically, and protects the last active super admin and last active admin of an active masjid.
+- `apply_super_admin_staff_membership_end(...)`: closes one open staff membership and writes its audit event in the same transaction after checking the canonical snapshot, date, target relationship, and last-active-masjid-admin invariant.
 
-All three functions are denied to `PUBLIC`, `anon`, and `authenticated` and granted only to
+All five functions are denied to `PUBLIC`, `anon`, and `authenticated` and granted only to
 `service_role`. Their passed actor IDs are treated as untrusted input and revalidated from current
 database state inside each call.
 
@@ -117,6 +119,7 @@ Existing admins receive TIC admin staff memberships. Existing active students re
 - Student checklist items must match the canonical task key/label/weight for the date. Database triggers protect check-in identity, scope, date, and attribution and recalculate score-bearing columns from task completion.
 - Active students without an effective group membership see setup-incomplete screens and cannot create check-ins, weekly plans, or partner recitations.
 - Admin app queries and mutations are scoped by masjid membership. Phase 0 also tightens direct Data API write policies so normal admins cannot grant admin access, mutate global foundation setup, or change other masajid through broad RLS.
+- Signed super-admin sessions are read-capable but cannot directly mutate profiles or student/staff membership history through the Data API. Super-admin access writes use the guarded service-only transactional functions.
 - Active super admins can read `super_admin_audit_events`; browser/client writes to the audit table are not exposed.
-- Normal admins close or deactivate membership/assignment rows instead of deleting foundation history. Direct deletes of those history rows are super-admin-only.
+- Normal admins close or deactivate membership/assignment rows instead of deleting foundation history. Direct signed-session deletes of student and staff membership history are denied, including for super admins.
 - Teachers are eventually scoped by assigned group/week and can grade/view weekly plans only for assigned students.

@@ -18,6 +18,7 @@ import {
   type SuperAdminAccessPreset
 } from "@/lib/super-admin-access";
 import { formatDateTimeInAppTimeZone, formatWeekRange, todayDateString } from "@/lib/dates";
+import { reconcilePersonDetailWithAccessState } from "@/lib/person-access-state";
 import { requireSuperAdminAdminClient } from "@/lib/super-admin";
 import type { PersonAccessState } from "@/lib/transactional-workflows";
 import type { Profile, Role } from "@/lib/types";
@@ -304,7 +305,15 @@ function StudentMemberships({ memberships }: { memberships: StudentMembershipDet
   );
 }
 
-function StaffMembershipCard({ membership, profile }: { membership: StaffMembershipDetail; profile: Profile }) {
+function StaffMembershipCard({
+  membership,
+  profile,
+  expectedState
+}: {
+  membership: StaffMembershipDetail;
+  profile: Profile;
+  expectedState: PersonAccessState;
+}) {
   const state = membershipState(membership);
   const canEnd = membership.active && membership.ends_on === null;
 
@@ -326,6 +335,8 @@ function StaffMembershipCard({ membership, profile }: { membership: StaffMembers
           <form action={endStaffMembership} className="mt-3 grid gap-3 rounded-md bg-stone-50 p-3">
             <input name="person_id" type="hidden" value={profile.id} />
             <input name="membership_id" type="hidden" value={membership.id} />
+            <input name="request_id" type="hidden" value={randomUUID()} />
+            <input name="expected_state" type="hidden" value={JSON.stringify(expectedState)} />
             <label className="block">
               <span className="text-sm font-medium text-ink">Ends on</span>
               <input
@@ -371,7 +382,15 @@ function StaffMembershipCard({ membership, profile }: { membership: StaffMembers
   );
 }
 
-function StaffMemberships({ memberships, profile }: { memberships: StaffMembershipDetail[]; profile: Profile }) {
+function StaffMemberships({
+  memberships,
+  profile,
+  expectedState
+}: {
+  memberships: StaffMembershipDetail[];
+  profile: Profile;
+  expectedState: PersonAccessState;
+}) {
   return (
     <section className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
       <h2 className="text-lg font-semibold text-ink">Staff Memberships</h2>
@@ -380,7 +399,12 @@ function StaffMemberships({ memberships, profile }: { memberships: StaffMembersh
       ) : (
         <div className="mt-4 space-y-3">
           {memberships.map((membership) => (
-            <StaffMembershipCard key={membership.id} membership={membership} profile={profile} />
+            <StaffMembershipCard
+              key={membership.id}
+              expectedState={expectedState}
+              membership={membership}
+              profile={profile}
+            />
           ))}
         </div>
       )}
@@ -498,6 +522,8 @@ export default async function SuperAdminPersonPage({
     throw new Error("Unable to load the current access state.");
   }
 
+  const canonicalState = expectedState as PersonAccessState;
+  const canonicalData = reconcilePersonDetailWithAccessState(data, canonicalState);
   const status = statusFor(resolvedSearchParams.status);
 
   return (
@@ -505,18 +531,22 @@ export default async function SuperAdminPersonPage({
       <AppNav role={profile.role} name={profile.name} />
       <main className="mx-auto max-w-6xl px-4 py-8">
         {status ? <p className={`mb-4 rounded-md px-3 py-2 text-sm ${status.className}`}>{status.text}</p> : null}
-        <IdentityPanel authEmail={data.authEmail} profile={data.profile} />
-        <WarningsPanel warnings={data.warnings} />
+        <IdentityPanel authEmail={canonicalData.authEmail} profile={canonicalData.profile} />
+        <WarningsPanel warnings={canonicalData.warnings} />
 
         <section className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,25rem)]">
           <div className="space-y-6">
-            <StudentMemberships memberships={data.studentMemberships} />
-            <StaffMemberships memberships={data.staffMemberships} profile={data.profile} />
-            <TeacherAssignments assignments={data.teacherAssignments} />
+            <StudentMemberships memberships={canonicalData.studentMemberships} />
+            <StaffMemberships
+              expectedState={canonicalState}
+              memberships={canonicalData.staffMemberships}
+              profile={canonicalData.profile}
+            />
+            <TeacherAssignments assignments={canonicalData.teacherAssignments} />
           </div>
           <aside className="space-y-6">
-            <AccessEditor data={data} expectedState={expectedState as PersonAccessState} />
-            <PasswordResetPanel profile={data.profile} />
+            <AccessEditor data={canonicalData} expectedState={canonicalState} />
+            <PasswordResetPanel profile={canonicalData.profile} />
           </aside>
         </section>
       </main>

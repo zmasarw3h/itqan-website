@@ -23,6 +23,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import {
   createScopedUserTransactionally,
+  scopedUserSetupLookupRpcArguments,
   scopedUserSetupRpcArguments,
   scopedUserSetupStatusForOutcome,
   type ScopedUserSetupResult
@@ -109,17 +110,6 @@ export async function createUser(formData: FormData) {
     redirect(`/admin/students/new?${params.toString()}`);
   }
 
-  const { data: existingProfiles } = await adminSupabase
-    .from("profiles")
-    .select("id")
-    .or(`email.eq.${input.email},phone.eq.${input.phone}`)
-    .limit(1)
-    .returns<Array<{ id: string }>>();
-
-  if (existingProfiles?.length) {
-    redirect("/admin/students/new?status=exists");
-  }
-
   if (input.role !== "student" && input.role !== "teacher") {
     redirect("/admin/students/new?status=invalid");
   }
@@ -143,11 +133,38 @@ export async function createUser(formData: FormData) {
       groupId: studentGroupId
     },
     {
+      lookupCompletedSetup: async (setupInput) => {
+        const { data, error } = await adminSupabase.rpc(
+          "get_scoped_user_setup_request_result",
+          scopedUserSetupLookupRpcArguments(setupInput)
+        );
+
+        return { data: data as ScopedUserSetupResult | null, error };
+      },
       createAuthUser: async () => {
+        const { data: existingProfiles, error: existingProfileError } = await adminSupabase
+          .from("profiles")
+          .select("id")
+          .or(`email.eq.${input.email},phone.eq.${input.phone}`)
+          .limit(1)
+          .returns<Array<{ id: string }>>();
+
+        if (existingProfileError) {
+          return { data: null, error: existingProfileError };
+        }
+
+        if (existingProfiles?.length) {
+          return {
+            data: null,
+            error: { code: "email_exists", message: "An account already exists.", status: 422 }
+          };
+        }
+
         const { data, error } = await adminSupabase.auth.admin.createUser({
           email: input.email,
           password: input.password,
-          email_confirm: true
+          email_confirm: true,
+          app_metadata: { setup_request_id: requestId }
         });
 
         return { data: data.user ? { id: data.user.id } : null, error };
@@ -169,6 +186,9 @@ export async function createUser(formData: FormData) {
 
         return { data: data?.id === profileId, error };
       },
+      waitBeforeVerification: async (attempt) => {
+        await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+      },
       deleteAuthUser: async (profileId) => {
         const { error } = await adminSupabase.auth.admin.deleteUser(profileId);
         return { error };
@@ -177,11 +197,25 @@ export async function createUser(formData: FormData) {
   );
 
   if (!outcome.ok) {
-    if (outcome.stage === "database" && outcome.cleanup === "failed") {
-      console.error("Scoped user setup failed and Auth cleanup was not confirmed.", {
+    if (outcome.stage === "database" && (outcome.cleanup === "failed" || outcome.uncertain)) {
+      console.error("Scoped user setup requires operator review.", {
+        requestId,
         profileId: outcome.profileId,
         setupErrorCode: outcome.error.code ?? null,
-        cleanupErrorCode: outcome.cleanupError?.code ?? null
+        cleanupErrorCode: outcome.cleanupError?.code ?? null,
+        uncertain: outcome.uncertain
+      });
+    } else if (outcome.stage === "auth" && outcome.authErrorKind !== "exists") {
+      console.error("Auth user creation did not complete normally.", {
+        requestId,
+        authErrorCode: outcome.error.code ?? null,
+        authErrorKind: outcome.authErrorKind
+      });
+    } else if (outcome.stage === "lookup") {
+      console.error("Scoped setup request lookup failed.", {
+        requestId,
+        lookupErrorCode: outcome.error.code ?? null,
+        uncertain: outcome.uncertain
       });
     }
 
