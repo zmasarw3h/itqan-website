@@ -21,8 +21,13 @@ import {
 import { type JsonValue } from "@/lib/super-admin-rules";
 import {
   grantMasjidStaffAccessTransactionally,
+  masjidStaffGrantPreparationRpcArguments,
   masjidStaffGrantRpcArguments,
+  masjidUpdateRpcArguments,
+  parseMasjidUpdateState,
   superAdminMutationStatusForOutcome,
+  updateMasjidTransactionally,
+  type MasjidUpdateResult,
   type MasjidStaffGrantResult,
   type PersonAccessState
 } from "@/lib/transactional-workflows";
@@ -34,9 +39,13 @@ function masajidPath(status?: string) {
   return status ? `/super-admin/masajid?${new URLSearchParams({ status }).toString()}` : "/super-admin/masajid";
 }
 
-function masjidPath(masjidId: string, status?: string) {
-  return status
-    ? `/super-admin/masajid/${masjidId}?${new URLSearchParams({ status }).toString()}`
+function masjidPath(masjidId: string, status?: string, requestId?: string) {
+  const searchParams = new URLSearchParams();
+  if (status) searchParams.set("status", status);
+  if (requestId) searchParams.set("request_id", requestId);
+
+  return searchParams.size > 0
+    ? `/super-admin/masajid/${masjidId}?${searchParams.toString()}`
     : `/super-admin/masajid/${masjidId}`;
 }
 
@@ -230,8 +239,17 @@ export async function updateMasjidSetup(formData: FormData) {
   const name = formString(formData, "name");
   const slug = normalizeMasjidSlug(formString(formData, "slug"));
   const active = formBoolean(formData, "active");
+  const requestId = formString(formData, "request_id");
+  const expectedState = parseMasjidUpdateState(formString(formData, "expected_state"));
 
-  if (!requireUuid(masjidId) || !validateName(name) || !isValidMasjidSlug(slug)) {
+  if (
+    !requireUuid(masjidId) ||
+    !requireUuid(requestId) ||
+    !expectedState ||
+    expectedState.id !== masjidId ||
+    !validateName(name) ||
+    !isValidMasjidSlug(slug)
+  ) {
     redirect(masajidPath("invalid"));
   }
 
@@ -246,27 +264,39 @@ export async function updateMasjidSetup(formData: FormData) {
     redirect(masjidPath(masjidId, "confirmation-mismatch"));
   }
 
-  const { data, error } = await adminSupabase
-    .from("masajid")
-    .update({ name, slug, active, updated_at: new Date().toISOString() })
-    .eq("id", masjidId)
-    .select("id,name,slug,active,created_at,updated_at")
-    .single<Masjid>();
+  const outcome = await updateMasjidTransactionally(
+    { requestId, actorId: actor.id, masjidId, name, slug, active, expectedState },
+    {
+      applyMasjidUpdate: async (input) => {
+        const { data, error } = await adminSupabase.rpc(
+          "apply_super_admin_masjid_update",
+          masjidUpdateRpcArguments(input)
+        );
+        return { data: data as MasjidUpdateResult | null, error };
+      }
+    }
+  );
 
-  if (error || !data) {
-    redirect(masjidPath(masjidId, "save-error"));
+  if (!outcome.ok) {
+    const baseStatus = superAdminMutationStatusForOutcome(outcome);
+    const status = outcome.uncertain
+      ? "masjid-update-uncertain"
+      : baseStatus === "access-stale"
+        ? "masjid-update-stale"
+        : outcome.error.code === "23514"
+          ? "masjid-coverage-required"
+          : "save-error";
+
+    if (outcome.uncertain) {
+      console.error("Masjid update requires operator review.", {
+        requestId,
+        masjidId,
+        mutationErrorCode: outcome.error.code ?? null
+      });
+    }
+
+    redirect(masjidPath(masjidId, status, outcome.uncertain ? requestId : undefined));
   }
-
-  await auditSetupEvent({
-    actor,
-    adminSupabase,
-    action: "masjid_updated",
-    targetTable: "masajid",
-    targetId: masjidId,
-    targetMasjidId: masjidId,
-    beforeData: masjidAuditData(current.masjid),
-    afterData: masjidAuditData(data)
-  });
 
   revalidatePath("/super-admin/masajid");
   revalidatePath(`/super-admin/masajid/${masjidId}`);
@@ -504,11 +534,11 @@ export async function grantMasjidStaffAccess(formData: FormData) {
       startsOn
     },
     {
-      getPersonAccessState: async (actorId, targetProfileId) => {
-        const { data, error } = await adminSupabase.rpc("get_person_access_state", {
-          input_actor_id: actorId,
-          input_target_profile_id: targetProfileId
-        });
+      prepareExpectedState: async (input) => {
+        const { data, error } = await adminSupabase.rpc(
+          "prepare_super_admin_masjid_staff_grant",
+          masjidStaffGrantPreparationRpcArguments(input)
+        );
         return { data: data as PersonAccessState | null, error };
       },
       applyStaffGrant: async (input, expectedState) => {

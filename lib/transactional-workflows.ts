@@ -68,6 +68,47 @@ export type ScopedUserSetupOutcome =
       uncertain: boolean;
     };
 
+export type MasjidUpdateState = {
+  id: string;
+  name: string;
+  slug: string;
+  active: boolean;
+  updated_at: string;
+};
+
+export type MasjidUpdateInput = {
+  requestId: string;
+  actorId: string;
+  masjidId: string;
+  name: string;
+  slug: string;
+  active: boolean;
+  expectedState: MasjidUpdateState;
+};
+
+export type MasjidUpdateResult = {
+  masjid_id: string;
+  masjid_state: MasjidUpdateState;
+};
+
+export type MasjidUpdateOutcome =
+  | { ok: true; result: MasjidUpdateResult }
+  | {
+      ok: false;
+      stage: "database";
+      error: TransactionalWorkflowError;
+      errorKind: TransactionalWorkflowErrorKind;
+      uncertain: boolean;
+    };
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function preservedMasjidUpdateRequestId(status: string | undefined, requestId: string | undefined) {
+  return status === "masjid-update-uncertain" && requestId && UUID_PATTERN.test(requestId)
+    ? requestId
+    : null;
+}
+
 export type MasjidStaffGrantInput = {
   requestId: string;
   actorId: string;
@@ -229,6 +270,72 @@ export function masjidStaffGrantRpcArguments(
   };
 }
 
+export function masjidStaffGrantPreparationRpcArguments(input: MasjidStaffGrantInput) {
+  return {
+    input_request_id: input.requestId,
+    input_actor_id: input.actorId,
+    input_target_profile_id: input.targetProfileId,
+    input_masjid_id: input.masjidId,
+    input_grant: input.grant,
+    input_starts_on: input.startsOn
+  };
+}
+
+export function masjidUpdateRpcArguments(input: MasjidUpdateInput) {
+  return {
+    input_request_id: input.requestId,
+    input_actor_id: input.actorId,
+    input_masjid_id: input.masjidId,
+    input_name: input.name,
+    input_slug: input.slug,
+    input_active: input.active,
+    input_expected_state: input.expectedState
+  };
+}
+
+export function masjidUpdateState(input: {
+  id: string;
+  name: string;
+  slug: string;
+  active: boolean;
+  updated_at: string | null;
+}): MasjidUpdateState {
+  if (!input.updated_at || !Number.isFinite(Date.parse(input.updated_at))) {
+    throw new Error("Masjid updated_at is required for stale-state protection.");
+  }
+
+  return {
+    id: input.id,
+    name: input.name,
+    slug: input.slug,
+    active: input.active,
+    updated_at: new Date(input.updated_at).toISOString()
+  };
+}
+
+export function parseMasjidUpdateState(value: string | null | undefined): MasjidUpdateState | null {
+  if (!value || value.length > 10_000) return null;
+
+  try {
+    const parsed = JSON.parse(value) as Partial<MasjidUpdateState>;
+
+    if (
+      typeof parsed.id !== "string" ||
+      typeof parsed.name !== "string" ||
+      typeof parsed.slug !== "string" ||
+      typeof parsed.active !== "boolean" ||
+      typeof parsed.updated_at !== "string" ||
+      !Number.isFinite(Date.parse(parsed.updated_at))
+    ) {
+      return null;
+    }
+
+    return masjidUpdateState(parsed as MasjidUpdateState);
+  } catch {
+    return null;
+  }
+}
+
 export function superAdminAccessChangeRpcArguments(
   input: SuperAdminAccessChangeInput,
   expectedState: PersonAccessState
@@ -315,7 +422,7 @@ export function classifyTransactionalWorkflowError(
     return "unknown";
   }
 
-  if (error.code === "P0001" && /access state changed/i.test(error.message ?? "")) {
+  if (error.code === "P0001" && /(access|masjid) state changed/i.test(error.message ?? "")) {
     return "stale";
   }
 
@@ -409,6 +516,19 @@ function isMasjidStaffGrantResult(
     value.grant === input.grant &&
     ["student", "teacher", "admin", "super_admin"].includes(String(value.role)) &&
     isRecord(value.access_state)
+  );
+}
+
+function isMasjidUpdateResult(value: unknown, input: MasjidUpdateInput): value is MasjidUpdateResult {
+  if (!isRecord(value) || !isRecord(value.masjid_state)) return false;
+
+  return (
+    value.masjid_id === input.masjidId &&
+    value.masjid_state.id === input.masjidId &&
+    value.masjid_state.name === input.name.trim() &&
+    value.masjid_state.slug === input.slug.trim().toLowerCase() &&
+    value.masjid_state.active === input.active &&
+    typeof value.masjid_state.updated_at === "string"
   );
 }
 
@@ -736,20 +856,17 @@ export async function endStaffMembershipTransactionally(
 export async function grantMasjidStaffAccessTransactionally(
   input: MasjidStaffGrantInput,
   dependencies: {
-    getPersonAccessState: (
-      actorId: string,
-      targetProfileId: string
-    ) => Promise<WorkflowCallResult<PersonAccessState>>;
+    prepareExpectedState: (input: MasjidStaffGrantInput) => Promise<WorkflowCallResult<PersonAccessState>>;
     applyStaffGrant: (
       input: MasjidStaffGrantInput,
       expectedState: PersonAccessState
     ) => Promise<WorkflowCallResult<MasjidStaffGrantResult>>;
   }
 ): Promise<MasjidStaffGrantOutcome> {
-  const stateResult = await callWorkflow(() => dependencies.getPersonAccessState(input.actorId, input.targetProfileId));
+  const stateResult = await callWorkflow(() => dependencies.prepareExpectedState(input));
 
   if (stateResult.error || !stateResult.data) {
-    const error = stateResult.error ?? { message: "Access state was not returned." };
+    const error = stateResult.error ?? { message: "Expected access state was not returned." };
     return {
       ok: false,
       stage: "state",
@@ -782,6 +899,31 @@ export async function grantMasjidStaffAccessTransactionally(
     expectedState,
     result: grantResult.data
   };
+}
+
+export async function updateMasjidTransactionally(
+  input: MasjidUpdateInput,
+  dependencies: {
+    applyMasjidUpdate: (input: MasjidUpdateInput) => Promise<WorkflowCallResult<MasjidUpdateResult>>;
+  }
+): Promise<MasjidUpdateOutcome> {
+  const updateResult = await applyMutationWithAmbiguousRetry(
+    () => dependencies.applyMasjidUpdate(input),
+    (value): value is MasjidUpdateResult => isMasjidUpdateResult(value, input)
+  );
+
+  if (updateResult.error || !updateResult.data) {
+    const error = updateResult.error ?? { message: "Masjid update result was not returned." };
+    return {
+      ok: false,
+      stage: "database",
+      error,
+      errorKind: classifyTransactionalWorkflowError(error),
+      uncertain: updateResult.uncertain
+    };
+  }
+
+  return { ok: true, result: updateResult.data };
 }
 
 export function scopedUserSetupStatusForOutcome(outcome: Exclude<ScopedUserSetupOutcome, { ok: true }>) {
@@ -833,7 +975,10 @@ export function superAdminAccessStatusForError(error: TransactionalWorkflowError
 }
 
 export function superAdminMutationStatusForOutcome(
-  outcome: Exclude<SuperAdminAccessChangeOutcome | StaffMembershipEndOutcome, { ok: true }>
+  outcome: Exclude<
+    SuperAdminAccessChangeOutcome | StaffMembershipEndOutcome | MasjidStaffGrantOutcome | MasjidUpdateOutcome,
+    { ok: true }
+  >
 ) {
   return outcome.uncertain ? "access-uncertain" : superAdminAccessStatusForError(outcome.error);
 }

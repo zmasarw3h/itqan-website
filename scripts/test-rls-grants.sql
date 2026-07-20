@@ -143,10 +143,12 @@ begin
     from (values
       ('apply_scoped_user_setup(uuid,uuid,uuid,text,text,text,text,date,uuid,uuid)'),
       ('apply_super_admin_access_change(uuid,uuid,uuid,text,date,uuid,uuid,jsonb)'),
+      ('apply_super_admin_masjid_update(uuid,uuid,uuid,text,text,boolean,jsonb)'),
       ('apply_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date,jsonb)'),
       ('apply_super_admin_staff_membership_end(uuid,uuid,uuid,uuid,date,jsonb)'),
       ('apply_teacher_rotation_generation(uuid,date,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,integer,integer,integer,integer)'),
       ('get_person_access_state(uuid,uuid)'),
+      ('prepare_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date)'),
       ('get_scoped_user_setup_auth_recovery(uuid,uuid,text,text,text,text,date,uuid,uuid)'),
       ('get_scoped_user_setup_request_result(uuid,uuid,text,text,text,text,date,uuid,uuid)')
     ) expected_service(signature)
@@ -199,11 +201,19 @@ begin
     'EXECUTE'
   ) or not has_function_privilege(
     'service_role',
+    'public.apply_super_admin_masjid_update(uuid,uuid,uuid,text,text,boolean,jsonb)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
     'public.apply_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date,jsonb)',
     'EXECUTE'
   ) or not has_function_privilege(
     'service_role',
     'public.apply_super_admin_staff_membership_end(uuid,uuid,uuid,uuid,date,jsonb)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.prepare_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date)',
     'EXECUTE'
   ) or not has_function_privilege(
     'service_role',
@@ -215,9 +225,46 @@ begin
 end;
 $$;
 
+-- Disposable-only fault injection used to prove a failed audit insert rolls the
+-- masjid mutation back. This is created after catalog assertions and never ships.
+create function public.test_reject_masjid_update_audit()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.action = 'masjid_updated'
+    and new.after_data ->> 'slug' = 'force-audit-failure' then
+    raise exception using errcode = 'P0001', message = 'forced masjid audit failure';
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger test_reject_masjid_update_audit_trigger
+  before insert on public.super_admin_audit_events
+  for each row
+  execute function public.test_reject_masjid_update_audit();
+
 -- The signed super-admin role is intentionally read-capable but cannot own
 -- direct profile/access-history writes. These policy-shape assertions catch a
 -- future migration that accidentally restores the Data API bypass.
+do $$
+begin
+  if exists (
+    select 1
+    from pg_catalog.pg_policies
+    where schemaname = 'public'
+      and tablename = 'masajid'
+      and cmd in ('ALL', 'INSERT', 'UPDATE', 'DELETE')
+      and 'authenticated' = any (roles)
+  ) then
+    raise exception 'authenticated masjid mutation policy bypasses guarded service workflows';
+  end if;
+end;
+$$;
+
 do $$
 declare
   policy_expression text;
@@ -396,6 +443,23 @@ begin
     )
   ) then
     raise exception 'workflow mutation ledger is directly accessible outside its owner functions';
+  end if;
+
+  if exists (
+    select 1
+    from (values ('anon'), ('authenticated'), ('service_role')) as roles(role_name)
+    cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE')) as privileges(privilege_name)
+    cross join (values
+      ('private.workflow_expected_state_snapshots'),
+      ('private.masjid_update_requests')
+    ) as protected_tables(table_name)
+    where has_table_privilege(
+      roles.role_name,
+      protected_tables.table_name,
+      privileges.privilege_name
+    )
+  ) then
+    raise exception 'transactional closure state is directly accessible outside owner functions';
   end if;
 end;
 $$;

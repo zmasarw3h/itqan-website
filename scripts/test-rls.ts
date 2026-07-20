@@ -1177,6 +1177,23 @@ async function runAssertions(ids: SeedIds) {
     input_selected_group_id: null,
     input_expected_state: {}
   });
+  await assertRpcDenied(superAdmin, "apply_super_admin_masjid_update", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_masjid_id: ids.inactiveMasjid,
+    input_name: "RLS Inactive Masjid",
+    input_slug: "rls-inactive-masjid",
+    input_active: true,
+    input_expected_state: {}
+  });
+  await assertRpcDenied(superAdmin, "prepare_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.studentA,
+    input_masjid_id: ids.masjidA,
+    input_grant: "admin",
+    input_starts_on: ids.weekStart
+  });
   await assertRpcDenied(superAdmin, "apply_super_admin_masjid_staff_grant", {
     input_request_id: randomUUID(),
     input_actor_id: ids.users.superAdmin,
@@ -1362,14 +1379,23 @@ async function runAssertions(ids: SeedIds) {
   });
   assert.equal(grantState.error, null, grantState.error?.message);
   const grantRequestId = randomUUID();
-  const adminGrantArgs = {
+  const grantPreparationArgs = {
     input_request_id: grantRequestId,
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.staffGrantTarget,
     input_masjid_id: ids.masjidA,
     input_grant: "admin",
-    input_starts_on: ids.weekStart,
-    input_expected_state: grantState.data
+    input_starts_on: ids.weekStart
+  };
+  const preparedGrantState = await service.rpc(
+    "prepare_super_admin_masjid_staff_grant",
+    grantPreparationArgs
+  );
+  assert.equal(preparedGrantState.error, null, preparedGrantState.error?.message);
+  assert.deepEqual(preparedGrantState.data, grantState.data);
+  const adminGrantArgs = {
+    ...grantPreparationArgs,
+    input_expected_state: preparedGrantState.data
   };
   const concurrentAdminGrants = await Promise.all([
     service.rpc("apply_super_admin_masjid_staff_grant", adminGrantArgs),
@@ -1379,11 +1405,36 @@ async function runAssertions(ids: SeedIds) {
     assert.equal(result.error, null, `concurrent staff grant failed: ${result.error?.message}`);
   }
   assert.deepEqual(concurrentAdminGrants[0].data, concurrentAdminGrants[1].data);
+  const replayedPreparedGrantState = await service.rpc(
+    "prepare_super_admin_masjid_staff_grant",
+    grantPreparationArgs
+  );
+  assert.equal(replayedPreparedGrantState.error, null, replayedPreparedGrantState.error?.message);
+  assert.deepEqual(
+    replayedPreparedGrantState.data,
+    preparedGrantState.data,
+    "staff grant preparation reloaded post-grant access state"
+  );
+  const crossActorGrantPreparation = await service.rpc("prepare_super_admin_masjid_staff_grant", {
+    ...grantPreparationArgs,
+    input_actor_id: ids.users.adminA
+  });
+  assert.equal(crossActorGrantPreparation.error?.code, "42501", "cross-actor grant preparation was accepted");
+  const changedGrantPreparation = await service.rpc("prepare_super_admin_masjid_staff_grant", {
+    ...grantPreparationArgs,
+    input_grant: "admin_teacher"
+  });
+  assert.equal(changedGrantPreparation.error?.code, "22023", "changed grant preparation payload was accepted");
   const changedGrantReplay = await service.rpc("apply_super_admin_masjid_staff_grant", {
     ...adminGrantArgs,
     input_grant: "admin_teacher"
   });
   assert.equal(changedGrantReplay.error?.code, "22023", "changed staff grant replay was accepted");
+  const changedExpectedStateReplay = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    ...adminGrantArgs,
+    input_expected_state: (concurrentAdminGrants[0].data as { access_state?: unknown } | null)?.access_state
+  });
+  assert.equal(changedExpectedStateReplay.error?.code, "22023", "changed expected-state replay was accepted");
 
   const adminGrantState = (concurrentAdminGrants[0].data as { access_state?: unknown } | null)?.access_state;
   assert.ok(adminGrantState, "admin grant omitted access state");
@@ -2309,6 +2360,231 @@ async function runAssertions(ids: SeedIds) {
     input_expected_state: inactiveMasjidAdminState.data
   });
   assert.equal(inactiveMasjidEnd.error, null, "inactive masjid incorrectly required future admin coverage");
+
+  const inactiveMasjidRow = await requireData<{
+    id: string;
+    name: string;
+    slug: string;
+    active: boolean;
+    updated_at: string;
+  }>(
+    "load inactive masjid for guarded reactivation",
+    service
+      .from("masajid")
+      .select("id,name,slug,active,updated_at")
+      .eq("id", ids.inactiveMasjid)
+      .single()
+  );
+  let inactiveMasjidExpectedState = {
+    ...inactiveMasjidRow,
+    updated_at: new Date(inactiveMasjidRow.updated_at).toISOString()
+  };
+  const guardedReactivation = await service.rpc("apply_super_admin_masjid_update", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_masjid_id: ids.inactiveMasjid,
+    input_name: inactiveMasjidRow.name,
+    input_slug: inactiveMasjidRow.slug,
+    input_active: true,
+    input_expected_state: inactiveMasjidExpectedState
+  });
+  assert.equal(guardedReactivation.error?.code, "23514", "guarded reactivation accepted incomplete admin coverage");
+
+  const directServiceReactivation = await service
+    .from("masajid")
+    .update({ active: true })
+    .eq("id", ids.inactiveMasjid);
+  assert.equal(directServiceReactivation.error?.code, "23514", "service Data API bypassed reactivation coverage");
+  const directBrowserReactivation = await superAdmin
+    .from("masajid")
+    .update({ active: true })
+    .eq("id", ids.inactiveMasjid)
+    .select("id")
+    .single();
+  assert.ok(directBrowserReactivation.error, "browser Data API bypassed service-only masjid updates");
+
+  const inactiveEditRequestId = randomUUID();
+  const inactiveEditArgs = {
+    input_request_id: inactiveEditRequestId,
+    input_actor_id: ids.users.superAdmin,
+    input_masjid_id: ids.inactiveMasjid,
+    input_name: `${inactiveMasjidRow.name} Edited`,
+    input_slug: inactiveMasjidRow.slug,
+    input_active: false,
+    input_expected_state: inactiveMasjidExpectedState
+  };
+  const inactiveEdit = await service.rpc("apply_super_admin_masjid_update", inactiveEditArgs);
+  assert.equal(inactiveEdit.error, null, inactiveEdit.error?.message);
+  const inactiveEditResult = inactiveEdit.data as {
+    masjid_state?: typeof inactiveMasjidExpectedState;
+  } | null;
+  assert.ok(inactiveEditResult?.masjid_state, "inactive masjid edit omitted canonical state");
+  assert.equal(inactiveEditResult!.masjid_state!.active, false);
+  assert.equal(inactiveEditResult!.masjid_state!.name, inactiveEditArgs.input_name);
+
+  const replayedInactiveEdit = await service.rpc("apply_super_admin_masjid_update", {
+    ...inactiveEditArgs,
+    input_expected_state: inactiveEditResult!.masjid_state
+  });
+  assert.equal(replayedInactiveEdit.error, null, replayedInactiveEdit.error?.message);
+  assert.deepEqual(replayedInactiveEdit.data, inactiveEdit.data, "committed masjid update did not replay");
+
+  const changedInactiveEditReplay = await service.rpc("apply_super_admin_masjid_update", {
+    ...inactiveEditArgs,
+    input_name: `${inactiveEditArgs.input_name} Changed`,
+    input_expected_state: inactiveEditResult!.masjid_state
+  });
+  assert.equal(changedInactiveEditReplay.error?.code, "22023", "changed masjid update reused a request ID");
+
+  const staleInactiveEdit = await service.rpc("apply_super_admin_masjid_update", {
+    ...inactiveEditArgs,
+    input_request_id: randomUUID()
+  });
+  assert.equal(staleInactiveEdit.error?.code, "P0001", "stale masjid update unexpectedly committed");
+  inactiveMasjidExpectedState = inactiveEditResult!.masjid_state!;
+
+  const auditFailureRequestId = randomUUID();
+  const auditFailureUpdate = await service.rpc("apply_super_admin_masjid_update", {
+    input_request_id: auditFailureRequestId,
+    input_actor_id: ids.users.superAdmin,
+    input_masjid_id: ids.inactiveMasjid,
+    input_name: inactiveMasjidExpectedState.name,
+    input_slug: "force-audit-failure",
+    input_active: false,
+    input_expected_state: inactiveMasjidExpectedState
+  });
+  assert.equal(auditFailureUpdate.error?.code, "P0001", "forced audit failure unexpectedly committed");
+  const rolledBackMasjid = await requireData<{ slug: string; active: boolean }>(
+    "load masjid after forced audit failure",
+    service.from("masajid").select("slug,active").eq("id", ids.inactiveMasjid).single()
+  );
+  assert.deepEqual(
+    rolledBackMasjid,
+    { slug: inactiveMasjidExpectedState.slug, active: false },
+    "failed audit did not roll back the masjid update"
+  );
+
+  const validCoverageMasjid = await requireData<{
+    id: string;
+    name: string;
+    slug: string;
+    active: boolean;
+    updated_at: string;
+  }>(
+    "create valid-coverage reactivation masjid",
+    service
+      .from("masajid")
+      .insert({ name: "RLS Valid Reactivation", slug: "rls-valid-reactivation", active: false })
+      .select("id,name,slug,active,updated_at")
+      .single()
+  );
+  await requireData<{ id: string }>(
+    "create valid reactivation coverage",
+    service
+      .from("masjid_staff_memberships")
+      .insert({
+        profile_id: ids.users.adminA,
+        masjid_id: validCoverageMasjid.id,
+        staff_role: "admin",
+        active: true,
+        starts_on: addDays(ids.today, -1),
+        created_by: ids.users.superAdmin
+      })
+      .select("id")
+      .single()
+  );
+  const validReactivation = await service.rpc("apply_super_admin_masjid_update", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_masjid_id: validCoverageMasjid.id,
+    input_name: validCoverageMasjid.name,
+    input_slug: validCoverageMasjid.slug,
+    input_active: true,
+    input_expected_state: {
+      ...validCoverageMasjid,
+      updated_at: new Date(validCoverageMasjid.updated_at).toISOString()
+    }
+  });
+  assert.equal(validReactivation.error, null, validReactivation.error?.message);
+
+  const concurrencyMasjidClosure = await requireData<{
+    id: string;
+    name: string;
+    slug: string;
+    active: boolean;
+    updated_at: string;
+  }>(
+    "create reactivation concurrency masjid",
+    service
+      .from("masajid")
+      .insert({ name: "RLS Reactivation Concurrency", slug: "rls-reactivation-concurrency", active: false })
+      .select("id,name,slug,active,updated_at")
+      .single()
+  );
+  const concurrencyCoverageMembership = await requireData<{ id: string }>(
+    "create reactivation concurrency coverage",
+    service
+      .from("masjid_staff_memberships")
+      .insert({
+        profile_id: ids.users.adminA,
+        masjid_id: concurrencyMasjidClosure.id,
+        staff_role: "admin",
+        active: true,
+        starts_on: addDays(ids.today, -1),
+        created_by: ids.users.superAdmin
+      })
+      .select("id")
+      .single()
+  );
+  const concurrencyCoverageState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminA
+  });
+  assert.equal(concurrencyCoverageState.error, null, concurrencyCoverageState.error?.message);
+  const concurrentReactivationArgs = {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_masjid_id: concurrencyMasjidClosure.id,
+    input_name: concurrencyMasjidClosure.name,
+    input_slug: concurrencyMasjidClosure.slug,
+    input_active: true,
+    input_expected_state: {
+      ...concurrencyMasjidClosure,
+      updated_at: new Date(concurrencyMasjidClosure.updated_at).toISOString()
+    }
+  };
+  const concurrentCoverageEndArgs = {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminA,
+    input_membership_id: concurrencyCoverageMembership.id,
+    input_ends_on: ids.today,
+    input_expected_state: concurrencyCoverageState.data
+  };
+  const [concurrentReactivationResult, concurrentCoverageEndResult] = await Promise.all([
+    service.rpc("apply_super_admin_masjid_update", concurrentReactivationArgs),
+    service.rpc("apply_super_admin_staff_membership_end", concurrentCoverageEndArgs)
+  ]);
+  assert.notEqual(
+    concurrentReactivationResult.error === null,
+    concurrentCoverageEndResult.error === null,
+    "concurrent reactivation and last-admin end did not serialize to one safe winner"
+  );
+  if (concurrentReactivationResult.error) assert.equal(concurrentReactivationResult.error.code, "23514");
+  if (concurrentCoverageEndResult.error) assert.equal(concurrentCoverageEndResult.error.code, "23514");
+  const finalConcurrencyMasjid = await requireData<{ active: boolean }>(
+    "load final reactivation concurrency masjid",
+    service.from("masajid").select("active").eq("id", concurrencyMasjidClosure.id).single()
+  );
+  const { count: finalOpenConcurrencyAdmins, error: finalOpenConcurrencyAdminsError } = await service
+    .from("masjid_staff_memberships")
+    .select("id", { count: "exact", head: true })
+    .eq("masjid_id", concurrencyMasjidClosure.id)
+    .eq("staff_role", "admin")
+    .eq("active", true)
+    .is("ends_on", null);
+  assert.equal(finalOpenConcurrencyAdminsError, null, finalOpenConcurrencyAdminsError?.message);
+  assert.ok(!finalConcurrencyMasjid.active || (finalOpenConcurrencyAdmins ?? 0) > 0);
 
   await assertVisible(superAdmin, "checkins", ids.checkinA);
   await assertVisible(superAdmin, "checkins", ids.checkinB);

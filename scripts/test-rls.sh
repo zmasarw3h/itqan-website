@@ -16,7 +16,9 @@ trap cleanup EXIT INT TERM
 
 npx supabase stop --no-backup >/dev/null 2>&1 || true
 npx supabase start
-npx supabase db reset --local --no-seed
+# `stop --no-backup` removes the disposable volumes, so `start` has already
+# rebuilt the database from migrations. A second reset only adds a flaky
+# container restart without improving isolation.
 npx supabase db lint --local --schema public --level warning --fail-on error
 
 docker exec -i supabase_db_itqan-lite-phase-1-rls \

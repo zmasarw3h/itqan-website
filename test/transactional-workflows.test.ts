@@ -6,8 +6,13 @@ import {
   createScopedUserTransactionally,
   endStaffMembershipTransactionally,
   grantMasjidStaffAccessTransactionally,
+  masjidStaffGrantPreparationRpcArguments,
   masjidStaffGrantRpcArguments,
+  masjidUpdateRpcArguments,
+  masjidUpdateState,
   parsePersonAccessState,
+  parseMasjidUpdateState,
+  preservedMasjidUpdateRequestId,
   scopedUserSetupLookupRpcArguments,
   scopedUserSetupRpcArguments,
   scopedUserSetupAuthMetadata,
@@ -16,6 +21,8 @@ import {
   superAdminAccessStatusForError,
   superAdminAccessChangeRpcArguments,
   superAdminMutationStatusForOutcome,
+  updateMasjidTransactionally,
+  type MasjidUpdateInput,
   type PersonAccessState,
   type MasjidStaffGrantInput,
   type ScopedUserSetupInput,
@@ -99,6 +106,33 @@ const staffGrantResult = {
   grant: staffGrantInput.grant,
   role: "admin" as const,
   access_state: expectedState
+};
+
+const masjidUpdateInput: MasjidUpdateInput = {
+  requestId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+  actorId: accessInput.actorId,
+  masjidId: accessInput.selectedMasjidId!,
+  name: "Toronto Islamic Centre",
+  slug: "toronto-islamic-centre",
+  active: true,
+  expectedState: {
+    id: accessInput.selectedMasjidId!,
+    name: "TIC",
+    slug: "tic",
+    active: false,
+    updated_at: "2026-07-20T12:00:00.000Z"
+  }
+};
+
+const masjidUpdateResult = {
+  masjid_id: masjidUpdateInput.masjidId,
+  masjid_state: {
+    id: masjidUpdateInput.masjidId,
+    name: masjidUpdateInput.name,
+    slug: masjidUpdateInput.slug,
+    active: masjidUpdateInput.active,
+    updated_at: "2026-07-20T12:01:00.000Z"
+  }
 };
 
 describe("transactional workflow error classification", () => {
@@ -649,13 +683,24 @@ describe("staff membership end orchestration", () => {
 });
 
 describe("masjid staff grant orchestration", () => {
+  it("builds the stable preparation key without a post-grant state", () => {
+    expect(masjidStaffGrantPreparationRpcArguments(staffGrantInput)).toEqual({
+      input_request_id: staffGrantInput.requestId,
+      input_actor_id: staffGrantInput.actorId,
+      input_target_profile_id: staffGrantInput.targetProfileId,
+      input_masjid_id: staffGrantInput.masjidId,
+      input_grant: staffGrantInput.grant,
+      input_starts_on: staffGrantInput.startsOn
+    });
+  });
+
   it("retries a lost response with the same request and canonical state", async () => {
     const applyStaffGrant = vi
       .fn()
       .mockResolvedValueOnce({ data: null, error: { message: "Response lost" } })
       .mockResolvedValueOnce({ data: staffGrantResult, error: null });
     const outcome = await grantMasjidStaffAccessTransactionally(staffGrantInput, {
-      getPersonAccessState: async () => ({ data: expectedState, error: null }),
+      prepareExpectedState: async () => ({ data: expectedState, error: null }),
       applyStaffGrant
     });
 
@@ -668,11 +713,116 @@ describe("masjid staff grant orchestration", () => {
   it("returns an uncertain result after two unresolved grant responses", async () => {
     const applyStaffGrant = vi.fn(async () => ({ data: null, error: { message: "Timeout" } }));
     const outcome = await grantMasjidStaffAccessTransactionally(staffGrantInput, {
-      getPersonAccessState: async () => ({ data: expectedState, error: null }),
+      prepareExpectedState: async () => ({ data: expectedState, error: null }),
       applyStaffGrant
     });
 
     expect(outcome).toMatchObject({ ok: false, stage: "database", uncertain: true });
     expect(applyStaffGrant).toHaveBeenCalledTimes(2);
+  });
+
+  it("reuses the original prepared snapshot across repeated action invocations", async () => {
+    const postGrantState = {
+      ...expectedState,
+      profile: { ...expectedState.profile, role: "admin" },
+      staff_memberships: [{ id: "new-membership" }]
+    };
+    const prepareExpectedState = vi.fn(async () => ({ data: expectedState, error: null }));
+    const applyStaffGrant = vi.fn(async (_input: MasjidStaffGrantInput, receivedState: PersonAccessState) => {
+      expect(receivedState).not.toEqual(postGrantState);
+      return { data: staffGrantResult, error: null };
+    });
+
+    await expect(grantMasjidStaffAccessTransactionally(staffGrantInput, {
+      prepareExpectedState,
+      applyStaffGrant
+    })).resolves.toMatchObject({ ok: true });
+    await expect(grantMasjidStaffAccessTransactionally(staffGrantInput, {
+      prepareExpectedState,
+      applyStaffGrant
+    })).resolves.toMatchObject({ ok: true });
+
+    expect(prepareExpectedState).toHaveBeenCalledTimes(2);
+    expect(applyStaffGrant).toHaveBeenCalledTimes(2);
+    expect(applyStaffGrant).toHaveBeenNthCalledWith(1, staffGrantInput, expectedState);
+    expect(applyStaffGrant).toHaveBeenNthCalledWith(2, staffGrantInput, expectedState);
+  });
+
+  it("recovers a committed grant after both responses from the first action invocation are lost", async () => {
+    const prepareExpectedState = vi.fn(async () => ({ data: expectedState, error: null }));
+    const applyStaffGrant = vi
+      .fn()
+      .mockResolvedValueOnce({ data: null, error: { message: "Response lost" } })
+      .mockResolvedValueOnce({ data: null, error: { message: "Response lost again" } })
+      .mockResolvedValueOnce({ data: staffGrantResult, error: null });
+
+    await expect(grantMasjidStaffAccessTransactionally(staffGrantInput, {
+      prepareExpectedState,
+      applyStaffGrant
+    })).resolves.toMatchObject({ ok: false, stage: "database", uncertain: true });
+
+    await expect(grantMasjidStaffAccessTransactionally(staffGrantInput, {
+      prepareExpectedState,
+      applyStaffGrant
+    })).resolves.toMatchObject({ ok: true, result: staffGrantResult });
+
+    expect(prepareExpectedState).toHaveBeenCalledTimes(2);
+    expect(applyStaffGrant).toHaveBeenCalledTimes(3);
+    expect(applyStaffGrant).toHaveBeenLastCalledWith(staffGrantInput, expectedState);
+  });
+
+  it("rejects a changed preparation payload before applying the grant", async () => {
+    const applyStaffGrant = vi.fn();
+    const outcome = await grantMasjidStaffAccessTransactionally(
+      { ...staffGrantInput, grant: "admin" },
+      {
+        prepareExpectedState: async () => ({
+          data: null,
+          error: { code: "22023", message: "request_id was already used with different input." }
+        }),
+        applyStaffGrant
+      }
+    );
+
+    expect(outcome).toMatchObject({ ok: false, stage: "state", errorKind: "invalid" });
+    expect(applyStaffGrant).not.toHaveBeenCalled();
+  });
+});
+
+describe("masjid update orchestration", () => {
+  it("builds canonical stale-state RPC arguments", () => {
+    expect(masjidUpdateRpcArguments(masjidUpdateInput)).toEqual({
+      input_request_id: masjidUpdateInput.requestId,
+      input_actor_id: masjidUpdateInput.actorId,
+      input_masjid_id: masjidUpdateInput.masjidId,
+      input_name: masjidUpdateInput.name,
+      input_slug: masjidUpdateInput.slug,
+      input_active: masjidUpdateInput.active,
+      input_expected_state: masjidUpdateInput.expectedState
+    });
+    expect(parseMasjidUpdateState(JSON.stringify(masjidUpdateInput.expectedState)))
+      .toEqual(masjidUpdateInput.expectedState);
+    expect(masjidUpdateState({ ...masjidUpdateInput.expectedState, updated_at: "2026-07-20T08:00:00-04:00" }))
+      .toEqual(masjidUpdateInput.expectedState);
+  });
+
+  it("retries an ambiguous update with the same request UUID", async () => {
+    const applyMasjidUpdate = vi
+      .fn()
+      .mockResolvedValueOnce({ data: null, error: { message: "Response lost" } })
+      .mockResolvedValueOnce({ data: masjidUpdateResult, error: null });
+
+    await expect(updateMasjidTransactionally(masjidUpdateInput, { applyMasjidUpdate }))
+      .resolves.toEqual({ ok: true, result: masjidUpdateResult });
+    expect(applyMasjidUpdate).toHaveBeenCalledTimes(2);
+    expect(applyMasjidUpdate).toHaveBeenNthCalledWith(1, masjidUpdateInput);
+    expect(applyMasjidUpdate).toHaveBeenNthCalledWith(2, masjidUpdateInput);
+  });
+
+  it("preserves only a valid uncertain masjid-update request UUID", () => {
+    expect(preservedMasjidUpdateRequestId("masjid-update-uncertain", masjidUpdateInput.requestId))
+      .toBe(masjidUpdateInput.requestId);
+    expect(preservedMasjidUpdateRequestId("save-error", masjidUpdateInput.requestId)).toBeNull();
+    expect(preservedMasjidUpdateRequestId("masjid-update-uncertain", "not-a-uuid")).toBeNull();
   });
 });

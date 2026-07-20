@@ -34,7 +34,9 @@ Auth user, an exact retry checks `get_scoped_user_setup_request_result(...)`; a 
 its original result without calling Auth again. An unknown setup-RPC response is retried with the same
 request UUID and then checked for boundedly before any cleanup decision. The app never deletes the Auth
 identity after an unresolved response. It reports `setup-uncertain` and logs only request/profile IDs and
-error codes for operator review. Only a definitive database rejection triggers Auth deletion compensation;
+error codes for operator review. The uncertain redirect preserves the validated request UUID and scoped
+selections but no name, phone, or password; the operator re-enters the same name and phone to resume the
+exact request. Other outcomes render a fresh request UUID. Only a definitive database rejection triggers Auth deletion compensation;
 cleanup success and failure remain distinct statuses.
 
 An Auth Admin API response can be lost before PostgreSQL setup begins. This cannot be made atomic across
@@ -48,14 +50,15 @@ documented repair workflow rather than deleting an identity whose database state
 
 ## Transactional Workflow Rollout
 
-Deploy `20260720053556_transactional_workflow_foundation.sql` before deploying any Phase 1B app code
-that calls its RPCs. The migration is backward-compatible with the existing actions: it adds private
-idempotency state and new service-only functions without removing or changing current contracts.
+Deploy `20260720053556_transactional_workflow_foundation.sql` and then
+`20260720082914_close_transactional_hardening_findings.sql` before deploying the matching app code.
+Both migrations are backward-compatible with the previously deployed actions: they add private
+idempotency state, guarded triggers, and service-only functions without removing current contracts.
 
 After applying the migration:
 
 1. Run the schema sanity query and `supabase migration list`.
-2. Confirm `service_role` alone can execute `apply_scoped_user_setup`, `get_scoped_user_setup_request_result`, `get_scoped_user_setup_auth_recovery`, `get_person_access_state`, `apply_super_admin_access_change`, `apply_super_admin_masjid_staff_grant`, and `apply_super_admin_staff_membership_end`.
+2. Confirm `service_role` alone can execute `apply_scoped_user_setup`, `get_scoped_user_setup_request_result`, `get_scoped_user_setup_auth_recovery`, `get_person_access_state`, `apply_super_admin_access_change`, `prepare_super_admin_masjid_staff_grant`, `apply_super_admin_masjid_staff_grant`, `apply_super_admin_staff_membership_end`, and `apply_super_admin_masjid_update`.
 3. Confirm `anon` and `authenticated` cannot execute those functions.
 4. Deploy the Phase 1B application wiring only after those checks pass. Do not deploy Phase 1B before
    the migration because user creation, composite access changes, and standalone staff-membership closure now depend on these RPCs.
@@ -283,6 +286,11 @@ student-membership reconciliation, one or both staff memberships, and all audit 
 together. An ambiguous response is retried with the same UUID and reports `staff-grant-uncertain` if its
 result still cannot be established. Active masajid must retain continuous future admin coverage through all
 scheduled handoffs and ultimately have open-ended admin coverage.
+
+Masjid edits and active-state changes use one guarded transaction for the row update and audit event.
+Reactivation locks against concurrent admin-access changes and is rejected unless coverage is continuous
+from the current effective date through an open-ended administrator. An ambiguous update preserves its
+validated request UUID in the form so the exact desired update can be replayed; changed inputs with that UUID are rejected.
 
 Setup changes are audited in `super_admin_audit_events`. The UI does not delete masajid, cohorts, groups,
 or staff memberships; deactivation uses the `active` flag and requires typed confirmation when turning

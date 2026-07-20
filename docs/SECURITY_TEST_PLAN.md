@@ -363,6 +363,8 @@ Phase 1 is not mergeable until a local disposable Supabase harness:
   active-masjid-admin removal, and rolls membership plus audit writes back together when a guard fails.
 - Proves active-masjid admin coverage remains continuous at future start/end boundaries, requires an
   open-ended terminal handoff, serializes concurrent end/grant operations, and does not apply to inactive masajid.
+- Proves masjid updates and their audit events are atomic, inactive masjid edits remain available, and
+  reactivation is stale-safe, replay-safe, browser-denied, and serialized against admin-membership closure.
 - Runs through a documented opt-in command with disposable credentials only. It must never target production.
 
 Keep `npm run check` deterministic. The Docker-backed RLS integration command runs as a separate GitHub

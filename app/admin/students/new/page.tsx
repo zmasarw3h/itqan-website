@@ -7,6 +7,7 @@ import {
   requireScopedAdmin,
   type AdminCreateUserScopeOptions
 } from "@/lib/admin-scope";
+import { preservedScopedUserSetupRequestId } from "@/lib/admin-users";
 import type { Role } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,11 @@ type NewStudentSearchParams = {
   status?: string;
   student?: string;
   role?: string;
+  request_id?: string;
+  student_masjid_id?: string;
+  student_cohort_id?: string;
+  student_group_id?: string;
+  teacher_masjid_id?: string;
 };
 
 function statusMessage(status: string | undefined, role: Role | undefined) {
@@ -54,7 +60,7 @@ function statusMessage(status: string | undefined, role: Role | undefined) {
     case "setup-uncertain":
       return {
         tone: "error",
-        text: "Account setup may have completed, but confirmation was lost. Contact a super admin before retrying."
+        text: "Account setup may have completed, but confirmation was lost. Re-enter the same name and phone number without changing the role or scope, then submit once to recover the original request."
       };
     case "auth-error":
       return {
@@ -64,7 +70,7 @@ function statusMessage(status: string | undefined, role: Role | undefined) {
     case "auth-uncertain":
       return {
         tone: "error",
-        text: "The login service did not confirm whether the account was created. Contact a super admin before retrying."
+        text: "The login service did not confirm whether the account was created. Re-enter the same name and phone number without changing the role or scope, then submit once to recover the original request."
       };
     default:
       return null;
@@ -115,12 +121,35 @@ export default async function NewStudentPage({
   const resolvedSearchParams = await searchParams;
   const { adminSupabase, profile } = await requireScopedAdmin();
   const scopeOptions = await loadAdminCreateUserScopeOptions({ adminSupabase, admin: profile });
-  const studentDefault = studentDefaults(scopeOptions);
-  const teacherMasjidId = teacherDefaultMasjidId(scopeOptions);
+  const fallbackStudentDefault = studentDefaults(scopeOptions);
+  const fallbackTeacherMasjidId = teacherDefaultMasjidId(scopeOptions);
   const masjidNames = masjidNameById(scopeOptions);
   const cohortsById = cohortById(scopeOptions);
   const createdRole: Role | undefined =
     resolvedSearchParams.role === "teacher" || resolvedSearchParams.role === "student" ? resolvedSearchParams.role : undefined;
+  const preservedRequestId = preservedScopedUserSetupRequestId(
+    resolvedSearchParams.status,
+    resolvedSearchParams.request_id
+  );
+  const retryGroup = preservedRequestId
+    ? scopeOptions.groups.find((group) => group.id === resolvedSearchParams.student_group_id)
+    : undefined;
+  const retryCohort = retryGroup
+    ? scopeOptions.cohorts.find(
+        (cohort) =>
+          cohort.id === resolvedSearchParams.student_cohort_id &&
+          cohort.id === retryGroup.cohort_id &&
+          cohort.masjid_id === resolvedSearchParams.student_masjid_id
+      )
+    : undefined;
+  const studentDefault = retryGroup && retryCohort
+    ? { masjidId: retryCohort.masjid_id, cohortId: retryCohort.id, groupId: retryGroup.id }
+    : fallbackStudentDefault;
+  const teacherMasjidId = preservedRequestId && scopeOptions.masjids.some(
+    (masjid) => masjid.id === resolvedSearchParams.teacher_masjid_id
+  )
+    ? resolvedSearchParams.teacher_masjid_id!
+    : fallbackTeacherMasjidId;
   const message = statusMessage(resolvedSearchParams.status, createdRole);
 
   return (
@@ -159,7 +188,7 @@ export default async function NewStudentPage({
         ) : null}
 
         <form action={createUser} className="mt-6 grid gap-4 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-          <input name="request_id" type="hidden" value={randomUUID()} />
+          <input name="request_id" type="hidden" value={preservedRequestId ?? randomUUID()} />
           <label className="block">
             <span className="text-sm font-medium text-ink">Name</span>
             <input
@@ -182,7 +211,7 @@ export default async function NewStudentPage({
           </label>
           <label className="block">
             <span className="text-sm font-medium text-ink">Role</span>
-            <select className="mt-1 w-full rounded-md border border-stone-300 bg-white px-3 py-2" defaultValue="student" name="role" required>
+            <select className="mt-1 w-full rounded-md border border-stone-300 bg-white px-3 py-2" defaultValue={createdRole ?? "student"} name="role" required>
               <option value="student">Student</option>
               <option value="teacher">Teacher</option>
             </select>

@@ -8,6 +8,7 @@ type AdminSupabaseClient = ReturnType<typeof createSupabaseAdminClient>;
 
 export type MasjidSetupSearchParams = {
   status?: string;
+  request_id?: string;
 };
 
 export type MasjidSetupStaffMember = Pick<
@@ -43,6 +44,18 @@ export const SUPER_ADMIN_MASJID_STATUS_MESSAGES: Record<string, { text: string; 
   updated: {
     text: "Masjid updated.",
     className: "bg-green-50 text-green-800"
+  },
+  "masjid-update-stale": {
+    text: "This masjid changed while the form was open. Review the current values and submit again.",
+    className: "bg-amber-50 text-amber-900"
+  },
+  "masjid-update-uncertain": {
+    text: "The database did not confirm whether the masjid was updated. Review the current values before trying again.",
+    className: "bg-amber-50 text-amber-900"
+  },
+  "masjid-coverage-required": {
+    text: "This masjid cannot be activated until it has continuous admin coverage ending in an open-ended admin assignment.",
+    className: "bg-red-50 text-red-700"
   },
   "cohort-created": {
     text: "Cohort created.",

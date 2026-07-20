@@ -40,6 +40,8 @@ Core tables:
 Internal transactional state lives in the unexposed `private` schema:
 
 - `workflow_mutation_requests`: completed service-workflow requests keyed by caller-generated UUID. It stores the normalized input and result so an exact retry returns the original result without duplicating memberships or audit events. It has no browser or service-role table grants; only the guarded definer functions can use it.
+- `workflow_expected_state_snapshots`: binds a staff-grant request UUID to its stable desired inputs and original canonical access snapshot, so a committed response can be replayed after the target state changes.
+- `masjid_update_requests`: stores stable masjid-update inputs and committed results for exact replay without repeating the hierarchy update or audit event.
 
 Server-side helper functions expose narrow caller-relative views used by the app:
 
@@ -61,9 +63,11 @@ Service-only transactional functions added for Phase 1A and used by the Phase 1B
 - `get_person_access_state(actor_id, target_profile_id)`: returns a canonical profile/membership snapshot only after verifying that the passed actor is currently an active super admin.
 - `apply_super_admin_access_change(...)`: locks and compares that snapshot, derives the access transition in PostgreSQL, writes profile/membership/audit changes atomically, and protects the last active super admin and last active admin of an active masjid.
 - `apply_super_admin_masjid_staff_grant(...)`: atomically promotes an active person, reconciles student access, inserts the requested admin and/or teacher memberships, and writes all audit events using an idempotent request ledger and canonical stale-state check.
+- `prepare_super_admin_masjid_staff_grant(...)`: captures or replays the original canonical access snapshot for one stable staff-grant request before the mutation RPC runs.
 - `apply_super_admin_staff_membership_end(...)`: closes one open staff membership and writes its audit event in the same transaction after checking the canonical snapshot, date, target relationship, and continuous future admin-coverage invariant.
+- `apply_super_admin_masjid_update(...)`: atomically updates masjid fields and active state, writes the audit event, rejects stale state, and prevents activation without continuous admin coverage.
 
-All seven functions are denied to `PUBLIC`, `anon`, and `authenticated` and granted only to
+All transactional functions are denied to `PUBLIC`, `anon`, and `authenticated` and granted only to
 `service_role`. Their passed actor IDs are treated as untrusted input and revalidated from current
 database state inside each call.
 

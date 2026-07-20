@@ -14,7 +14,7 @@ import {
   adminScopeStatusForError,
   assertSelectedStudentScopeMatchesResolved
 } from "@/lib/admin-scope-rules";
-import { buildAdminUserCreateInput } from "@/lib/admin-users";
+import { buildAdminUserCreateInput, scopedUserSetupFailureSearchParams } from "@/lib/admin-users";
 import { normalizeNote } from "@/lib/checkins";
 import { isValidDateString, todayDateString, weekStartForDate } from "@/lib/dates";
 import { PARTNER_RECITATION_ROUNDS, parsePartnerRecitationRounds, partnerRecitationPayloads } from "@/lib/partner-recitations";
@@ -65,6 +65,10 @@ export async function createUser(formData: FormData) {
 
   const today = todayDateString();
   const startsOn = weekStartForDate(today);
+  const selectedStudentMasjidId = formString(formData.get("student_masjid_id"));
+  const selectedStudentCohortId = formString(formData.get("student_cohort_id"));
+  const selectedStudentGroupId = formString(formData.get("student_group_id"));
+  const selectedTeacherMasjidId = formString(formData.get("teacher_masjid_id"));
   let setupMasjidId: string | null = null;
   let studentGroupId: string | null = null;
 
@@ -73,28 +77,25 @@ export async function createUser(formData: FormData) {
       const masjid = await assertAdminCanManageMasjid({
         adminSupabase,
         admin: profile,
-        masjidId: formString(formData.get("teacher_masjid_id")),
+        masjidId: selectedTeacherMasjidId,
         effectiveDate: today
       });
       setupMasjidId = masjid.id;
     }
 
     if (input.role === "student") {
-      const selectedMasjidId = formString(formData.get("student_masjid_id"));
-      const selectedCohortId = formString(formData.get("student_cohort_id"));
-      const selectedGroupId = formString(formData.get("student_group_id"));
       const group = await assertAdminCanManageGroup({
         adminSupabase,
         admin: profile,
-        groupId: selectedGroupId,
+        groupId: selectedStudentGroupId,
         effectiveDate: today
       });
 
       assertSelectedStudentScopeMatchesResolved(
         {
-          masjidId: selectedMasjidId,
-          cohortId: selectedCohortId,
-          groupId: selectedGroupId
+          masjidId: selectedStudentMasjidId,
+          cohortId: selectedStudentCohortId,
+          groupId: selectedStudentGroupId
         },
         {
           masjidId: group.masjid.id,
@@ -238,9 +239,14 @@ export async function createUser(formData: FormData) {
       });
     }
 
-    const params = new URLSearchParams({
+    const params = scopedUserSetupFailureSearchParams({
       status: scopedUserSetupStatusForOutcome(outcome),
-      role: input.role
+      requestId,
+      role: input.role,
+      studentMasjidId: selectedStudentMasjidId,
+      studentCohortId: selectedStudentCohortId,
+      studentGroupId: selectedStudentGroupId,
+      teacherMasjidId: selectedTeacherMasjidId
     });
     redirect(`/admin/students/new?${params.toString()}`);
   }
