@@ -417,11 +417,101 @@ begin
 end;
 $$;
 
+-- Keep the original mutation implementation for fresh requests, but put a
+-- stable-input replay guard in front of it. Expected state is deliberately not
+-- part of replay identity because it changes after a successful grant.
+alter function public.apply_super_admin_masjid_staff_grant(uuid, uuid, uuid, uuid, text, date, jsonb)
+  set schema private;
+alter function private.apply_super_admin_masjid_staff_grant(uuid, uuid, uuid, uuid, text, date, jsonb)
+  rename to apply_super_admin_masjid_staff_grant_once;
+
+create or replace function public.apply_super_admin_masjid_staff_grant(
+  input_request_id uuid,
+  input_actor_id uuid,
+  input_target_profile_id uuid,
+  input_masjid_id uuid,
+  input_grant text,
+  input_starts_on date,
+  input_expected_state jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  existing_request private.workflow_mutation_requests%rowtype;
+  stable_payload jsonb;
+begin
+  if input_request_id is null
+    or input_actor_id is null
+    or input_target_profile_id is null
+    or input_masjid_id is null then
+    raise exception using errcode = '22023', message = 'request_id, actor_id, target_profile_id, and masjid_id are required.';
+  end if;
+
+  if input_grant not in ('admin', 'teacher', 'admin_teacher') then
+    raise exception using errcode = '22023', message = 'grant must be admin, teacher, or admin_teacher.';
+  end if;
+
+  if input_starts_on is null or input_expected_state is null then
+    raise exception using errcode = '22023', message = 'starts_on and expected access state are required.';
+  end if;
+
+  stable_payload := jsonb_build_object(
+    'actor_id', input_actor_id,
+    'target_profile_id', input_target_profile_id,
+    'masjid_id', input_masjid_id,
+    'grant', input_grant,
+    'starts_on', input_starts_on
+  );
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('workflow-request:' || input_request_id::text, 0)
+  );
+
+  select requests.*
+  into existing_request
+  from private.workflow_mutation_requests as requests
+  where requests.request_id = input_request_id;
+
+  if found then
+    if existing_request.actor_id <> input_actor_id then
+      raise exception using errcode = '42501', message = 'request belongs to another actor.';
+    end if;
+
+    if existing_request.workflow <> 'masjid_staff_grant'
+      or existing_request.target_id <> input_target_profile_id
+      or (existing_request.input_payload - 'expected_state') <> stable_payload then
+      raise exception using errcode = '22023', message = 'request_id was already used with different input.';
+    end if;
+
+    if not private.raw_is_active_super_admin(input_actor_id) then
+      raise exception using errcode = '42501', message = 'actor is not an active super admin.';
+    end if;
+
+    return existing_request.result;
+  end if;
+
+  return private.apply_super_admin_masjid_staff_grant_once(
+    input_request_id,
+    input_actor_id,
+    input_target_profile_id,
+    input_masjid_id,
+    input_grant,
+    input_starts_on,
+    input_expected_state
+  );
+end;
+$$;
+
 revoke all on function private.lock_masjid_admin_coverage_updates()
   from public, anon, authenticated, service_role;
 revoke all on function private.assert_reactivated_masjid_admin_coverage()
   from public, anon, authenticated, service_role;
 revoke all on function private.masjid_update_state(uuid)
+  from public, anon, authenticated, service_role;
+revoke all on function private.apply_super_admin_masjid_staff_grant_once(uuid, uuid, uuid, uuid, text, date, jsonb)
   from public, anon, authenticated, service_role;
 revoke all on function public.prepare_super_admin_masjid_staff_grant(uuid, uuid, uuid, uuid, text, date)
   from public, anon, authenticated, service_role;
@@ -498,7 +588,8 @@ as $$
     'public.student_weekly_teacher_name(date)',
     'public.student_weekly_teacher(uuid,date)',
     'public.teacher_can_read_membership(uuid,date,date)',
-    'public.teacher_rotation_row_scope_matches()'
+    'public.teacher_rotation_row_scope_matches()',
+    'private.apply_super_admin_masjid_staff_grant_once(uuid,uuid,uuid,uuid,text,date,jsonb)'
   ]::text[]) as listed(signature);
 $$;
 
