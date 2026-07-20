@@ -23,6 +23,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import {
   createScopedUserTransactionally,
+  scopedUserSetupAuthMetadata,
   scopedUserSetupLookupRpcArguments,
   scopedUserSetupRpcArguments,
   scopedUserSetupStatusForOutcome,
@@ -164,10 +165,28 @@ export async function createUser(formData: FormData) {
           email: input.email,
           password: input.password,
           email_confirm: true,
-          app_metadata: { setup_request_id: requestId }
+          app_metadata: scopedUserSetupAuthMetadata({
+            requestId,
+            actorId: profile.id,
+            name: input.name,
+            email: input.email,
+            phone: input.phone,
+            role: input.role as "student" | "teacher",
+            startsOn,
+            masjidId: setupMasjidId,
+            groupId: studentGroupId
+          })
         });
 
         return { data: data.user ? { id: data.user.id } : null, error };
+      },
+      recoverAuthOnlySetup: async (setupInput) => {
+        const { data, error } = await adminSupabase.rpc(
+          "get_scoped_user_setup_auth_recovery",
+          scopedUserSetupLookupRpcArguments(setupInput)
+        );
+
+        return { data: typeof data === "string" ? { id: data } : null, error };
       },
       applyScopedUserSetup: async (profileId, setupInput) => {
         const { data, error } = await adminSupabase.rpc(

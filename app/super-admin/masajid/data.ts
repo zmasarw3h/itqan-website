@@ -64,6 +64,14 @@ export const SUPER_ADMIN_MASJID_STATUS_MESSAGES: Record<string, { text: string; 
     text: "Staff access granted.",
     className: "bg-green-50 text-green-800"
   },
+  "staff-grant-stale": {
+    text: "Staff access changed while this form was open. Review the current access and submit again.",
+    className: "bg-amber-50 text-amber-900"
+  },
+  "staff-grant-uncertain": {
+    text: "The database did not confirm whether staff access was granted. Review current access before trying again.",
+    className: "bg-amber-50 text-amber-900"
+  },
   invalid: {
     text: "Check the submitted setup values and try again.",
     className: "bg-red-50 text-red-700"

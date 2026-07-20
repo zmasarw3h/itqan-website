@@ -351,11 +351,18 @@ Phase 1 is not mergeable until a local disposable Supabase harness:
 - Proves transactional account setup denies direct signed calls and cross-masjid actor spoofing, exact
   completed-request lookup rejects cross-actor/changed payload reuse, and exact sequential or concurrent
   request retries create one profile, membership, and audit event.
+- Proves an Auth-only identity can resume only when trusted metadata exactly matches the request, actor,
+  normalized email, and canonical setup payload; changed payloads, cross-actor attempts, and unrelated
+  duplicate identities are not recoverable.
 - Proves signed super admins cannot directly mutate profiles or insert/update/delete student/staff
   memberships while service-role-only guarded workflow RPCs remain executable.
+- Proves admin/admin-teacher staff grants are atomic, stale-safe, replay-safe, browser-denied, and roll back
+  profile, student membership, partial staff membership, and audit writes together on failure.
 - Proves super-admin access changes reject stale snapshots and request-ID reuse with changed input.
 - Proves standalone staff-membership closure serializes concurrent retries, rejects stale state and sole
   active-masjid-admin removal, and rolls membership plus audit writes back together when a guard fails.
+- Proves active-masjid admin coverage remains continuous at future start/end boundaries, requires an
+  open-ended terminal handoff, serializes concurrent end/grant operations, and does not apply to inactive masajid.
 - Runs through a documented opt-in command with disposable credentials only. It must never target production.
 
 Keep `npm run check` deterministic. The Docker-backed RLS integration command runs as a separate GitHub

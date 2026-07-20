@@ -94,8 +94,9 @@ The `authenticated` role can execute only these caller-relative definer function
 
 `apply_teacher_rotation_generation(...)` is service-role-only and repeats actor/cohort scope validation
 inside the transaction. The Phase 1A functions `apply_scoped_user_setup(...)`,
-`get_scoped_user_setup_request_result(...)`, `get_person_access_state(uuid,uuid)`,
-`apply_super_admin_access_change(...)`, and `apply_super_admin_staff_membership_end(...)` are also
+`get_scoped_user_setup_request_result(...)`, `get_scoped_user_setup_auth_recovery(...)`,
+`get_person_access_state(uuid,uuid)`, `apply_super_admin_access_change(...)`,
+`apply_super_admin_masjid_staff_grant(...)`, and `apply_super_admin_staff_membership_end(...)` are also
 service-role-only. They independently validate the passed actor, use explicit current-state or hierarchy
 checks, and keep membership/profile changes plus audit insertion inside one transaction. Trigger functions (`enforce_student_accountability_attestation()`,
 `enforce_student_checkin_integrity()`, `enforce_student_checkin_item_integrity()`,

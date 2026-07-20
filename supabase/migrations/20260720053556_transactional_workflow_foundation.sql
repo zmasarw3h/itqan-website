@@ -6,7 +6,12 @@
 
 create table private.workflow_mutation_requests (
   request_id uuid primary key,
-  workflow text not null check (workflow in ('scoped_user_setup', 'super_admin_access_change', 'staff_membership_end')),
+  workflow text not null check (workflow in (
+    'scoped_user_setup',
+    'super_admin_access_change',
+    'staff_membership_end',
+    'masjid_staff_grant'
+  )),
   actor_id uuid not null,
   target_id uuid not null,
   input_payload jsonb not null,
@@ -69,6 +74,79 @@ as $$
   )
   from public.profiles
   where profiles.id = input_target_profile_id;
+$$;
+
+create or replace function private.assert_masjid_admin_coverage(input_masjid_id uuid)
+returns void
+language plpgsql
+set search_path = ''
+as $$
+declare
+  boundary_date date;
+  current_date_in_app date := public.current_effective_date();
+begin
+  if not exists (
+    select 1 from public.masajid
+    where masajid.id = input_masjid_id
+      and masajid.active = true
+  ) then
+    return;
+  end if;
+
+  if not exists (
+    select 1
+    from public.profiles
+    join public.masjid_staff_memberships as memberships
+      on memberships.profile_id = profiles.id
+    where profiles.role = 'admin'
+      and profiles.active = true
+      and memberships.masjid_id = input_masjid_id
+      and memberships.staff_role = 'admin'
+      and memberships.active = true
+      and memberships.ends_on is null
+  ) then
+    raise exception using errcode = '23514', message = 'an active masjid must retain open-ended future admin coverage.';
+  end if;
+
+  for boundary_date in
+    select distinct boundaries.coverage_date
+    from (
+      select current_date_in_app as coverage_date
+      union all
+      select memberships.starts_on
+      from public.masjid_staff_memberships as memberships
+      where memberships.masjid_id = input_masjid_id
+        and memberships.staff_role = 'admin'
+        and memberships.active = true
+        and memberships.starts_on >= current_date_in_app
+      union all
+      select memberships.ends_on + 1
+      from public.masjid_staff_memberships as memberships
+      where memberships.masjid_id = input_masjid_id
+        and memberships.staff_role = 'admin'
+        and memberships.active = true
+        and memberships.ends_on is not null
+        and memberships.ends_on + 1 >= current_date_in_app
+    ) as boundaries
+    order by boundaries.coverage_date
+  loop
+    if not exists (
+      select 1
+      from public.profiles
+      join public.masjid_staff_memberships as memberships
+        on memberships.profile_id = profiles.id
+      where profiles.role = 'admin'
+        and profiles.active = true
+        and memberships.masjid_id = input_masjid_id
+        and memberships.staff_role = 'admin'
+        and memberships.active = true
+        and memberships.starts_on <= boundary_date
+        and (memberships.ends_on is null or memberships.ends_on >= boundary_date)
+    ) then
+      raise exception using errcode = '23514', message = 'an active masjid must retain continuous future admin coverage.';
+    end if;
+  end loop;
+end;
 $$;
 
 create or replace function public.get_person_access_state(
@@ -232,6 +310,118 @@ begin
 end;
 $$;
 
+create or replace function public.get_scoped_user_setup_auth_recovery(
+  input_request_id uuid,
+  input_actor_id uuid,
+  input_name text,
+  input_email text,
+  input_phone text,
+  input_role text,
+  input_starts_on date,
+  input_masjid_id uuid,
+  input_group_id uuid
+)
+returns uuid
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  normalized_name text := nullif(btrim(input_name), '');
+  normalized_email text := lower(nullif(btrim(input_email), ''));
+  normalized_phone text := nullif(btrim(input_phone), '');
+  recovery_payload jsonb;
+  target_masjid_id uuid;
+  recovery_profile_id uuid;
+begin
+  if input_request_id is null or input_actor_id is null then
+    raise exception using errcode = '22023', message = 'request_id and actor_id are required.';
+  end if;
+
+  if normalized_name is null or normalized_email is null or normalized_phone is null then
+    raise exception using errcode = '22023', message = 'name, email, and phone are required.';
+  end if;
+
+  if input_role not in ('student', 'teacher') then
+    raise exception using errcode = '22023', message = 'role must be student or teacher.';
+  end if;
+
+  if input_starts_on is null or input_starts_on <> public.week_start_for_date(input_starts_on) then
+    raise exception using errcode = '22023', message = 'starts_on must be a Sunday tracker week start.';
+  end if;
+
+  if input_role = 'student' then
+    if input_group_id is null then
+      raise exception using errcode = '22023', message = 'group_id is required for a student.';
+    end if;
+
+    select masajid.id
+    into target_masjid_id
+    from public.halaqa_groups as groups
+    join public.cohorts on cohorts.id = groups.cohort_id
+    join public.masajid on masajid.id = cohorts.masjid_id
+    where groups.id = input_group_id
+      and groups.active = true
+      and cohorts.active = true
+      and masajid.active = true;
+
+    if target_masjid_id is null or input_masjid_id is distinct from target_masjid_id then
+      raise exception using errcode = '22023', message = 'group_id must belong to the active masjid.';
+    end if;
+  else
+    if input_masjid_id is null or input_group_id is not null then
+      raise exception using errcode = '22023', message = 'teacher setup requires masjid_id and no group_id.';
+    end if;
+
+    select masajid.id
+    into target_masjid_id
+    from public.masajid
+    where masajid.id = input_masjid_id
+      and masajid.active = true;
+
+    if target_masjid_id is null then
+      raise exception using errcode = '22023', message = 'masjid_id must identify an active masjid.';
+    end if;
+  end if;
+
+  if not private.raw_is_active_super_admin(input_actor_id)
+    and not private.raw_is_admin_for_masjid(
+      input_actor_id,
+      target_masjid_id,
+      public.current_effective_date()
+    ) then
+    raise exception using errcode = '42501', message = 'actor is not an active admin for the target masjid.';
+  end if;
+
+  recovery_payload := jsonb_build_object(
+    'actor_id', input_actor_id,
+    'name', normalized_name,
+    'email', normalized_email,
+    'phone', normalized_phone,
+    'role', input_role,
+    'starts_on', input_starts_on,
+    'masjid_id', input_masjid_id,
+    'group_id', input_group_id
+  );
+
+  select auth_users.id
+  into recovery_profile_id
+  from auth.users as auth_users
+  where lower(auth_users.email) = normalized_email
+    and auth_users.raw_app_meta_data ->> 'setup_request_id' = input_request_id::text
+    and auth_users.raw_app_meta_data ->> 'setup_actor_id' = input_actor_id::text
+    and auth_users.raw_app_meta_data -> 'setup_payload' = recovery_payload
+    and not exists (
+      select 1 from public.profiles where profiles.id = auth_users.id
+    )
+  order by auth_users.created_at desc
+  limit 1;
+
+  return recovery_profile_id;
+end;
+$$;
+
 create or replace function public.apply_scoped_user_setup(
   input_request_id uuid,
   input_actor_id uuid,
@@ -386,11 +576,20 @@ begin
 
   if not exists (
     select 1
-    from auth.users
-    where users.id = input_profile_id
-      and lower(users.email) = normalized_email
+    from auth.users as auth_users
+    where auth_users.id = input_profile_id
+      and lower(auth_users.email) = normalized_email
+      and auth_users.raw_app_meta_data ->> 'setup_request_id' = input_request_id::text
+      and (
+        not (auth_users.raw_app_meta_data ? 'setup_actor_id')
+        or auth_users.raw_app_meta_data ->> 'setup_actor_id' = input_actor_id::text
+      )
+      and (
+        not (auth_users.raw_app_meta_data ? 'setup_payload')
+        or auth_users.raw_app_meta_data -> 'setup_payload' = (request_payload - 'profile_id')
+      )
   ) then
-    raise exception using errcode = '23503', message = 'profile_id and email must identify the same existing Auth user.';
+    raise exception using errcode = '23503', message = 'Auth identity does not match this scoped setup request.';
   end if;
 
   if exists (
@@ -527,7 +726,6 @@ declare
   desired_staff_roles text[] := array[]::text[];
   impacted_admin_masjid_ids uuid[] := array[]::uuid[];
   impacted_masjid_id uuid;
-  current_date_in_app date := public.current_effective_date();
   membership_id uuid;
   result_payload jsonb;
 begin
@@ -1023,37 +1221,7 @@ begin
     where masajid.id = impacted_masjid_id
     for update;
 
-    if not exists (
-      select 1
-      from public.profiles
-      join public.masjid_staff_memberships as memberships
-        on memberships.profile_id = profiles.id
-      where profiles.role = 'admin'
-        and profiles.active = true
-        and memberships.masjid_id = impacted_masjid_id
-        and memberships.staff_role = 'admin'
-        and memberships.active = true
-        and memberships.starts_on <= current_date_in_app
-        and (memberships.ends_on is null or memberships.ends_on >= current_date_in_app)
-    ) then
-      raise exception using errcode = '23514', message = 'an active masjid must retain an active admin.';
-    end if;
-
-    if not exists (
-      select 1
-      from public.profiles
-      join public.masjid_staff_memberships as memberships
-        on memberships.profile_id = profiles.id
-      where profiles.role = 'admin'
-        and profiles.active = true
-        and memberships.masjid_id = impacted_masjid_id
-        and memberships.staff_role = 'admin'
-        and memberships.active = true
-        and memberships.starts_on <= input_starts_on
-        and (memberships.ends_on is null or memberships.ends_on >= input_starts_on)
-    ) then
-      raise exception using errcode = '23514', message = 'an active masjid must retain an active admin on the effective date.';
-    end if;
+    perform private.assert_masjid_admin_coverage(impacted_masjid_id);
   end loop;
 
   result_payload := jsonb_build_object(
@@ -1084,6 +1252,318 @@ begin
 end;
 $$;
 
+create or replace function public.apply_super_admin_masjid_staff_grant(
+  input_request_id uuid,
+  input_actor_id uuid,
+  input_target_profile_id uuid,
+  input_masjid_id uuid,
+  input_grant text,
+  input_starts_on date,
+  input_expected_state jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  existing_request private.workflow_mutation_requests%rowtype;
+  request_payload jsonb;
+  target_profile public.profiles%rowtype;
+  student_membership record;
+  desired_staff_role text;
+  desired_staff_roles text[];
+  next_role text;
+  membership_id uuid;
+  close_end_date date;
+  result_payload jsonb;
+begin
+  if input_request_id is null
+    or input_actor_id is null
+    or input_target_profile_id is null
+    or input_masjid_id is null then
+    raise exception using errcode = '22023', message = 'request_id, actor_id, target_profile_id, and masjid_id are required.';
+  end if;
+
+  if input_grant not in ('admin', 'teacher', 'admin_teacher') then
+    raise exception using errcode = '22023', message = 'grant must be admin, teacher, or admin_teacher.';
+  end if;
+
+  if input_starts_on is null or input_expected_state is null then
+    raise exception using errcode = '22023', message = 'starts_on and expected access state are required.';
+  end if;
+
+  request_payload := jsonb_build_object(
+    'actor_id', input_actor_id,
+    'target_profile_id', input_target_profile_id,
+    'masjid_id', input_masjid_id,
+    'grant', input_grant,
+    'starts_on', input_starts_on,
+    'expected_state', input_expected_state
+  );
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('workflow-request:' || input_request_id::text, 0)
+  );
+
+  select requests.*
+  into existing_request
+  from private.workflow_mutation_requests as requests
+  where requests.request_id = input_request_id;
+
+  if found then
+    if existing_request.workflow <> 'masjid_staff_grant'
+      or existing_request.actor_id <> input_actor_id
+      or existing_request.target_id <> input_target_profile_id
+      or existing_request.input_payload <> request_payload then
+      raise exception using errcode = '22023', message = 'request_id was already used with different input.';
+    end if;
+
+    if not private.raw_is_active_super_admin(input_actor_id) then
+      raise exception using errcode = '42501', message = 'actor is not an active super admin.';
+    end if;
+
+    return existing_request.result;
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('super-admin-access-change', 0)
+  );
+  perform pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('profile-access:' || input_target_profile_id::text, 0)
+  );
+
+  perform 1
+  from public.profiles
+  where profiles.id = input_actor_id
+  for share;
+
+  if not private.raw_is_active_super_admin(input_actor_id) then
+    raise exception using errcode = '42501', message = 'actor is not an active super admin.';
+  end if;
+
+  select profiles.*
+  into target_profile
+  from public.profiles
+  where profiles.id = input_target_profile_id
+    and profiles.active = true
+  for update;
+
+  if not found then
+    raise exception using errcode = 'P0002', message = 'target profile must be active.';
+  end if;
+
+  perform 1
+  from public.masajid
+  where masajid.id = input_masjid_id
+    and masajid.active = true
+  for update;
+
+  if not found then
+    raise exception using errcode = '22023', message = 'masjid must be active.';
+  end if;
+
+  perform 1
+  from public.student_group_memberships as memberships
+  where memberships.student_id = input_target_profile_id
+  for update;
+
+  perform 1
+  from public.masjid_staff_memberships as memberships
+  where memberships.profile_id = input_target_profile_id
+  for update;
+
+  if private.person_access_state(input_target_profile_id) is distinct from input_expected_state then
+    raise exception using errcode = 'P0001', message = 'access state changed; reload before saving.';
+  end if;
+
+  close_end_date := input_starts_on - 1;
+
+  for student_membership in
+    select memberships.*, cohorts.masjid_id
+    from public.student_group_memberships as memberships
+    join public.halaqa_groups as groups on groups.id = memberships.group_id
+    join public.cohorts on cohorts.id = groups.cohort_id
+    where memberships.student_id = input_target_profile_id
+      and memberships.ends_on is null
+    order by memberships.id
+  loop
+    if student_membership.starts_on > input_starts_on then
+      raise exception using errcode = '22023', message = 'effective date cannot close a future student membership.';
+    end if;
+
+    if student_membership.starts_on = input_starts_on then
+      delete from public.student_group_memberships
+      where id = student_membership.id;
+
+      insert into public.super_admin_audit_events (
+        actor_id, action, target_table, target_id, target_masjid_id, before_data, after_data
+      ) values (
+        input_actor_id,
+        'student_membership_removed',
+        'student_group_memberships',
+        student_membership.id,
+        student_membership.masjid_id,
+        jsonb_build_object(
+          'student_id', student_membership.student_id,
+          'group_id', student_membership.group_id,
+          'starts_on', student_membership.starts_on,
+          'ends_on', student_membership.ends_on
+        ),
+        null
+      );
+
+      continue;
+    end if;
+
+    update public.student_group_memberships
+    set ends_on = close_end_date,
+        updated_at = now()
+    where id = student_membership.id;
+
+    insert into public.super_admin_audit_events (
+      actor_id, action, target_table, target_id, target_masjid_id, before_data, after_data
+    ) values (
+      input_actor_id,
+      'student_membership_closed',
+      'student_group_memberships',
+      student_membership.id,
+      student_membership.masjid_id,
+      jsonb_build_object(
+        'student_id', student_membership.student_id,
+        'group_id', student_membership.group_id,
+        'starts_on', student_membership.starts_on,
+        'ends_on', student_membership.ends_on
+      ),
+      jsonb_build_object(
+        'student_id', student_membership.student_id,
+        'group_id', student_membership.group_id,
+        'starts_on', student_membership.starts_on,
+        'ends_on', close_end_date
+      )
+    );
+  end loop;
+
+  if target_profile.role = 'super_admin' then
+    next_role := 'super_admin';
+  elsif input_grant = 'teacher' and target_profile.role = 'admin' then
+    next_role := 'admin';
+  elsif input_grant = 'teacher' then
+    next_role := 'teacher';
+  else
+    next_role := 'admin';
+  end if;
+
+  if target_profile.role <> next_role then
+    update public.profiles
+    set role = next_role,
+        active = true
+    where id = input_target_profile_id;
+
+    insert into public.super_admin_audit_events (
+      actor_id, action, target_table, target_id, target_masjid_id, before_data, after_data, metadata
+    ) values (
+      input_actor_id,
+      'profile_staff_grant_update',
+      'profiles',
+      input_target_profile_id,
+      input_masjid_id,
+      jsonb_build_object('role', target_profile.role, 'active', target_profile.active),
+      jsonb_build_object('role', next_role, 'active', true),
+      jsonb_build_object('staff_access', input_grant)
+    );
+  end if;
+
+  desired_staff_roles := case input_grant
+    when 'admin_teacher' then array['admin', 'teacher']::text[]
+    when 'admin' then array['admin']::text[]
+    else array['teacher']::text[]
+  end;
+
+  foreach desired_staff_role in array desired_staff_roles
+  loop
+    if not exists (
+      select 1
+      from public.masjid_staff_memberships as memberships
+      where memberships.profile_id = input_target_profile_id
+        and memberships.masjid_id = input_masjid_id
+        and memberships.staff_role = desired_staff_role
+        and memberships.active = true
+        and memberships.starts_on <= input_starts_on
+        and (memberships.ends_on is null or memberships.ends_on >= input_starts_on)
+    ) then
+      if exists (
+        select 1
+        from public.masjid_staff_memberships as memberships
+        where memberships.profile_id = input_target_profile_id
+          and memberships.masjid_id = input_masjid_id
+          and memberships.staff_role = desired_staff_role
+          and memberships.active = true
+          and memberships.ends_on is null
+          and memberships.starts_on > input_starts_on
+      ) then
+        raise exception using errcode = '22023', message = 'effective date overlaps a future staff membership.';
+      end if;
+
+      insert into public.masjid_staff_memberships (
+        profile_id, masjid_id, staff_role, active, starts_on, created_by
+      ) values (
+        input_target_profile_id,
+        input_masjid_id,
+        desired_staff_role,
+        true,
+        input_starts_on,
+        input_actor_id
+      ) returning id into membership_id;
+
+      insert into public.super_admin_audit_events (
+        actor_id, action, target_table, target_id, target_masjid_id, after_data, metadata
+      ) values (
+        input_actor_id,
+        'staff_membership_created',
+        'masjid_staff_memberships',
+        membership_id,
+        input_masjid_id,
+        jsonb_build_object(
+          'profile_id', input_target_profile_id,
+          'masjid_id', input_masjid_id,
+          'staff_role', desired_staff_role,
+          'active', true,
+          'starts_on', input_starts_on,
+          'ends_on', null
+        ),
+        jsonb_build_object('source', 'masjid_setup')
+      );
+    end if;
+  end loop;
+
+  if input_grant in ('admin', 'admin_teacher') then
+    perform private.assert_masjid_admin_coverage(input_masjid_id);
+  end if;
+
+  result_payload := jsonb_build_object(
+    'profile_id', input_target_profile_id,
+    'masjid_id', input_masjid_id,
+    'grant', input_grant,
+    'role', next_role,
+    'access_state', private.person_access_state(input_target_profile_id)
+  );
+
+  insert into private.workflow_mutation_requests (
+    request_id, workflow, actor_id, target_id, input_payload, result
+  ) values (
+    input_request_id,
+    'masjid_staff_grant',
+    input_actor_id,
+    input_target_profile_id,
+    request_payload,
+    result_payload
+  );
+
+  return result_payload;
+end;
+$$;
+
 create or replace function public.apply_super_admin_staff_membership_end(
   input_request_id uuid,
   input_actor_id uuid,
@@ -1102,8 +1582,6 @@ declare
   request_payload jsonb;
   target_profile public.profiles%rowtype;
   target_membership public.masjid_staff_memberships%rowtype;
-  current_date_in_app date := public.current_effective_date();
-  invariant_date date;
   result_payload jsonb;
 begin
   if input_request_id is null
@@ -1246,30 +1724,8 @@ begin
     )
   );
 
-  if target_membership.staff_role = 'admin'
-    and exists (
-      select 1 from public.masajid
-      where masajid.id = target_membership.masjid_id
-        and masajid.active = true
-    ) then
-    foreach invariant_date in array array[current_date_in_app, input_ends_on + 1]
-    loop
-      if not exists (
-        select 1
-        from public.profiles
-        join public.masjid_staff_memberships as memberships
-          on memberships.profile_id = profiles.id
-        where profiles.role = 'admin'
-          and profiles.active = true
-          and memberships.masjid_id = target_membership.masjid_id
-          and memberships.staff_role = 'admin'
-          and memberships.active = true
-          and memberships.starts_on <= invariant_date
-          and (memberships.ends_on is null or memberships.ends_on >= invariant_date)
-      ) then
-        raise exception using errcode = '23514', message = 'an active masjid must retain an active admin.';
-      end if;
-    end loop;
+  if target_membership.staff_role = 'admin' then
+    perform private.assert_masjid_admin_coverage(target_membership.masjid_id);
   end if;
 
   result_payload := jsonb_build_object(
@@ -1378,14 +1834,20 @@ alter policy "Super admins can delete staff membership history"
 
 revoke all on function private.person_access_state(uuid)
   from public, anon, authenticated, service_role;
+revoke all on function private.assert_masjid_admin_coverage(uuid)
+  from public, anon, authenticated, service_role;
 
 revoke all on function public.get_person_access_state(uuid, uuid)
   from public, anon, authenticated, service_role;
 revoke all on function public.get_scoped_user_setup_request_result(uuid, uuid, text, text, text, text, date, uuid, uuid)
   from public, anon, authenticated, service_role;
+revoke all on function public.get_scoped_user_setup_auth_recovery(uuid, uuid, text, text, text, text, date, uuid, uuid)
+  from public, anon, authenticated, service_role;
 revoke all on function public.apply_scoped_user_setup(uuid, uuid, uuid, text, text, text, text, date, uuid, uuid)
   from public, anon, authenticated, service_role;
 revoke all on function public.apply_super_admin_access_change(uuid, uuid, uuid, text, date, uuid, uuid, jsonb)
+  from public, anon, authenticated, service_role;
+revoke all on function public.apply_super_admin_masjid_staff_grant(uuid, uuid, uuid, uuid, text, date, jsonb)
   from public, anon, authenticated, service_role;
 revoke all on function public.apply_super_admin_staff_membership_end(uuid, uuid, uuid, uuid, date, jsonb)
   from public, anon, authenticated, service_role;
@@ -1393,9 +1855,13 @@ revoke all on function public.apply_super_admin_staff_membership_end(uuid, uuid,
 grant execute on function public.get_person_access_state(uuid, uuid) to service_role;
 grant execute on function public.get_scoped_user_setup_request_result(uuid, uuid, text, text, text, text, date, uuid, uuid)
   to service_role;
+grant execute on function public.get_scoped_user_setup_auth_recovery(uuid, uuid, text, text, text, text, date, uuid, uuid)
+  to service_role;
 grant execute on function public.apply_scoped_user_setup(uuid, uuid, uuid, text, text, text, text, date, uuid, uuid)
   to service_role;
 grant execute on function public.apply_super_admin_access_change(uuid, uuid, uuid, text, date, uuid, uuid, jsonb)
+  to service_role;
+grant execute on function public.apply_super_admin_masjid_staff_grant(uuid, uuid, uuid, uuid, text, date, jsonb)
   to service_role;
 grant execute on function public.apply_super_admin_staff_membership_end(uuid, uuid, uuid, uuid, date, jsonb)
   to service_role;
@@ -1413,6 +1879,7 @@ as $$
     'public.apply_admin_checkin_correction(uuid,date,text,text,text[])',
     'public.apply_scoped_user_setup(uuid,uuid,uuid,text,text,text,text,date,uuid,uuid)',
     'public.apply_super_admin_access_change(uuid,uuid,uuid,text,date,uuid,uuid,jsonb)',
+    'public.apply_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date,jsonb)',
     'public.apply_super_admin_staff_membership_end(uuid,uuid,uuid,uuid,date,jsonb)',
     'public.apply_teacher_rotation_generation(uuid,date,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,integer,integer,integer,integer)',
     'public.can_admin_delete_student(uuid)',
@@ -1433,6 +1900,7 @@ as $$
     'public.enforce_student_checkin_integrity()',
     'public.enforce_student_checkin_item_integrity()',
     'public.get_person_access_state(uuid,uuid)',
+    'public.get_scoped_user_setup_auth_recovery(uuid,uuid,text,text,text,text,date,uuid,uuid)',
     'public.get_scoped_user_setup_request_result(uuid,uuid,text,text,text,text,date,uuid,uuid)',
     'public.group_masjid_id(uuid)',
     'public.is_active_admin()',

@@ -68,6 +68,39 @@ export type ScopedUserSetupOutcome =
       uncertain: boolean;
     };
 
+export type MasjidStaffGrantInput = {
+  requestId: string;
+  actorId: string;
+  targetProfileId: string;
+  masjidId: string;
+  grant: "admin" | "teacher" | "admin_teacher";
+  startsOn: string;
+  submittedExpectedState?: PersonAccessState | null;
+};
+
+export type MasjidStaffGrantResult = {
+  profile_id: string;
+  masjid_id: string;
+  grant: MasjidStaffGrantInput["grant"];
+  role: "student" | "teacher" | "admin" | "super_admin";
+  access_state: PersonAccessState;
+};
+
+export type MasjidStaffGrantOutcome =
+  | {
+      ok: true;
+      currentState: PersonAccessState;
+      expectedState: PersonAccessState;
+      result: MasjidStaffGrantResult;
+    }
+  | {
+      ok: false;
+      stage: "state" | "database";
+      error: TransactionalWorkflowError;
+      errorKind: TransactionalWorkflowErrorKind;
+      uncertain: boolean;
+    };
+
 export type PersonAccessState = Record<string, unknown>;
 
 export type SuperAdminAccessChangeInput = {
@@ -161,6 +194,38 @@ export function scopedUserSetupLookupRpcArguments(input: ScopedUserSetupInput) {
     input_starts_on: input.startsOn,
     input_masjid_id: input.masjidId,
     input_group_id: input.groupId
+  };
+}
+
+export function scopedUserSetupAuthMetadata(input: ScopedUserSetupInput) {
+  return {
+    setup_request_id: input.requestId,
+    setup_actor_id: input.actorId,
+    setup_payload: {
+      actor_id: input.actorId,
+      name: input.name.trim(),
+      email: input.email.trim().toLowerCase(),
+      phone: input.phone.trim(),
+      role: input.role,
+      starts_on: input.startsOn,
+      masjid_id: input.masjidId,
+      group_id: input.groupId
+    }
+  };
+}
+
+export function masjidStaffGrantRpcArguments(
+  input: MasjidStaffGrantInput,
+  expectedState: PersonAccessState
+) {
+  return {
+    input_request_id: input.requestId,
+    input_actor_id: input.actorId,
+    input_target_profile_id: input.targetProfileId,
+    input_masjid_id: input.masjidId,
+    input_grant: input.grant,
+    input_starts_on: input.startsOn,
+    input_expected_state: expectedState
   };
 }
 
@@ -332,6 +397,21 @@ function isStaffMembershipEndResult(
   );
 }
 
+function isMasjidStaffGrantResult(
+  value: unknown,
+  input: MasjidStaffGrantInput
+): value is MasjidStaffGrantResult {
+  if (!isRecord(value)) return false;
+
+  return (
+    value.profile_id === input.targetProfileId &&
+    value.masjid_id === input.masjidId &&
+    value.grant === input.grant &&
+    ["student", "teacher", "admin", "super_admin"].includes(String(value.role)) &&
+    isRecord(value.access_state)
+  );
+}
+
 export function classifyAuthUserCreationError(
   error: TransactionalWorkflowError | null | undefined
 ): "exists" | "error" | "uncertain" {
@@ -358,6 +438,7 @@ export async function createScopedUserTransactionally(
   input: ScopedUserSetupInput,
   dependencies: {
     lookupCompletedSetup: (input: ScopedUserSetupInput) => Promise<WorkflowCallResult<ScopedUserSetupResult>>;
+    recoverAuthOnlySetup?: (input: ScopedUserSetupInput) => Promise<WorkflowCallResult<{ id: string }>>;
     createAuthUser: () => Promise<WorkflowCallResult<{ id: string }>>;
     applyScopedUserSetup: (
       profileId: string,
@@ -401,7 +482,24 @@ export async function createScopedUserTransactionally(
     };
   }
 
-  const authResult = await callWorkflow(() => dependencies.createAuthUser());
+  let authResult = await callWorkflow(() => dependencies.createAuthUser());
+
+  if (authResult.error && classifyAuthUserCreationError(authResult.error) === "exists" && dependencies.recoverAuthOnlySetup) {
+    const recoveryResult = await callWorkflow(() => dependencies.recoverAuthOnlySetup!(input));
+
+    if (recoveryResult.error) {
+      return {
+        ok: false,
+        stage: "auth",
+        error: recoveryResult.error,
+        authErrorKind: classifyTransactionalWorkflowError(recoveryResult.error) === "unknown" ? "uncertain" : "error"
+      };
+    }
+
+    if (recoveryResult.data?.id) {
+      authResult = recoveryResult;
+    }
+  }
 
   if (authResult.error || !authResult.data || typeof authResult.data.id !== "string" || !authResult.data.id) {
     const error = authResult.error ?? { message: "Auth user was not returned." };
@@ -632,6 +730,57 @@ export async function endStaffMembershipTransactionally(
     currentState: stateResult.data,
     expectedState,
     result: endResult.data
+  };
+}
+
+export async function grantMasjidStaffAccessTransactionally(
+  input: MasjidStaffGrantInput,
+  dependencies: {
+    getPersonAccessState: (
+      actorId: string,
+      targetProfileId: string
+    ) => Promise<WorkflowCallResult<PersonAccessState>>;
+    applyStaffGrant: (
+      input: MasjidStaffGrantInput,
+      expectedState: PersonAccessState
+    ) => Promise<WorkflowCallResult<MasjidStaffGrantResult>>;
+  }
+): Promise<MasjidStaffGrantOutcome> {
+  const stateResult = await callWorkflow(() => dependencies.getPersonAccessState(input.actorId, input.targetProfileId));
+
+  if (stateResult.error || !stateResult.data) {
+    const error = stateResult.error ?? { message: "Access state was not returned." };
+    return {
+      ok: false,
+      stage: "state",
+      error,
+      errorKind: classifyTransactionalWorkflowError(error),
+      uncertain: false
+    };
+  }
+
+  const expectedState = expectedStateForMutation(stateResult.data, input.submittedExpectedState);
+  const grantResult = await applyMutationWithAmbiguousRetry(
+    () => dependencies.applyStaffGrant(input, expectedState),
+    (value): value is MasjidStaffGrantResult => isMasjidStaffGrantResult(value, input)
+  );
+
+  if (grantResult.error || !grantResult.data) {
+    const error = grantResult.error ?? { message: "Staff grant result was not returned." };
+    return {
+      ok: false,
+      stage: "database",
+      error,
+      errorKind: classifyTransactionalWorkflowError(error),
+      uncertain: grantResult.uncertain
+    };
+  }
+
+  return {
+    ok: true,
+    currentState: stateResult.data,
+    expectedState,
+    result: grantResult.data
   };
 }
 

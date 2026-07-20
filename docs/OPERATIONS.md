@@ -39,10 +39,12 @@ cleanup success and failure remain distinct statuses.
 
 An Auth Admin API response can be lost before PostgreSQL setup begins. This cannot be made atomic across
 Supabase Auth and Postgres. The first attempt reports `auth-uncertain`; unknown Auth failures are not
-reported as an existing account. Inspect Auth for a user whose `app_metadata.setup_request_id` matches the
-logged request. If the Auth identity exists without a profile, scoped membership, or completed workflow
-request, delete that orphaned Auth identity after verifying the UUID, then resubmit account creation. Do
-not delete an identity that has a matching profile or completed request.
+reported as an existing account. New Auth identities carry trusted `app_metadata` containing the request
+UUID, actor UUID, and canonical setup payload. Retrying the exact same form causes the duplicate Auth
+response to use `get_scoped_user_setup_auth_recovery(...)`; only an Auth-only identity with an exact actor,
+email, request, and payload match is resumed. Cross-actor, changed-payload, and unrelated duplicate-email
+attempts remain denied. If exact recovery remains unresolved, inspect the logged request ID and use the
+documented repair workflow rather than deleting an identity whose database state is uncertain.
 
 ## Transactional Workflow Rollout
 
@@ -53,7 +55,7 @@ idempotency state and new service-only functions without removing or changing cu
 After applying the migration:
 
 1. Run the schema sanity query and `supabase migration list`.
-2. Confirm `service_role` alone can execute `apply_scoped_user_setup`, `get_scoped_user_setup_request_result`, `get_person_access_state`, `apply_super_admin_access_change`, and `apply_super_admin_staff_membership_end`.
+2. Confirm `service_role` alone can execute `apply_scoped_user_setup`, `get_scoped_user_setup_request_result`, `get_scoped_user_setup_auth_recovery`, `get_person_access_state`, `apply_super_admin_access_change`, `apply_super_admin_masjid_staff_grant`, and `apply_super_admin_staff_membership_end`.
 3. Confirm `anon` and `authenticated` cannot execute those functions.
 4. Deploy the Phase 1B application wiring only after those checks pass. Do not deploy Phase 1B before
    the migration because user creation, composite access changes, and standalone staff-membership closure now depend on these RPCs.
@@ -275,6 +277,12 @@ Super admin workflow in the app:
 3. Create a masjid with a slug, active state, optional starter brothers/sisters cohort, and optional starter group.
 4. Open the masjid detail page to edit the masjid, create or deactivate cohorts, and create or deactivate groups.
 5. Grant the first admin or admin-teacher from an existing active person by email or phone.
+
+Staff grants use one stable form request UUID and the guarded transactional workflow. Profile promotion,
+student-membership reconciliation, one or both staff memberships, and all audit events commit or roll back
+together. An ambiguous response is retried with the same UUID and reports `staff-grant-uncertain` if its
+result still cannot be established. Active masajid must retain continuous future admin coverage through all
+scheduled handoffs and ultimately have open-ended admin coverage.
 
 Setup changes are audited in `super_admin_audit_events`. The UI does not delete masajid, cohorts, groups,
 or staff memberships; deactivation uses the `active` flag and requires typed confirmation when turning

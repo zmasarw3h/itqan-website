@@ -143,9 +143,11 @@ begin
     from (values
       ('apply_scoped_user_setup(uuid,uuid,uuid,text,text,text,text,date,uuid,uuid)'),
       ('apply_super_admin_access_change(uuid,uuid,uuid,text,date,uuid,uuid,jsonb)'),
+      ('apply_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date,jsonb)'),
       ('apply_super_admin_staff_membership_end(uuid,uuid,uuid,uuid,date,jsonb)'),
       ('apply_teacher_rotation_generation(uuid,date,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,integer,integer,integer,integer)'),
       ('get_person_access_state(uuid,uuid)'),
+      ('get_scoped_user_setup_auth_recovery(uuid,uuid,text,text,text,text,date,uuid,uuid)'),
       ('get_scoped_user_setup_request_result(uuid,uuid,text,text,text,text,date,uuid,uuid)')
     ) expected_service(signature)
   ) difference;
@@ -185,11 +187,19 @@ begin
     'EXECUTE'
   ) or not has_function_privilege(
     'service_role',
+    'public.get_scoped_user_setup_auth_recovery(uuid,uuid,text,text,text,text,date,uuid,uuid)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
     'public.get_scoped_user_setup_request_result(uuid,uuid,text,text,text,text,date,uuid,uuid)',
     'EXECUTE'
   ) or not has_function_privilege(
     'service_role',
     'public.apply_super_admin_access_change(uuid,uuid,uuid,text,date,uuid,uuid,jsonb)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.apply_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date,jsonb)',
     'EXECUTE'
   ) or not has_function_privilege(
     'service_role',

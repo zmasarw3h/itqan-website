@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import AppNav from "@/app/nav";
@@ -121,6 +122,7 @@ function StaffAccess({ data }: { data: MasjidSetupDetailData }) {
 
       <form action={grantMasjidStaffAccess} className="mt-5 grid gap-4 rounded-md bg-stone-50 p-4">
         <input name="masjid_id" type="hidden" value={data.masjid.id} />
+        <input name="request_id" type="hidden" value={randomUUID()} />
         <h3 className="font-semibold text-ink">Grant First Admin Or Admin-Teacher</h3>
         <div className="grid gap-4 md:grid-cols-2">
           <label className="block">

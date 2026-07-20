@@ -5,15 +5,19 @@ import {
   classifyTransactionalWorkflowError,
   createScopedUserTransactionally,
   endStaffMembershipTransactionally,
+  grantMasjidStaffAccessTransactionally,
+  masjidStaffGrantRpcArguments,
   parsePersonAccessState,
   scopedUserSetupLookupRpcArguments,
   scopedUserSetupRpcArguments,
+  scopedUserSetupAuthMetadata,
   scopedUserSetupStatusForOutcome,
   staffMembershipEndRpcArguments,
   superAdminAccessStatusForError,
   superAdminAccessChangeRpcArguments,
   superAdminMutationStatusForOutcome,
   type PersonAccessState,
+  type MasjidStaffGrantInput,
   type ScopedUserSetupInput,
   type StaffMembershipEndInput,
   type SuperAdminAccessChangeInput
@@ -80,6 +84,23 @@ const membershipEndResult = {
   access_state: expectedState
 };
 
+const staffGrantInput: MasjidStaffGrantInput = {
+  requestId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+  actorId: accessInput.actorId,
+  targetProfileId: accessInput.targetProfileId,
+  masjidId: accessInput.selectedMasjidId!,
+  grant: "admin_teacher",
+  startsOn: "2026-07-20"
+};
+
+const staffGrantResult = {
+  profile_id: staffGrantInput.targetProfileId,
+  masjid_id: staffGrantInput.masjidId,
+  grant: staffGrantInput.grant,
+  role: "admin" as const,
+  access_state: expectedState
+};
+
 describe("transactional workflow error classification", () => {
   it("recognizes the non-retryable stale-state contract", () => {
     expect(
@@ -128,6 +149,20 @@ describe("transactional RPC payloads", () => {
       input_masjid_id: setupInput.masjidId,
       input_group_id: setupInput.groupId
     });
+    expect(scopedUserSetupAuthMetadata(setupInput)).toEqual({
+      setup_request_id: setupInput.requestId,
+      setup_actor_id: setupInput.actorId,
+      setup_payload: {
+        actor_id: setupInput.actorId,
+        name: setupInput.name,
+        email: setupInput.email,
+        phone: setupInput.phone,
+        role: setupInput.role,
+        starts_on: setupInput.startsOn,
+        masjid_id: setupInput.masjidId,
+        group_id: setupInput.groupId
+      }
+    });
   });
 
   it("maps canonical state and access inputs to the Phase 1A signature", () => {
@@ -147,6 +182,15 @@ describe("transactional RPC payloads", () => {
       input_target_profile_id: membershipEndInput.targetProfileId,
       input_membership_id: membershipEndInput.membershipId,
       input_ends_on: membershipEndInput.endsOn,
+      input_expected_state: expectedState
+    });
+    expect(masjidStaffGrantRpcArguments(staffGrantInput, expectedState)).toEqual({
+      input_request_id: staffGrantInput.requestId,
+      input_actor_id: staffGrantInput.actorId,
+      input_target_profile_id: staffGrantInput.targetProfileId,
+      input_masjid_id: staffGrantInput.masjidId,
+      input_grant: staffGrantInput.grant,
+      input_starts_on: staffGrantInput.startsOn,
       input_expected_state: expectedState
     });
   });
@@ -386,6 +430,34 @@ describe("scoped user setup orchestration", () => {
     if (!denied.ok) expect(scopedUserSetupStatusForOutcome(denied)).toBe("auth-error");
     if (!uncertain.ok) expect(scopedUserSetupStatusForOutcome(uncertain)).toBe("auth-uncertain");
   });
+
+  it("resumes an exact Auth-only identity after a duplicate create response", async () => {
+    const applyScopedUserSetup = vi.fn(async () => ({ data: setupResult, error: null }));
+    const outcome = await createScopedUserTransactionally(setupInput, {
+      lookupCompletedSetup: noCompletedSetup,
+      createAuthUser: async () => ({ data: null, error: { code: "email_exists", status: 422 } }),
+      recoverAuthOnlySetup: async () => ({ data: { id: setupResult.profile_id }, error: null }),
+      applyScopedUserSetup,
+      deleteAuthUser: vi.fn()
+    });
+
+    expect(outcome).toMatchObject({ ok: true, profileId: setupResult.profile_id });
+    expect(applyScopedUserSetup).toHaveBeenCalledWith(setupResult.profile_id, setupInput);
+  });
+
+  it("does not recover an unrelated duplicate Auth identity", async () => {
+    const applyScopedUserSetup = vi.fn();
+    const outcome = await createScopedUserTransactionally(setupInput, {
+      lookupCompletedSetup: noCompletedSetup,
+      createAuthUser: async () => ({ data: null, error: { code: "email_exists", status: 422 } }),
+      recoverAuthOnlySetup: async () => ({ data: null, error: null }),
+      applyScopedUserSetup,
+      deleteAuthUser: vi.fn()
+    });
+
+    expect(outcome).toMatchObject({ ok: false, stage: "auth", authErrorKind: "exists" });
+    expect(applyScopedUserSetup).not.toHaveBeenCalled();
+  });
 });
 
 describe("super-admin access change orchestration", () => {
@@ -573,5 +645,34 @@ describe("staff membership end orchestration", () => {
     if (!uncertainOutcome.ok) {
       expect(superAdminMutationStatusForOutcome(uncertainOutcome)).toBe("access-uncertain");
     }
+  });
+});
+
+describe("masjid staff grant orchestration", () => {
+  it("retries a lost response with the same request and canonical state", async () => {
+    const applyStaffGrant = vi
+      .fn()
+      .mockResolvedValueOnce({ data: null, error: { message: "Response lost" } })
+      .mockResolvedValueOnce({ data: staffGrantResult, error: null });
+    const outcome = await grantMasjidStaffAccessTransactionally(staffGrantInput, {
+      getPersonAccessState: async () => ({ data: expectedState, error: null }),
+      applyStaffGrant
+    });
+
+    expect(outcome).toMatchObject({ ok: true, result: staffGrantResult });
+    expect(applyStaffGrant).toHaveBeenCalledTimes(2);
+    expect(applyStaffGrant).toHaveBeenNthCalledWith(1, staffGrantInput, expectedState);
+    expect(applyStaffGrant).toHaveBeenNthCalledWith(2, staffGrantInput, expectedState);
+  });
+
+  it("returns an uncertain result after two unresolved grant responses", async () => {
+    const applyStaffGrant = vi.fn(async () => ({ data: null, error: { message: "Timeout" } }));
+    const outcome = await grantMasjidStaffAccessTransactionally(staffGrantInput, {
+      getPersonAccessState: async () => ({ data: expectedState, error: null }),
+      applyStaffGrant
+    });
+
+    expect(outcome).toMatchObject({ ok: false, stage: "database", uncertain: true });
+    expect(applyStaffGrant).toHaveBeenCalledTimes(2);
   });
 });
