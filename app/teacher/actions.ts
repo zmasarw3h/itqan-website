@@ -15,7 +15,6 @@ function groupPath(groupId: string, weekStart: string, status: string) {
 }
 
 export async function saveTeacherHalaqaGrade(formData: FormData) {
-  const { supabase, profile } = await requireTeacherExperience();
   const studentId = String(formData.get("student_id") ?? "");
   const groupId = String(formData.get("group_id") ?? "");
   const weekStart = String(formData.get("week_start") ?? "");
@@ -32,6 +31,8 @@ export async function saveTeacherHalaqaGrade(formData: FormData) {
   if (!grade) {
     redirect(groupPath(groupId, weekStart, "grade-invalid"));
   }
+
+  const { supabase, profile } = await requireTeacherExperience(weekStart);
 
   try {
     await assertTeacherStudentAssignment(supabase, studentId, groupId, weekStart);

@@ -47,6 +47,7 @@ Server-side helper functions expose narrow caller-relative views used by the app
 
 - `student_weekly_teacher_name(week_start)`: returns only the signed-in student's assigned teacher display name.
 - `teacher_assignment_contexts()`: returns only the signed-in teacher's effective assignments with safe masjid/cohort/group labels and roster counts.
+- `teacher_group_roster_context(group_id, week_start)`: returns only active students effective in the caller's exact assigned group/week, with student ID/name and capped daily-check-in and partner-recitation aggregates. It never returns contact details, notes, or raw records.
 - `can_teacher_read_weekly_plan_path(path)`: authorizes a weekly-plan Storage path only when its metadata, student membership, and the caller's exact group/week assignment agree.
 - `student_cohort_leaderboard_for_week(week_start)`: returns the minimum documented same-cohort leaderboard projection without peer UUIDs or contact details.
 - `student_leaderboard_available_weeks()`: returns weeks with activity in the signed-in student's effective cohort.

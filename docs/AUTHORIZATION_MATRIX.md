@@ -39,7 +39,7 @@ policy was already super-admin-only and remains unchanged):
 
 | Relation | Policies after Phase 1 |
 | --- | --- |
-| `profiles` | `Users can read own active profile`; `Admins can read all profiles` (scoped read); `Admins can insert profiles` and `Admins can update profiles` (super-admin-only) |
+| `profiles` | `Users can read own active profile`; `Admins can read all profiles` (scoped read); assigned teachers cannot read student profile rows and use the safe roster RPC instead; `Admins can insert profiles` and `Admins can update profiles` (super-admin-only) |
 | `checkins` | Student own select/current-day insert/constrained update; database trigger protects date, scope, attribution, and derived totals; scoped admin or assigned-teacher select; direct signed-admin insert/update/delete denied, with corrections routed through the scoped transactional RPC |
 | `checkin_items` | Student own parent-consistent select/canonical insert/completion-only update; database trigger validates task definitions and recalculates the parent score; parent-inherited scoped admin or teacher select; direct signed-admin insert/update/delete denied, with replacement included in the correction transaction |
 | `weekly_plans` | Student own select and path/snapshot-checked insert/update; scoped admin or assigned-teacher select |
@@ -89,7 +89,8 @@ The `authenticated` role can execute only these caller-relative definer function
   `can_admin_manage_group_history(uuid)` closure helper.
 - Application RPCs: `student_weekly_teacher_name(date)`,
   `student_cohort_leaderboard_for_week(date)`, `student_leaderboard_available_weeks()`,
-  `teacher_assignment_contexts()`, and `admin_students_for_week(date)`, plus the atomic, actor-scoped
+  `teacher_assignment_contexts()`, `teacher_group_roster_context(uuid,date)`, and
+  `admin_students_for_week(date)`, plus the atomic, actor-scoped
   `apply_admin_checkin_correction(uuid,date,text,text,text[])` mutation.
 
 `apply_teacher_rotation_generation(...)` is service-role-only and repeats actor/cohort scope validation

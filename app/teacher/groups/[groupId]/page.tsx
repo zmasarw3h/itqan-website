@@ -6,7 +6,6 @@ import TeacherWeekSelector from "@/app/teacher/week-selector";
 import { formatDateTimeInAppTimeZone, formatWeekRange, todayDateString, weekStartForDate } from "@/lib/dates";
 import { isTrackerWeekStart, resolveTeacherWeekStart } from "@/lib/teacher-dashboard";
 import {
-  loadTeacherAssignmentContexts,
   loadTeacherGroupRoster,
   requireTeacherExperience
 } from "@/lib/teacher-scope";
@@ -26,12 +25,7 @@ export default async function TeacherGroupPage({
   params: Promise<{ groupId: string }>;
   searchParams: Promise<GroupSearchParams>;
 }) {
-  const [{ groupId }, resolvedSearchParams, auth] = await Promise.all([
-    params,
-    searchParams,
-    requireTeacherExperience()
-  ]);
-  const { supabase, profile } = auth;
+  const [{ groupId }, resolvedSearchParams] = await Promise.all([params, searchParams]);
   const currentWeekStart = weekStartForDate(todayDateString());
   const requestedWeek = Array.isArray(resolvedSearchParams.week)
     ? resolvedSearchParams.week[0]
@@ -41,8 +35,8 @@ export default async function TeacherGroupPage({
     notFound();
   }
 
-  const assignments = await loadTeacherAssignmentContexts(supabase);
   const selectedWeekStart = resolveTeacherWeekStart(requestedWeek, currentWeekStart);
+  const { supabase, profile, assignments } = await requireTeacherExperience(selectedWeekStart);
   const assignment = assignments.find(
     (candidate) => candidate.group_id === groupId && candidate.week_start === selectedWeekStart
   );
@@ -111,20 +105,22 @@ export default async function TeacherGroupPage({
         </div>
 
         {status === "grade-saved" ? (
-          <p className="mt-5 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">Halaqa grade saved.</p>
+          <p aria-live="polite" className="mt-5 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800" role="status">
+            Halaqa grade saved.
+          </p>
         ) : null}
         {status === "grade-invalid" || status === "grade-error" ? (
-          <p className="mt-5 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p aria-live="polite" className="mt-5 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="status">
             Unable to save the grade. Present students need a whole-number recitation score from 10 to 50.
           </p>
         ) : null}
         {status === "grade-denied" ? (
-          <p className="mt-5 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p aria-live="polite" className="mt-5 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="status">
             The assignment or student roster changed. Reload before grading.
           </p>
         ) : null}
         {status === "plan-error" || status === "plan-missing" ? (
-          <p className="mt-5 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p aria-live="polite" className="mt-5 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="status">
             The weekly plan is unavailable or no longer belongs to this assigned roster.
           </p>
         ) : null}
@@ -155,6 +151,20 @@ export default async function TeacherGroupPage({
                             Last saved {formatDateTimeInAppTimeZone(grade.updated_at ?? grade.graded_at)}
                           </p>
                         ) : null}
+                        <dl className="mt-3 grid grid-cols-2 gap-x-5 gap-y-2 text-sm sm:flex sm:flex-wrap sm:gap-x-8">
+                          <div>
+                            <dt className="text-xs text-stone-500">Daily check-ins</dt>
+                            <dd className="font-medium text-ink">
+                              {student.dailyCheckinDays}/7 · {student.dailyPoints}/700
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-xs text-stone-500">Partner recitation</dt>
+                            <dd className="font-medium text-ink">
+                              {student.partnerRounds}/2 · {student.partnerPoints}/150
+                            </dd>
+                          </div>
+                        </dl>
                       </div>
                       {plan ? (
                         <a

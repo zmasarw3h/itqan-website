@@ -1,13 +1,14 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import AppNav from "@/app/nav";
 import TeacherWeekSelector from "@/app/teacher/week-selector";
 import { formatWeekRange, todayDateString, weekStartForDate } from "@/lib/dates";
 import {
   assignmentWeekStarts,
   assignmentsForWeek,
-  resolveTeacherWeekStart
+  resolveAuthorizedTeacherWeekStart
 } from "@/lib/teacher-dashboard";
-import { loadTeacherAssignmentContexts, requireTeacherExperience } from "@/lib/teacher-scope";
+import { requireTeacherExperience } from "@/lib/teacher-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -20,13 +21,22 @@ export default async function TeacherDashboardPage({
 }: {
   searchParams: Promise<TeacherDashboardSearchParams>;
 }) {
-  const { supabase, profile } = await requireTeacherExperience();
+  const resolvedSearchParams = await searchParams;
+  const { supabase, profile, assignments } = await requireTeacherExperience();
   const currentWeekStart = weekStartForDate(todayDateString());
-  const [resolvedSearchParams, assignments] = await Promise.all([
-    searchParams,
-    loadTeacherAssignmentContexts(supabase)
-  ]);
-  const selectedWeekStart = resolveTeacherWeekStart(resolvedSearchParams.week, currentWeekStart);
+  const requestedWeek = Array.isArray(resolvedSearchParams.week)
+    ? resolvedSearchParams.week[0]
+    : resolvedSearchParams.week;
+  const selectedWeekStart = resolveAuthorizedTeacherWeekStart(
+    requestedWeek,
+    currentWeekStart,
+    assignments
+  );
+
+  if (requestedWeek && requestedWeek !== selectedWeekStart) {
+    redirect(`/teacher?week=${selectedWeekStart}`);
+  }
+
   const weekStarts = assignmentWeekStarts(assignments, currentWeekStart);
   const selectedAssignments = assignmentsForWeek(assignments, selectedWeekStart);
 

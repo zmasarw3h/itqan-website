@@ -20,7 +20,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  if (!(await loadActiveTeacherCapability(auth.supabase, auth.profile)) || !isTrackerWeekStart(weekStart)) {
+  if (
+    !isTrackerWeekStart(weekStart) ||
+    !(await loadActiveTeacherCapability(auth.supabase, auth.profile, weekStart))
+  ) {
     return new NextResponse("Forbidden", { status: 403 });
   }
 

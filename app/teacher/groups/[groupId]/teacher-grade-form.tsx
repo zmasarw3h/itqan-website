@@ -1,8 +1,23 @@
 "use client";
 
 import { useState } from "react";
+import { useFormStatus } from "react-dom";
 import { saveTeacherHalaqaGrade } from "@/app/teacher/actions";
 import type { HalaqaGrade } from "@/lib/types";
+
+function GradeSubmitButton() {
+  const { pending } = useFormStatus();
+
+  return (
+    <button
+      className="h-10 w-full rounded-md bg-moss px-4 text-sm font-medium text-white hover:bg-ink disabled:cursor-wait disabled:bg-stone-400 lg:w-auto"
+      disabled={pending}
+      type="submit"
+    >
+      {pending ? "Saving..." : "Save grade"}
+    </button>
+  );
+}
 
 export default function TeacherGradeForm({
   grade,
@@ -19,7 +34,7 @@ export default function TeacherGradeForm({
   const [recitationPoints, setRecitationPoints] = useState(String(grade?.attended ? grade.recitation_points : 50));
 
   return (
-    <form action={saveTeacherHalaqaGrade} className="mt-4 grid gap-4 lg:grid-cols-[1.1fr_0.8fr_1.6fr_auto] lg:items-end">
+    <form action={saveTeacherHalaqaGrade} className="mt-4 grid min-w-0 gap-4 lg:grid-cols-[1.1fr_0.8fr_1.6fr_auto] lg:items-end">
       <input name="student_id" type="hidden" value={studentId} />
       <input name="group_id" type="hidden" value={groupId} />
       <input name="week_start" type="hidden" value={weekStart} />
@@ -59,7 +74,7 @@ export default function TeacherGradeForm({
           placeholder="Optional feedback"
         />
       </label>
-      <button className="h-10 rounded-md bg-moss px-4 text-sm font-medium text-white hover:bg-ink">Save grade</button>
+      <GradeSubmitButton />
     </form>
   );
 }

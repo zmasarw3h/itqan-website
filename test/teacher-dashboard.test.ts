@@ -3,9 +3,9 @@ import {
   assignmentWeekStarts,
   assignmentsForWeek,
   canAccessTeacherExperience,
-  hasActiveTeacherStaffMembership,
   isTrackerWeekStart,
   parseTeacherGradeInput,
+  resolveAuthorizedTeacherWeekStart,
   resolveTeacherWeekStart,
   selectTeacherRoster,
   type TeacherAssignmentContext
@@ -59,6 +59,9 @@ describe("teacher dashboard scope", () => {
     expect(resolveTeacherWeekStart("2026-07-12", currentWeek)).toBe("2026-07-12");
     expect(resolveTeacherWeekStart("2026-07-20", currentWeek)).toBe(currentWeek);
     expect(resolveTeacherWeekStart(["2026-07-12", currentWeek], currentWeek)).toBe("2026-07-12");
+    expect(resolveAuthorizedTeacherWeekStart("2026-07-12", currentWeek, assignments)).toBe("2026-07-12");
+    expect(resolveAuthorizedTeacherWeekStart("2026-07-05", currentWeek, assignments)).toBe(currentWeek);
+    expect(resolveAuthorizedTeacherWeekStart(currentWeek, currentWeek, [])).toBe(currentWeek);
   });
 
   it("builds deterministic week and assignment selections", () => {
@@ -87,14 +90,19 @@ describe("teacher dashboard scope", () => {
     ]);
   });
 
-  it("allows teachers and active admin-teachers while denying pure admins", () => {
-    const activeMembership = [{ staff_role: "teacher" as const, active: true, starts_on: "2026-07-01", ends_on: null }];
+  it("allows teacher routes and week-aware admin-teacher assignments", () => {
+    const historicalAssignment = assignments.filter((assignment) => assignment.week_start === "2026-07-12");
+    const currentAssignment = assignments.filter((assignment) => assignment.week_start === currentWeek);
+    const futureAssignment = [{ ...assignments[0], assignment_id: "future", week_start: "2026-07-26" }];
 
-    expect(hasActiveTeacherStaffMembership(activeMembership, "2026-07-20")).toBe(true);
-    expect(canAccessTeacherExperience(teacher, false)).toBe(true);
-    expect(canAccessTeacherExperience(admin, true)).toBe(true);
-    expect(canAccessTeacherExperience(admin, false)).toBe(false);
-    expect(canAccessTeacherExperience({ ...teacher, active: false }, true)).toBe(false);
+    expect(canAccessTeacherExperience(teacher, [])).toBe(true);
+    expect(canAccessTeacherExperience(admin, historicalAssignment)).toBe(true);
+    expect(canAccessTeacherExperience(admin, historicalAssignment, "2026-07-12")).toBe(true);
+    expect(canAccessTeacherExperience(admin, historicalAssignment, currentWeek)).toBe(false);
+    expect(canAccessTeacherExperience(admin, currentAssignment, currentWeek)).toBe(true);
+    expect(canAccessTeacherExperience(admin, futureAssignment, "2026-07-26")).toBe(true);
+    expect(canAccessTeacherExperience(admin, [])).toBe(false);
+    expect(canAccessTeacherExperience({ ...teacher, active: false }, assignments)).toBe(false);
   });
 
   it("validates attended and absent grade shapes", () => {

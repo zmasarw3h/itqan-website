@@ -1,5 +1,5 @@
 import { isValidDateString, weekStartForDate } from "@/lib/dates";
-import type { MasjidStaffMembership, Profile } from "@/lib/types";
+import type { Profile } from "@/lib/types";
 
 export type TeacherAssignmentContext = {
   assignment_id: string;
@@ -14,12 +14,11 @@ export type TeacherAssignmentContext = {
   roster_count: number;
 };
 
-export type TeacherRosterMembership = Pick<
-  MasjidStaffMembership,
-  "starts_on" | "ends_on"
-> & {
+export type TeacherRosterMembership = {
   student_id: string;
   group_id: string;
+  starts_on: string;
+  ends_on: string | null;
 };
 
 export type TeacherRosterProfile = Pick<Profile, "id" | "name" | "active">;
@@ -29,6 +28,13 @@ export type TeacherRosterStudent = {
   name: string;
 };
 
+export type TeacherRosterContext = TeacherRosterStudent & {
+  dailyCheckinDays: number;
+  dailyPoints: number;
+  partnerRounds: number;
+  partnerPoints: number;
+};
+
 export function isTrackerWeekStart(value: string) {
   return isValidDateString(value) && weekStartForDate(value) === value;
 }
@@ -36,6 +42,22 @@ export function isTrackerWeekStart(value: string) {
 export function resolveTeacherWeekStart(value: string | string[] | undefined, currentWeekStart: string) {
   const candidate = Array.isArray(value) ? value[0] : value;
   return candidate && isTrackerWeekStart(candidate) ? candidate : currentWeekStart;
+}
+
+export function resolveAuthorizedTeacherWeekStart(
+  value: string | string[] | undefined,
+  currentWeekStart: string,
+  assignments: readonly Pick<TeacherAssignmentContext, "week_start">[]
+) {
+  const candidate = Array.isArray(value) ? value[0] : value;
+
+  if (!candidate || !isTrackerWeekStart(candidate)) {
+    return currentWeekStart;
+  }
+
+  return candidate === currentWeekStart || assignments.some((assignment) => assignment.week_start === candidate)
+    ? candidate
+    : currentWeekStart;
 }
 
 export function assignmentWeekStarts(
@@ -87,28 +109,26 @@ export function selectTeacherRoster(input: {
     .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 }
 
-export function hasActiveTeacherStaffMembership(
-  memberships: readonly Pick<MasjidStaffMembership, "staff_role" | "active" | "starts_on" | "ends_on">[],
-  effectiveDate: string
-) {
-  return memberships.some(
-    (membership) =>
-      membership.staff_role === "teacher" &&
-      membership.active &&
-      membership.starts_on <= effectiveDate &&
-      (membership.ends_on === null || membership.ends_on >= effectiveDate)
-  );
-}
-
 export function canAccessTeacherExperience(
   profile: Pick<Profile, "active" | "role"> | null,
-  hasTeacherStaffMembership: boolean
+  assignments: readonly Pick<TeacherAssignmentContext, "week_start">[],
+  requestedAssignmentWeek?: string
 ) {
   if (!profile?.active) {
     return false;
   }
 
-  return profile.role === "teacher" || (profile.role === "admin" && hasTeacherStaffMembership);
+  if (profile.role === "teacher") {
+    return true;
+  }
+
+  if (profile.role !== "admin" || assignments.length === 0) {
+    return false;
+  }
+
+  return requestedAssignmentWeek
+    ? assignments.some((assignment) => assignment.week_start === requestedAssignmentWeek)
+    : true;
 }
 
 export type TeacherGradeInput = {

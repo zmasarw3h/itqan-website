@@ -108,7 +108,7 @@ Run the default E2E smoke suite:
 npm run test:e2e
 ```
 
-By default, Playwright starts the app on `http://127.0.0.1:3100` and only verifies that `/login` renders. It does not require Supabase credentials and does not sign in.
+By default, Playwright starts the app on `http://127.0.0.1:3100` and verifies `/login` in desktop and mobile Chromium projects. It does not require Supabase credentials and does not sign in.
 
 To run against an already-running app:
 
@@ -125,7 +125,13 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 E2E_TEST_STUDENT_PHONE=
 E2E_TEST_STUDENT_PASSWORD=
+E2E_TEST_TEACHER_PHONE=
+E2E_TEST_TEACHER_PASSWORD=
 ```
+
+Teacher credentials are independently optional. When present, Playwright signs in, opens the current
+assigned group, verifies roster scoring context and grade controls, and checks the page for horizontal
+mobile overflow without submitting a grade.
 
 Normal CI runs the deterministic `npm run check` job and a separate Docker-backed `npm run test:rls`
 job. The E2E workflow is manual for now and can be run from GitHub Actions when a browser smoke check

@@ -1,18 +1,14 @@
 import "server-only";
 
 import { redirect } from "next/navigation";
-import { todayDateString } from "@/lib/dates";
 import {
   canAccessTeacherExperience,
-  hasActiveTeacherStaffMembership,
-  selectTeacherRoster,
   type TeacherAssignmentContext,
-  type TeacherRosterMembership,
-  type TeacherRosterProfile
+  type TeacherRosterContext
 } from "@/lib/teacher-dashboard";
 import type { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requireProfile } from "@/lib/supabase-server";
-import type { MasjidStaffMembership, Profile } from "@/lib/types";
+import type { Profile } from "@/lib/types";
 
 type SupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
 
@@ -21,7 +17,7 @@ export class TeacherScopeError extends Error {}
 export async function loadActiveTeacherCapability(
   supabase: SupabaseClient,
   profile: Pick<Profile, "id" | "role" | "active">,
-  effectiveDate = todayDateString()
+  requestedAssignmentWeek?: string
 ) {
   if (!profile.active) {
     return false;
@@ -35,35 +31,24 @@ export async function loadActiveTeacherCapability(
     return false;
   }
 
-  const { data, error } = await supabase
-    .from("masjid_staff_memberships")
-    .select("staff_role,active,starts_on,ends_on")
-    .eq("profile_id", profile.id)
-    .eq("staff_role", "teacher")
-    .eq("active", true)
-    .lte("starts_on", effectiveDate)
-    .or(`ends_on.is.null,ends_on.gte.${effectiveDate}`)
-    .returns<Array<Pick<MasjidStaffMembership, "staff_role" | "active" | "starts_on" | "ends_on">>>();
-
-  if (error) {
-    throw new Error("Unable to verify teacher access.");
-  }
-
-  return canAccessTeacherExperience(
-    profile,
-    hasActiveTeacherStaffMembership(data ?? [], effectiveDate)
-  );
+  const assignments = await loadTeacherAssignmentContexts(supabase);
+  return canAccessTeacherExperience(profile, assignments, requestedAssignmentWeek);
 }
 
-export async function requireTeacherExperience() {
+export async function requireTeacherExperience(requestedAssignmentWeek?: string) {
   const auth = await requireProfile(["teacher", "admin"]);
-  const allowed = await loadActiveTeacherCapability(auth.supabase, auth.profile);
+  const assignments = await loadTeacherAssignmentContexts(auth.supabase);
+  const allowed = canAccessTeacherExperience(
+    auth.profile,
+    assignments,
+    requestedAssignmentWeek
+  );
 
   if (!allowed) {
     redirect("/admin");
   }
 
-  return auth;
+  return { ...auth, assignments };
 }
 
 export async function loadTeacherAssignmentContexts(supabase: SupabaseClient) {
@@ -106,7 +91,12 @@ export async function assertTeacherStudentAssignment(
     input_week_start: weekStart
   });
 
-  if (error || data !== groupId) {
+  const { data: canGrade, error: gradeError } = await supabase.rpc("can_grade_student_for_week", {
+    input_student_id: studentId,
+    input_week_start: weekStart
+  });
+
+  if (error || data !== groupId || gradeError || canGrade !== true) {
     throw new TeacherScopeError("This student is not in your assigned group for the selected week.");
   }
 }
@@ -118,40 +108,28 @@ export async function loadTeacherGroupRoster(
 ) {
   await assertTeacherGroupAssignment(supabase, groupId, weekStart);
 
-  const { data: memberships, error: membershipError } = await supabase
-    .from("student_group_memberships")
-    .select("student_id,group_id,starts_on,ends_on")
-    .eq("group_id", groupId)
-    .lte("starts_on", weekStart)
-    .or(`ends_on.is.null,ends_on.gte.${weekStart}`)
-    .returns<TeacherRosterMembership[]>();
+  const { data, error } = await supabase.rpc("teacher_group_roster_context", {
+    input_group_id: groupId,
+    input_week_start: weekStart
+  });
 
-  if (membershipError) {
-    throw new Error("Unable to load the assigned group roster.");
-  }
-
-  const studentIds = [...new Set((memberships ?? []).map((membership) => membership.student_id))];
-
-  if (studentIds.length === 0) {
-    return [];
-  }
-
-  const { data: profiles, error: profileError } = await supabase
-    .from("profiles")
-    .select("id,name,active")
-    .in("id", studentIds)
-    .eq("role", "student")
-    .eq("active", true)
-    .returns<TeacherRosterProfile[]>();
-
-  if (profileError) {
+  if (error) {
     throw new Error("Unable to load assigned students.");
   }
 
-  return selectTeacherRoster({
-    groupId,
-    weekStart,
-    memberships: memberships ?? [],
-    profiles: profiles ?? []
-  });
+  return ((data ?? []) as Array<{
+    student_id: string;
+    student_name: string;
+    daily_checkin_days: number | string;
+    daily_points: number | string;
+    partner_rounds: number | string;
+    partner_points: number | string;
+  }>).map<TeacherRosterContext>((student) => ({
+    id: student.student_id,
+    name: student.student_name,
+    dailyCheckinDays: Number(student.daily_checkin_days ?? 0),
+    dailyPoints: Number(student.daily_points ?? 0),
+    partnerRounds: Number(student.partner_rounds ?? 0),
+    partnerPoints: Number(student.partner_points ?? 0)
+  }));
 }
