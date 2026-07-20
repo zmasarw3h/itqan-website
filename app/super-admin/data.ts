@@ -142,6 +142,14 @@ export const SUPER_ADMIN_PEOPLE_STATUS_MESSAGES: Record<string, { text: string; 
     text: "That change is blocked by super-admin safety rules.",
     className: "bg-red-50 text-red-700"
   },
+  "access-stale": {
+    text: "Access changed while this form was open. Review the current access and submit again.",
+    className: "bg-amber-50 text-amber-900"
+  },
+  "access-uncertain": {
+    text: "The database did not confirm whether this access change completed. Review current access before trying again.",
+    className: "bg-amber-50 text-amber-900"
+  },
   "save-error": {
     text: "Unable to save access changes.",
     className: "bg-red-50 text-red-700"

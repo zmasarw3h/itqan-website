@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
@@ -13,15 +14,25 @@ import {
   adminScopeStatusForError,
   assertSelectedStudentScopeMatchesResolved
 } from "@/lib/admin-scope-rules";
-import { buildAdminUserCreateInput } from "@/lib/admin-users";
+import { buildAdminUserCreateInput, scopedUserSetupFailureSearchParams } from "@/lib/admin-users";
 import { normalizeNote } from "@/lib/checkins";
 import { isValidDateString, todayDateString, weekStartForDate } from "@/lib/dates";
 import { PARTNER_RECITATION_ROUNDS, parsePartnerRecitationRounds, partnerRecitationPayloads } from "@/lib/partner-recitations";
 import { HALAQA_ATTENDANCE_POINTS } from "@/lib/scoring";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
+import {
+  createScopedUserTransactionally,
+  scopedUserSetupAuthMetadata,
+  scopedUserSetupLookupRpcArguments,
+  scopedUserSetupRpcArguments,
+  scopedUserSetupStatusForOutcome,
+  type ScopedUserSetupResult
+} from "@/lib/transactional-workflows";
 import type { PartnerRecitation } from "@/lib/types";
 import { WEEKLY_PLAN_BUCKET, weeklyPlanPathBelongsToStudent } from "@/lib/weekly-plans";
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function adminStudentStatusPath(studentId: string, status: string, weekStart?: string) {
   const params = new URLSearchParams({ status });
@@ -54,7 +65,11 @@ export async function createUser(formData: FormData) {
 
   const today = todayDateString();
   const startsOn = weekStartForDate(today);
-  let teacherMasjidId: string | null = null;
+  const selectedStudentMasjidId = formString(formData.get("student_masjid_id"));
+  const selectedStudentCohortId = formString(formData.get("student_cohort_id"));
+  const selectedStudentGroupId = formString(formData.get("student_group_id"));
+  const selectedTeacherMasjidId = formString(formData.get("teacher_masjid_id"));
+  let setupMasjidId: string | null = null;
   let studentGroupId: string | null = null;
 
   try {
@@ -62,28 +77,25 @@ export async function createUser(formData: FormData) {
       const masjid = await assertAdminCanManageMasjid({
         adminSupabase,
         admin: profile,
-        masjidId: formString(formData.get("teacher_masjid_id")),
+        masjidId: selectedTeacherMasjidId,
         effectiveDate: today
       });
-      teacherMasjidId = masjid.id;
+      setupMasjidId = masjid.id;
     }
 
     if (input.role === "student") {
-      const selectedMasjidId = formString(formData.get("student_masjid_id"));
-      const selectedCohortId = formString(formData.get("student_cohort_id"));
-      const selectedGroupId = formString(formData.get("student_group_id"));
       const group = await assertAdminCanManageGroup({
         adminSupabase,
         admin: profile,
-        groupId: selectedGroupId,
+        groupId: selectedStudentGroupId,
         effectiveDate: today
       });
 
       assertSelectedStudentScopeMatchesResolved(
         {
-          masjidId: selectedMasjidId,
-          cohortId: selectedCohortId,
-          groupId: selectedGroupId
+          masjidId: selectedStudentMasjidId,
+          cohortId: selectedStudentCohortId,
+          groupId: selectedStudentGroupId
         },
         {
           masjidId: group.masjid.id,
@@ -92,6 +104,7 @@ export async function createUser(formData: FormData) {
         }
       );
 
+      setupMasjidId = group.masjid.id;
       studentGroupId = group.id;
     }
   } catch (error) {
@@ -99,77 +112,143 @@ export async function createUser(formData: FormData) {
     redirect(`/admin/students/new?${params.toString()}`);
   }
 
-  const { data: existingProfiles } = await adminSupabase
-    .from("profiles")
-    .select("id")
-    .or(`email.eq.${input.email},phone.eq.${input.phone}`)
-    .limit(1)
-    .returns<Array<{ id: string }>>();
-
-  if (existingProfiles?.length) {
-    redirect("/admin/students/new?status=exists");
+  if (input.role !== "student" && input.role !== "teacher") {
+    redirect("/admin/students/new?status=invalid");
   }
 
-  const { data: authData, error: authError } = await adminSupabase.auth.admin.createUser({
-    email: input.email,
-    password: input.password,
-    email_confirm: true
-  });
-
-  if (authError || !authData.user) {
-    redirect("/admin/students/new?status=exists");
+  if (!setupMasjidId || (input.role === "student" && !studentGroupId)) {
+    redirect(`/admin/students/new?status=missing-scope&role=${input.role}`);
   }
 
-  const { error: profileError } = await adminSupabase.from("profiles").upsert(
+  const requestIdValue = formString(formData.get("request_id"));
+  const requestId = requestIdValue && UUID_PATTERN.test(requestIdValue) ? requestIdValue : randomUUID();
+  const outcome = await createScopedUserTransactionally(
     {
-      id: authData.user.id,
+      requestId,
+      actorId: profile.id,
       name: input.name,
       email: input.email,
       phone: input.phone,
       role: input.role,
-      active: input.active
+      startsOn,
+      masjidId: setupMasjidId,
+      groupId: studentGroupId
     },
-    { onConflict: "id" }
+    {
+      lookupCompletedSetup: async (setupInput) => {
+        const { data, error } = await adminSupabase.rpc(
+          "get_scoped_user_setup_request_result",
+          scopedUserSetupLookupRpcArguments(setupInput)
+        );
+
+        return { data: data as ScopedUserSetupResult | null, error };
+      },
+      createAuthUser: async () => {
+        const { data: existingProfiles, error: existingProfileError } = await adminSupabase
+          .from("profiles")
+          .select("id")
+          .or(`email.eq.${input.email},phone.eq.${input.phone}`)
+          .limit(1)
+          .returns<Array<{ id: string }>>();
+
+        if (existingProfileError) {
+          return { data: null, error: existingProfileError };
+        }
+
+        if (existingProfiles?.length) {
+          return {
+            data: null,
+            error: { code: "email_exists", message: "An account already exists.", status: 422 }
+          };
+        }
+
+        const { data, error } = await adminSupabase.auth.admin.createUser({
+          email: input.email,
+          password: input.password,
+          email_confirm: true,
+          app_metadata: scopedUserSetupAuthMetadata({
+            requestId,
+            actorId: profile.id,
+            name: input.name,
+            email: input.email,
+            phone: input.phone,
+            role: input.role as "student" | "teacher",
+            startsOn,
+            masjidId: setupMasjidId,
+            groupId: studentGroupId
+          })
+        });
+
+        return { data: data.user ? { id: data.user.id } : null, error };
+      },
+      recoverAuthOnlySetup: async (setupInput) => {
+        const { data, error } = await adminSupabase.rpc(
+          "get_scoped_user_setup_auth_recovery",
+          scopedUserSetupLookupRpcArguments(setupInput)
+        );
+
+        return { data: typeof data === "string" ? { id: data } : null, error };
+      },
+      applyScopedUserSetup: async (profileId, setupInput) => {
+        const { data, error } = await adminSupabase.rpc(
+          "apply_scoped_user_setup",
+          scopedUserSetupRpcArguments(profileId, setupInput)
+        );
+
+        return { data: data as ScopedUserSetupResult | null, error };
+      },
+      isScopedUserSetupCommitted: async (profileId) => {
+        const { data, error } = await adminSupabase
+          .from("profiles")
+          .select("id")
+          .eq("id", profileId)
+          .maybeSingle<{ id: string }>();
+
+        return { data: data?.id === profileId, error };
+      },
+      waitBeforeVerification: async (attempt) => {
+        await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+      },
+      deleteAuthUser: async (profileId) => {
+        const { error } = await adminSupabase.auth.admin.deleteUser(profileId);
+        return { error };
+      }
+    }
   );
 
-  if (profileError) {
-    redirect("/admin/students/new?status=profile-error");
-  }
-
-  if (input.role === "teacher") {
-    if (!teacherMasjidId) {
-      redirect("/admin/students/new?status=missing-scope&role=teacher");
+  if (!outcome.ok) {
+    if (outcome.stage === "database" && (outcome.cleanup === "failed" || outcome.uncertain)) {
+      console.error("Scoped user setup requires operator review.", {
+        requestId,
+        profileId: outcome.profileId,
+        setupErrorCode: outcome.error.code ?? null,
+        cleanupErrorCode: outcome.cleanupError?.code ?? null,
+        uncertain: outcome.uncertain
+      });
+    } else if (outcome.stage === "auth" && outcome.authErrorKind !== "exists") {
+      console.error("Auth user creation did not complete normally.", {
+        requestId,
+        authErrorCode: outcome.error.code ?? null,
+        authErrorKind: outcome.authErrorKind
+      });
+    } else if (outcome.stage === "lookup") {
+      console.error("Scoped setup request lookup failed.", {
+        requestId,
+        lookupErrorCode: outcome.error.code ?? null,
+        uncertain: outcome.uncertain
+      });
     }
 
-    const { error: membershipError } = await adminSupabase.from("masjid_staff_memberships").insert({
-      profile_id: authData.user.id,
-      masjid_id: teacherMasjidId,
-      staff_role: "teacher",
-      active: true,
-      starts_on: startsOn,
-      created_by: profile.id
+    const params = scopedUserSetupFailureSearchParams({
+      status: scopedUserSetupStatusForOutcome(outcome),
+      requestId,
+      role: input.role,
+      studentMasjidId: selectedStudentMasjidId,
+      studentCohortId: selectedStudentCohortId,
+      studentGroupId: selectedStudentGroupId,
+      teacherMasjidId: selectedTeacherMasjidId
     });
-
-    if (membershipError) {
-      redirect("/admin/students/new?status=assignment-error");
-    }
-  }
-
-  if (input.role === "student") {
-    if (!studentGroupId) {
-      redirect("/admin/students/new?status=missing-scope&role=student");
-    }
-
-    const { error: membershipError } = await adminSupabase.from("student_group_memberships").insert({
-      student_id: authData.user.id,
-      group_id: studentGroupId,
-      starts_on: startsOn,
-      assigned_by: profile.id
-    });
-
-    if (membershipError) {
-      redirect("/admin/students/new?status=assignment-error");
-    }
+    redirect(`/admin/students/new?${params.toString()}`);
   }
 
   revalidatePath("/admin");
@@ -177,7 +256,7 @@ export async function createUser(formData: FormData) {
   const params = new URLSearchParams({ status: "created", role: input.role });
 
   if (input.role === "student") {
-    params.set("student", authData.user.id);
+    params.set("student", outcome.profileId);
   }
 
   redirect(`/admin/students/new?${params.toString()}`);

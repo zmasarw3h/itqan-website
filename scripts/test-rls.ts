@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { calculateDailySubmission, tasksForDate } from "../lib/scoring";
 
@@ -33,6 +34,11 @@ type UserName =
   | "expiredMembershipStudent"
   | "futureMembershipStudent"
   | "studentB"
+  | "setupStudent"
+  | "setupTeacher"
+  | "setupCrossMasjid"
+  | "staffGrantTarget"
+  | "teacherAccessTarget"
   | "expiredAdmin"
   | "futureAdmin"
   | "inactiveAdmin"
@@ -183,6 +189,11 @@ async function seed(): Promise<SeedIds> {
     "expiredMembershipStudent",
     "futureMembershipStudent",
     "studentB",
+    "setupStudent",
+    "setupTeacher",
+    "setupCrossMasjid",
+    "staffGrantTarget",
+    "teacherAccessTarget",
     "expiredAdmin",
     "futureAdmin",
     "inactiveAdmin",
@@ -197,7 +208,13 @@ async function seed(): Promise<SeedIds> {
     users[name] = authRow.id;
   }
 
-  const profileRows = names.filter((name) => name !== "profileTarget").map((name) => {
+  const authOnlyNames = new Set<UserName>([
+    "profileTarget",
+    "setupStudent",
+    "setupTeacher",
+    "setupCrossMasjid"
+  ]);
+  const profileRows = names.filter((name) => !authOnlyNames.has(name)).map((name) => {
     const authRow = authRows.get(name)!;
     const role = name === "superAdmin"
       ? "super_admin"
@@ -282,6 +299,12 @@ async function seed(): Promise<SeedIds> {
       { student_id: users.studentA2, group_id: groupA, starts_on: startsOn, assigned_by: users.superAdmin },
       { student_id: users.studentWriter, group_id: groupWriter, starts_on: startsOn, assigned_by: users.superAdmin },
       { student_id: users.studentB, group_id: groupB, starts_on: startsOn, assigned_by: users.superAdmin },
+      {
+        student_id: users.staffGrantTarget,
+        group_id: inactiveMasjidGroup,
+        starts_on: startsOn,
+        assigned_by: users.superAdmin
+      },
       {
         student_id: users.expiredMembershipStudent,
         group_id: groupA,
@@ -1084,6 +1107,676 @@ async function runAssertions(ids: SeedIds) {
 
   // The guarded server-only RPC remains the sole positive mutation route.
   const service = localClient(serviceRoleKey);
+
+  const setupStudentRequestId = randomUUID();
+  const setupStudentArgs = {
+    input_request_id: setupStudentRequestId,
+    input_actor_id: ids.users.adminA,
+    input_profile_id: ids.users.setupStudent,
+    input_name: "Setup Student",
+    input_email: "setupstudent@rls.local",
+    input_phone: "+15550001001",
+    input_role: "student",
+    input_starts_on: ids.weekStart,
+    input_masjid_id: ids.masjidA,
+    input_group_id: ids.groupA
+  };
+  const setupStudentMetadata = {
+    setup_request_id: setupStudentRequestId,
+    setup_actor_id: ids.users.adminA,
+    setup_payload: {
+      actor_id: ids.users.adminA,
+      name: "Setup Student",
+      email: "setupstudent@rls.local",
+      phone: "+15550001001",
+      role: "student",
+      starts_on: ids.weekStart,
+      masjid_id: ids.masjidA,
+      group_id: ids.groupA
+    }
+  };
+  const setupStudentAuthUpdate = await service.auth.admin.updateUserById(ids.users.setupStudent, {
+    app_metadata: setupStudentMetadata
+  });
+  assert.equal(setupStudentAuthUpdate.error, null, setupStudentAuthUpdate.error?.message);
+
+  await assertRpcDenied(adminA, "apply_scoped_user_setup", setupStudentArgs);
+  await assertRpcDenied(superAdmin, "get_scoped_user_setup_request_result", {
+    input_request_id: setupStudentRequestId,
+    input_actor_id: ids.users.adminA,
+    input_name: "Setup Student",
+    input_email: "setupstudent@rls.local",
+    input_phone: "+15550001001",
+    input_role: "student",
+    input_starts_on: ids.weekStart,
+    input_masjid_id: ids.masjidA,
+    input_group_id: ids.groupA
+  });
+  await assertRpcDenied(superAdmin, "get_scoped_user_setup_auth_recovery", {
+    input_request_id: setupStudentRequestId,
+    input_actor_id: ids.users.adminA,
+    input_name: "Setup Student",
+    input_email: "setupstudent@rls.local",
+    input_phone: "+15550001001",
+    input_role: "student",
+    input_starts_on: ids.weekStart,
+    input_masjid_id: ids.masjidA,
+    input_group_id: ids.groupA
+  });
+  await assertRpcDenied(superAdmin, "get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherAccessTarget
+  });
+  await assertRpcDenied(superAdmin, "apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherAccessTarget,
+    input_preset: "teacher",
+    input_starts_on: ids.weekStart,
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: null,
+    input_expected_state: {}
+  });
+  await assertRpcDenied(superAdmin, "apply_super_admin_masjid_update", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_masjid_id: ids.inactiveMasjid,
+    input_name: "RLS Inactive Masjid",
+    input_slug: "rls-inactive-masjid",
+    input_active: true,
+    input_expected_state: {}
+  });
+  await assertRpcDenied(superAdmin, "prepare_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.studentA,
+    input_masjid_id: ids.masjidA,
+    input_grant: "admin",
+    input_starts_on: ids.weekStart
+  });
+  await assertRpcDenied(superAdmin, "apply_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.studentA,
+    input_masjid_id: ids.masjidA,
+    input_grant: "admin",
+    input_starts_on: ids.weekStart,
+    input_expected_state: {}
+  });
+  await assertRpcDenied(superAdmin, "apply_super_admin_staff_membership_end", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminB,
+    input_membership_id: ids.staffMembershipB,
+    input_ends_on: ids.today,
+    input_expected_state: {}
+  });
+
+  const authRecovery = await service.rpc("get_scoped_user_setup_auth_recovery", {
+    input_request_id: setupStudentRequestId,
+    input_actor_id: ids.users.adminA,
+    input_name: "Setup Student",
+    input_email: "setupstudent@rls.local",
+    input_phone: "+15550001001",
+    input_role: "student",
+    input_starts_on: ids.weekStart,
+    input_masjid_id: ids.masjidA,
+    input_group_id: ids.groupA
+  });
+  assert.equal(authRecovery.error, null, authRecovery.error?.message);
+  assert.equal(authRecovery.data, ids.users.setupStudent, "exact Auth-only setup was not recoverable");
+  const changedAuthRecovery = await service.rpc("get_scoped_user_setup_auth_recovery", {
+    input_request_id: setupStudentRequestId,
+    input_actor_id: ids.users.adminA,
+    input_name: "Changed Setup Student",
+    input_email: "setupstudent@rls.local",
+    input_phone: "+15550001001",
+    input_role: "student",
+    input_starts_on: ids.weekStart,
+    input_masjid_id: ids.masjidA,
+    input_group_id: ids.groupA
+  });
+  assert.equal(changedAuthRecovery.error, null, changedAuthRecovery.error?.message);
+  assert.equal(changedAuthRecovery.data, null, "changed Auth-only setup payload was recoverable");
+  const crossActorAuthRecovery = await service.rpc("get_scoped_user_setup_auth_recovery", {
+    input_request_id: setupStudentRequestId,
+    input_actor_id: ids.users.superAdmin,
+    input_name: "Setup Student",
+    input_email: "setupstudent@rls.local",
+    input_phone: "+15550001001",
+    input_role: "student",
+    input_starts_on: ids.weekStart,
+    input_masjid_id: ids.masjidA,
+    input_group_id: ids.groupA
+  });
+  assert.equal(crossActorAuthRecovery.error, null, crossActorAuthRecovery.error?.message);
+  assert.equal(crossActorAuthRecovery.data, null, "cross-actor Auth-only setup was recoverable");
+
+  const setupStudentFirst = await service.rpc("apply_scoped_user_setup", setupStudentArgs);
+  assert.equal(setupStudentFirst.error, null, setupStudentFirst.error?.message);
+  const setupStudentRetry = await service.rpc("apply_scoped_user_setup", setupStudentArgs);
+  assert.equal(setupStudentRetry.error, null, setupStudentRetry.error?.message);
+  assert.deepEqual(setupStudentRetry.data, setupStudentFirst.data, "setup retry changed the result");
+
+  const { data: setupStudentProfiles, error: setupStudentProfileError } = await service
+    .from("profiles")
+    .select("id,role,active")
+    .eq("id", ids.users.setupStudent);
+  assert.equal(setupStudentProfileError, null, setupStudentProfileError?.message);
+  assert.equal(setupStudentProfiles?.length, 1, "setup retry created the wrong profile count");
+  const { data: setupStudentMemberships, error: setupStudentMembershipError } = await service
+    .from("student_group_memberships")
+    .select("id,group_id")
+    .eq("student_id", ids.users.setupStudent);
+  assert.equal(setupStudentMembershipError, null, setupStudentMembershipError?.message);
+  assert.equal(setupStudentMemberships?.length, 1, "setup retry duplicated student membership");
+  assert.equal(setupStudentMemberships?.[0]?.group_id, ids.groupA);
+  const { count: setupStudentAuditCount, error: setupStudentAuditError } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.users.setupStudent)
+    .eq("action", "scoped_user_created");
+  assert.equal(setupStudentAuditError, null, setupStudentAuditError?.message);
+  assert.equal(setupStudentAuditCount, 1, "setup retry duplicated audit semantics");
+
+  const setupStudentLookupArgs = {
+    input_request_id: setupStudentRequestId,
+    input_actor_id: ids.users.adminA,
+    input_name: "Setup Student",
+    input_email: "setupstudent@rls.local",
+    input_phone: "+15550001001",
+    input_role: "student",
+    input_starts_on: ids.weekStart,
+    input_masjid_id: ids.masjidA,
+    input_group_id: ids.groupA
+  };
+  const setupStudentLookup = await service.rpc(
+    "get_scoped_user_setup_request_result",
+    setupStudentLookupArgs
+  );
+  assert.equal(setupStudentLookup.error, null, setupStudentLookup.error?.message);
+  assert.deepEqual(setupStudentLookup.data, setupStudentFirst.data, "setup lookup changed the result");
+  const crossActorSetupLookup = await service.rpc("get_scoped_user_setup_request_result", {
+    ...setupStudentLookupArgs,
+    input_actor_id: ids.users.superAdmin
+  });
+  assert.equal(crossActorSetupLookup.error?.code, "42501", "cross-actor setup lookup was not denied");
+  const changedSetupLookup = await service.rpc("get_scoped_user_setup_request_result", {
+    ...setupStudentLookupArgs,
+    input_name: "Changed Setup Student"
+  });
+  assert.equal(changedSetupLookup.error?.code, "22023", "changed setup lookup payload was accepted");
+
+  const grantStateBeforeFutureMembership = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.staffGrantTarget
+  });
+  assert.equal(grantStateBeforeFutureMembership.error, null, grantStateBeforeFutureMembership.error?.message);
+  const { data: futureGrantMembership, error: futureGrantMembershipError } = await service
+    .from("masjid_staff_memberships")
+    .insert({
+      profile_id: ids.users.staffGrantTarget,
+      masjid_id: ids.masjidA,
+      staff_role: "teacher",
+      active: true,
+      starts_on: addDays(ids.weekStart, 7),
+      created_by: ids.users.superAdmin
+    })
+    .select("id")
+    .single<{ id: string }>();
+  assert.equal(futureGrantMembershipError, null, futureGrantMembershipError?.message);
+  const grantStateWithFutureMembership = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.staffGrantTarget
+  });
+  assert.equal(grantStateWithFutureMembership.error, null, grantStateWithFutureMembership.error?.message);
+  const { count: failedGrantAuditBefore } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.users.staffGrantTarget);
+  const partialAdminTeacherGrant = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.staffGrantTarget,
+    input_masjid_id: ids.masjidA,
+    input_grant: "admin_teacher",
+    input_starts_on: ids.weekStart,
+    input_expected_state: grantStateWithFutureMembership.data
+  });
+  assert.equal(partialAdminTeacherGrant.error?.code, "22023", "partial admin-teacher grant unexpectedly succeeded");
+  const { data: failedGrantProfile } = await service
+    .from("profiles")
+    .select("role")
+    .eq("id", ids.users.staffGrantTarget)
+    .single<{ role: string }>();
+  assert.equal(failedGrantProfile?.role, "student", "failed grant changed the profile role");
+  const { count: failedGrantAdminMemberships } = await service
+    .from("masjid_staff_memberships")
+    .select("id", { count: "exact", head: true })
+    .eq("profile_id", ids.users.staffGrantTarget)
+    .eq("staff_role", "admin");
+  assert.equal(failedGrantAdminMemberships, 0, "failed grant left an admin membership");
+  const { data: studentMembershipAfterFailedGrant } = await service
+    .from("student_group_memberships")
+    .select("ends_on")
+    .eq("student_id", ids.users.staffGrantTarget)
+    .single<{ ends_on: string | null }>();
+  assert.equal(studentMembershipAfterFailedGrant?.ends_on, null, "failed grant closed student access");
+  const { count: failedGrantAuditAfter } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.users.staffGrantTarget);
+  assert.equal(failedGrantAuditAfter, failedGrantAuditBefore, "failed grant left audit events");
+  const { error: removeFutureGrantMembershipError } = await service
+    .from("masjid_staff_memberships")
+    .delete()
+    .eq("id", futureGrantMembership!.id);
+  assert.equal(removeFutureGrantMembershipError, null, removeFutureGrantMembershipError?.message);
+
+  const grantState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.staffGrantTarget
+  });
+  assert.equal(grantState.error, null, grantState.error?.message);
+  const grantRequestId = randomUUID();
+  const grantPreparationArgs = {
+    input_request_id: grantRequestId,
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.staffGrantTarget,
+    input_masjid_id: ids.masjidA,
+    input_grant: "admin",
+    input_starts_on: ids.weekStart
+  };
+  const preparedGrantState = await service.rpc(
+    "prepare_super_admin_masjid_staff_grant",
+    grantPreparationArgs
+  );
+  assert.equal(preparedGrantState.error, null, preparedGrantState.error?.message);
+  assert.deepEqual(preparedGrantState.data, grantState.data);
+  const adminGrantArgs = {
+    ...grantPreparationArgs,
+    input_expected_state: preparedGrantState.data
+  };
+  const concurrentAdminGrants = await Promise.all([
+    service.rpc("apply_super_admin_masjid_staff_grant", adminGrantArgs),
+    service.rpc("apply_super_admin_masjid_staff_grant", adminGrantArgs)
+  ]);
+  for (const result of concurrentAdminGrants) {
+    assert.equal(result.error, null, `concurrent staff grant failed: ${result.error?.message}`);
+  }
+  assert.deepEqual(concurrentAdminGrants[0].data, concurrentAdminGrants[1].data);
+  const replayedPreparedGrantState = await service.rpc(
+    "prepare_super_admin_masjid_staff_grant",
+    grantPreparationArgs
+  );
+  assert.equal(replayedPreparedGrantState.error, null, replayedPreparedGrantState.error?.message);
+  assert.deepEqual(
+    replayedPreparedGrantState.data,
+    preparedGrantState.data,
+    "staff grant preparation reloaded post-grant access state"
+  );
+  const crossActorGrantPreparation = await service.rpc("prepare_super_admin_masjid_staff_grant", {
+    ...grantPreparationArgs,
+    input_actor_id: ids.users.adminA
+  });
+  assert.equal(crossActorGrantPreparation.error?.code, "42501", "cross-actor grant preparation was accepted");
+  const changedGrantPreparation = await service.rpc("prepare_super_admin_masjid_staff_grant", {
+    ...grantPreparationArgs,
+    input_grant: "admin_teacher"
+  });
+  assert.equal(changedGrantPreparation.error?.code, "22023", "changed grant preparation payload was accepted");
+  const changedGrantReplay = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    ...adminGrantArgs,
+    input_grant: "admin_teacher"
+  });
+  assert.equal(changedGrantReplay.error?.code, "22023", "changed staff grant replay was accepted");
+  const changedExpectedStateReplay = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    ...adminGrantArgs,
+    input_expected_state: (concurrentAdminGrants[0].data as { access_state?: unknown } | null)?.access_state
+  });
+  assert.equal(changedExpectedStateReplay.error, null, changedExpectedStateReplay.error?.message);
+  assert.deepEqual(
+    changedExpectedStateReplay.data,
+    concurrentAdminGrants[0].data,
+    "committed staff grant did not replay after its expected-state token changed"
+  );
+
+  const adminGrantState = (concurrentAdminGrants[0].data as { access_state?: unknown } | null)?.access_state;
+  assert.ok(adminGrantState, "admin grant omitted access state");
+  const adminTeacherGrant = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    ...adminGrantArgs,
+    input_request_id: randomUUID(),
+    input_grant: "admin_teacher",
+    input_expected_state: adminGrantState
+  });
+  assert.equal(adminTeacherGrant.error, null, adminTeacherGrant.error?.message);
+  const { data: grantedRoles } = await service
+    .from("masjid_staff_memberships")
+    .select("staff_role")
+    .eq("profile_id", ids.users.staffGrantTarget)
+    .eq("masjid_id", ids.masjidA)
+    .eq("active", true)
+    .is("ends_on", null)
+    .order("staff_role");
+  assert.deepEqual(grantedRoles, [{ staff_role: "admin" }, { staff_role: "teacher" }]);
+  const staleGrant = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    ...adminGrantArgs,
+    input_request_id: randomUUID(),
+    input_expected_state: grantState.data
+  });
+  assert.equal(staleGrant.error?.code, "P0001", "stale staff grant was accepted");
+
+  const setupTeacherArgs = {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_profile_id: ids.users.setupTeacher,
+    input_name: "Setup Teacher",
+    input_email: "setupteacher@rls.local",
+    input_phone: "+15550001002",
+    input_role: "teacher",
+    input_starts_on: ids.weekStart,
+    input_masjid_id: ids.masjidA,
+    input_group_id: null
+  };
+  const setupTeacherAuthUpdate = await service.auth.admin.updateUserById(ids.users.setupTeacher, {
+    app_metadata: {
+      setup_request_id: setupTeacherArgs.input_request_id,
+      setup_actor_id: ids.users.adminA,
+      setup_payload: {
+        actor_id: ids.users.adminA,
+        name: "Setup Teacher",
+        email: "setupteacher@rls.local",
+        phone: "+15550001002",
+        role: "teacher",
+        starts_on: ids.weekStart,
+        masjid_id: ids.masjidA,
+        group_id: null
+      }
+    }
+  });
+  assert.equal(setupTeacherAuthUpdate.error, null, setupTeacherAuthUpdate.error?.message);
+  const concurrentSetupResults = await Promise.all([
+    service.rpc("apply_scoped_user_setup", setupTeacherArgs),
+    service.rpc("apply_scoped_user_setup", setupTeacherArgs)
+  ]);
+  for (const result of concurrentSetupResults) {
+    assert.equal(result.error, null, `concurrent setup retry failed: ${result.error?.message}`);
+  }
+  assert.deepEqual(
+    concurrentSetupResults[0].data,
+    concurrentSetupResults[1].data,
+    "concurrent setup retries returned different results"
+  );
+  const { count: setupTeacherMembershipCount } = await service
+    .from("masjid_staff_memberships")
+    .select("id", { count: "exact", head: true })
+    .eq("profile_id", ids.users.setupTeacher)
+    .eq("staff_role", "teacher");
+  assert.equal(setupTeacherMembershipCount, 1, "concurrent setup duplicated teacher membership");
+
+  const crossMasjidSetup = await service.rpc("apply_scoped_user_setup", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_profile_id: ids.users.setupCrossMasjid,
+    input_name: "Cross Masjid Setup",
+    input_email: "setupcrossmasjid@rls.local",
+    input_phone: "+15550001003",
+    input_role: "student",
+    input_starts_on: ids.weekStart,
+    input_masjid_id: ids.masjidB,
+    input_group_id: ids.groupB
+  });
+  assert.ok(crossMasjidSetup.error, "cross-masjid setup unexpectedly succeeded");
+  assert.equal(crossMasjidSetup.error?.code, "42501");
+  const { count: crossMasjidProfileCount } = await service
+    .from("profiles")
+    .select("id", { count: "exact", head: true })
+    .eq("id", ids.users.setupCrossMasjid);
+  assert.equal(crossMasjidProfileCount, 0, "denied setup left a profile behind");
+
+  const accessStateResult = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherAccessTarget
+  });
+  assert.equal(accessStateResult.error, null, accessStateResult.error?.message);
+  assert.ok(accessStateResult.data, "access state RPC returned no state");
+
+  const staleExpectedState = accessStateResult.data;
+  const { error: staleSetupError } = await service
+    .from("profiles")
+    .update({ active: false })
+    .eq("id", ids.users.teacherAccessTarget);
+  assert.equal(staleSetupError, null, staleSetupError?.message);
+  const staleAccessChange = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherAccessTarget,
+    input_preset: "admin_teacher",
+    input_starts_on: ids.weekStart,
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: null,
+    input_expected_state: staleExpectedState
+  });
+  assert.ok(staleAccessChange.error, "stale access state unexpectedly succeeded");
+  assert.equal(staleAccessChange.error?.code, "P0001");
+  assert.match(
+    staleAccessChange.error?.message ?? "",
+    /access state changed/i,
+    `unexpected stale-state error: ${JSON.stringify(staleAccessChange.error)}`
+  );
+  const { error: restoreAccessTargetError } = await service
+    .from("profiles")
+    .update({ active: true })
+    .eq("id", ids.users.teacherAccessTarget);
+  assert.equal(restoreAccessTargetError, null, restoreAccessTargetError?.message);
+
+  const refreshedAccessState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherAccessTarget
+  });
+  assert.equal(refreshedAccessState.error, null, refreshedAccessState.error?.message);
+  const accessRequestId = randomUUID();
+  const accessChangeArgs = {
+    input_request_id: accessRequestId,
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherAccessTarget,
+    input_preset: "admin_teacher",
+    input_starts_on: ids.weekStart,
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: null,
+    input_expected_state: refreshedAccessState.data
+  };
+  const accessChangeFirst = await service.rpc("apply_super_admin_access_change", accessChangeArgs);
+  assert.equal(accessChangeFirst.error, null, accessChangeFirst.error?.message);
+  const { count: accessAuditCountBeforeRetry } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.users.teacherAccessTarget);
+  const accessChangeRetry = await service.rpc("apply_super_admin_access_change", accessChangeArgs);
+  assert.equal(accessChangeRetry.error, null, accessChangeRetry.error?.message);
+  assert.deepEqual(accessChangeRetry.data, accessChangeFirst.data, "access retry changed the result");
+  const { count: accessAuditCountAfterRetry } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.users.teacherAccessTarget);
+  assert.equal(accessAuditCountAfterRetry, accessAuditCountBeforeRetry, "access retry duplicated audit events");
+  const accessStateAfterChange = (
+    accessChangeFirst.data as { access_state?: unknown } | null
+  )?.access_state;
+  assert.ok(accessStateAfterChange, "access change result omitted the next access state");
+  const nonSundayAccessChange = await service.rpc("apply_super_admin_access_change", {
+    ...accessChangeArgs,
+    input_request_id: randomUUID(),
+    input_starts_on: addDays(ids.weekStart, 2),
+    input_expected_state: accessStateAfterChange
+  });
+  assert.equal(
+    nonSundayAccessChange.error,
+    null,
+    `existing date-granular access behavior regressed: ${nonSundayAccessChange.error?.message}`
+  );
+  const reusedRequest = await service.rpc("apply_super_admin_access_change", {
+    ...accessChangeArgs,
+    input_preset: "admin"
+  });
+  assert.ok(reusedRequest.error, "request id reuse with changed input unexpectedly succeeded");
+
+  const membershipEndState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherAccessTarget
+  });
+  assert.equal(membershipEndState.error, null, membershipEndState.error?.message);
+  const { data: targetTeacherMembership, error: targetTeacherMembershipError } = await service
+    .from("masjid_staff_memberships")
+    .select("id")
+    .eq("profile_id", ids.users.teacherAccessTarget)
+    .eq("masjid_id", ids.masjidA)
+    .eq("staff_role", "teacher")
+    .eq("active", true)
+    .is("ends_on", null)
+    .single<{ id: string }>();
+  assert.equal(targetTeacherMembershipError, null, targetTeacherMembershipError?.message);
+  assert.ok(targetTeacherMembership, "access target teacher membership was not created");
+
+  const membershipEndRequestId = randomUUID();
+  const membershipEndArgs = {
+    input_request_id: membershipEndRequestId,
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherAccessTarget,
+    input_membership_id: targetTeacherMembership!.id,
+    input_ends_on: ids.today,
+    input_expected_state: membershipEndState.data
+  };
+  const concurrentMembershipEnds = await Promise.all([
+    service.rpc("apply_super_admin_staff_membership_end", membershipEndArgs),
+    service.rpc("apply_super_admin_staff_membership_end", membershipEndArgs)
+  ]);
+  for (const result of concurrentMembershipEnds) {
+    assert.equal(result.error, null, `concurrent membership end failed: ${result.error?.message}`);
+  }
+  assert.deepEqual(
+    concurrentMembershipEnds[0].data,
+    concurrentMembershipEnds[1].data,
+    "concurrent membership end retries returned different results"
+  );
+  const { count: membershipEndAuditCount, error: membershipEndAuditError } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", targetTeacherMembership!.id)
+    .eq("action", "staff_membership_ended");
+  assert.equal(membershipEndAuditError, null, membershipEndAuditError?.message);
+  assert.equal(membershipEndAuditCount, 1, "membership end retry duplicated its audit event");
+
+  const changedMembershipEndRequest = await service.rpc("apply_super_admin_staff_membership_end", {
+    ...membershipEndArgs,
+    input_ends_on: addDays(ids.today, 1)
+  });
+  assert.equal(
+    changedMembershipEndRequest.error?.code,
+    "22023",
+    "membership end request UUID accepted changed input"
+  );
+  const staleMembershipEnd = await service.rpc("apply_super_admin_staff_membership_end", {
+    ...membershipEndArgs,
+    input_request_id: randomUUID()
+  });
+  assert.equal(staleMembershipEnd.error?.code, "P0001", "stale membership close was not rejected");
+  assert.match(staleMembershipEnd.error?.message ?? "", /access state changed/i);
+
+  const soleAdminEndState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminB
+  });
+  assert.equal(soleAdminEndState.error, null, soleAdminEndState.error?.message);
+  const { count: soleAdminEndAuditBefore } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.staffMembershipB)
+    .eq("action", "staff_membership_ended");
+  const soleAdminEnd = await service.rpc("apply_super_admin_staff_membership_end", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminB,
+    input_membership_id: ids.staffMembershipB,
+    input_ends_on: ids.today,
+    input_expected_state: soleAdminEndState.data
+  });
+  assert.equal(soleAdminEnd.error?.code, "23514", "sole masjid admin close was not denied");
+  const { data: soleAdminMembershipAfter } = await service
+    .from("masjid_staff_memberships")
+    .select("ends_on")
+    .eq("id", ids.staffMembershipB)
+    .single<{ ends_on: string | null }>();
+  assert.equal(soleAdminMembershipAfter?.ends_on, null, "denied membership close was not rolled back");
+  const { count: soleAdminEndAuditAfter } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.staffMembershipB)
+    .eq("action", "staff_membership_ended");
+  assert.equal(soleAdminEndAuditAfter, soleAdminEndAuditBefore, "denied membership close left an audit row");
+
+  const lastAdminState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminB
+  });
+  assert.equal(lastAdminState.error, null, lastAdminState.error?.message);
+  const { count: adminBAuditCountBefore } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.users.adminB);
+  const removeLastMasjidAdmin = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminB,
+    input_preset: "teacher",
+    input_starts_on: ids.weekStart,
+    input_selected_masjid_id: ids.masjidB,
+    input_selected_group_id: null,
+    input_expected_state: lastAdminState.data
+  });
+  assert.ok(removeLastMasjidAdmin.error, "last active masjid admin removal unexpectedly succeeded");
+  assert.equal(removeLastMasjidAdmin.error?.code, "23514");
+  const { data: adminBAfterRollback } = await service
+    .from("profiles")
+    .select("role,active")
+    .eq("id", ids.users.adminB)
+    .single();
+  assert.deepEqual(adminBAfterRollback, { role: "admin", active: true }, "failed access change mutated profile");
+  const { data: adminBStaffAfterRollback } = await service
+    .from("masjid_staff_memberships")
+    .select("staff_role,ends_on")
+    .eq("profile_id", ids.users.adminB)
+    .eq("masjid_id", ids.masjidB)
+    .order("staff_role");
+  assert.deepEqual(
+    adminBStaffAfterRollback,
+    [{ staff_role: "admin", ends_on: null }],
+    "failed access change did not roll back staff mutations"
+  );
+  const { count: adminBAuditCountAfter } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.users.adminB);
+  assert.equal(adminBAuditCountAfter, adminBAuditCountBefore, "failed access change left audit rows");
+
+  const superAdminState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.superAdmin
+  });
+  assert.equal(superAdminState.error, null, superAdminState.error?.message);
+  const selfDeactivate = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.superAdmin,
+    input_preset: "inactive",
+    input_starts_on: ids.weekStart,
+    input_selected_masjid_id: null,
+    input_selected_group_id: null,
+    input_expected_state: superAdminState.data
+  });
+  assert.ok(selfDeactivate.error, "super admin self-deactivation unexpectedly succeeded");
+  assert.equal(selfDeactivate.error?.code, "42501");
+
   const { data: generatedRunId, error: generatedRunError } = await service.rpc(
     "apply_teacher_rotation_generation",
     {
@@ -1342,7 +2035,7 @@ async function runAssertions(ids: SeedIds) {
     { input_week_start: ids.weekStart }
   );
   assert.equal(leaderboardError, null, leaderboardError?.message);
-  assert.ok(Array.isArray(leaderboard) && leaderboard.length === 2, "leaderboard should contain only cohort A");
+  assert.ok(Array.isArray(leaderboard) && leaderboard.length === 3, "leaderboard should contain only cohort A");
   const expectedLeaderboardFields = [
     "is_current_student",
     "previous_rank",
@@ -1359,6 +2052,7 @@ async function runAssertions(ids: SeedIds) {
     assert.ok(!Object.values(row).includes(ids.users.studentB), "leaderboard exposed another masjid UUID");
   }
   assert.ok((leaderboard ?? []).some((row) => row.student_name === "studentA2"));
+  assert.ok((leaderboard ?? []).some((row) => row.student_name === "Setup Student"));
   assert.ok(!(leaderboard ?? []).some((row) => row.student_name === "studentB"));
   const currentLeaderboardRow = (leaderboard ?? []).find((row) => row.is_current_student);
   assert.ok(Number(currentLeaderboardRow?.score_percentage) <= 100, "leaderboard score exceeded 100%");
@@ -1516,6 +2210,387 @@ async function runAssertions(ids: SeedIds) {
     assert.equal(currentTeacher, false, `${name} granted current teacher scope`);
   }
 
+  // Future admin coverage must be gap-free and eventually open-ended.
+  const { data: finiteReplacement, error: finiteReplacementError } = await service
+    .from("masjid_staff_memberships")
+    .insert({
+      profile_id: ids.users.adminA,
+      masjid_id: ids.masjidB,
+      staff_role: "admin",
+      active: true,
+      starts_on: addDays(ids.today, 1),
+      ends_on: addDays(ids.today, 7),
+      created_by: ids.users.superAdmin
+    })
+    .select("id")
+    .single<{ id: string }>();
+  assert.equal(finiteReplacementError, null, finiteReplacementError?.message);
+  assert.ok(finiteReplacement);
+  const adminBCoverageState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminB
+  });
+  const noTerminalCoverage = await service.rpc("apply_super_admin_staff_membership_end", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminB,
+    input_membership_id: ids.staffMembershipB,
+    input_ends_on: ids.today,
+    input_expected_state: adminBCoverageState.data
+  });
+  assert.equal(noTerminalCoverage.error?.code, "23514", "finite-only coverage was accepted");
+
+  const { data: openReplacement, error: openReplacementError } = await service
+    .from("masjid_staff_memberships")
+    .insert({
+      profile_id: ids.users.futureAdmin,
+      masjid_id: ids.masjidB,
+      staff_role: "admin",
+      active: true,
+      starts_on: addDays(ids.today, 9),
+      created_by: ids.users.superAdmin
+    })
+    .select("id")
+    .single<{ id: string }>();
+  assert.equal(openReplacementError, null, openReplacementError?.message);
+  const laterGapState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminB
+  });
+  const laterGap = await service.rpc("apply_super_admin_staff_membership_end", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminB,
+    input_membership_id: ids.staffMembershipB,
+    input_ends_on: ids.today,
+    input_expected_state: laterGapState.data
+  });
+  assert.equal(laterGap.error?.code, "23514", "later future coverage gap was accepted");
+  const { error: closeGapError } = await service
+    .from("masjid_staff_memberships")
+    .update({ starts_on: addDays(ids.today, 8) })
+    .eq("id", openReplacement!.id);
+  assert.equal(closeGapError, null, closeGapError?.message);
+  const validHandoffState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminB
+  });
+  const validFutureHandoff = await service.rpc("apply_super_admin_staff_membership_end", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminB,
+    input_membership_id: ids.staffMembershipB,
+    input_ends_on: ids.today,
+    input_expected_state: validHandoffState.data
+  });
+  assert.equal(validFutureHandoff.error, null, validFutureHandoff.error?.message);
+
+  const { data: concurrencyMasjid, error: concurrencyMasjidError } = await service
+    .from("masajid")
+    .insert({ name: "RLS Concurrency Masjid", slug: "rls-concurrency-masjid", active: true })
+    .select("id")
+    .single<{ id: string }>();
+  assert.equal(concurrencyMasjidError, null, concurrencyMasjidError?.message);
+  const { data: concurrencyAdminMembership, error: concurrencyAdminMembershipError } = await service
+    .from("masjid_staff_memberships")
+    .insert({
+      profile_id: ids.users.adminB,
+      masjid_id: concurrencyMasjid!.id,
+      staff_role: "admin",
+      active: true,
+      starts_on: addDays(ids.today, -1),
+      created_by: ids.users.superAdmin
+    })
+    .select("id")
+    .single<{ id: string }>();
+  assert.equal(concurrencyAdminMembershipError, null, concurrencyAdminMembershipError?.message);
+  const concurrentEndState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminB
+  });
+  const concurrentGrantState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminA
+  });
+  const concurrentEndRequestId = randomUUID();
+  const concurrentEndArgs = {
+    input_request_id: concurrentEndRequestId,
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminB,
+    input_membership_id: concurrencyAdminMembership!.id,
+    input_ends_on: ids.today,
+    input_expected_state: concurrentEndState.data
+  };
+  const concurrentGrantArgs = {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminA,
+    input_masjid_id: concurrencyMasjid!.id,
+    input_grant: "admin",
+    input_starts_on: addDays(ids.today, 1),
+    input_expected_state: concurrentGrantState.data
+  };
+  const [concurrentEnd, concurrentGrant] = await Promise.all([
+    service.rpc("apply_super_admin_staff_membership_end", concurrentEndArgs),
+    service.rpc("apply_super_admin_masjid_staff_grant", concurrentGrantArgs)
+  ]);
+  assert.equal(concurrentGrant.error, null, concurrentGrant.error?.message);
+  if (concurrentEnd.error) {
+    assert.equal(concurrentEnd.error.code, "23514");
+    const retryConcurrentEnd = await service.rpc("apply_super_admin_staff_membership_end", concurrentEndArgs);
+    assert.equal(retryConcurrentEnd.error, null, retryConcurrentEnd.error?.message);
+  }
+
+  const { data: inactiveMasjidAdminMembership, error: inactiveMasjidAdminMembershipError } = await service
+    .from("masjid_staff_memberships")
+    .select("id")
+    .eq("profile_id", ids.users.adminA)
+    .eq("masjid_id", ids.inactiveMasjid)
+    .eq("staff_role", "admin")
+    .eq("active", true)
+    .is("ends_on", null)
+    .single<{ id: string }>();
+  assert.equal(inactiveMasjidAdminMembershipError, null, inactiveMasjidAdminMembershipError?.message);
+  const inactiveMasjidAdminState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminA
+  });
+  assert.equal(inactiveMasjidAdminState.error, null, inactiveMasjidAdminState.error?.message);
+  const inactiveMasjidEnd = await service.rpc("apply_super_admin_staff_membership_end", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminA,
+    input_membership_id: inactiveMasjidAdminMembership!.id,
+    input_ends_on: ids.today,
+    input_expected_state: inactiveMasjidAdminState.data
+  });
+  assert.equal(inactiveMasjidEnd.error, null, "inactive masjid incorrectly required future admin coverage");
+
+  const inactiveMasjidRow = await requireData<{
+    id: string;
+    name: string;
+    slug: string;
+    active: boolean;
+    updated_at: string;
+  }>(
+    "load inactive masjid for guarded reactivation",
+    service
+      .from("masajid")
+      .select("id,name,slug,active,updated_at")
+      .eq("id", ids.inactiveMasjid)
+      .single()
+  );
+  let inactiveMasjidExpectedState = {
+    ...inactiveMasjidRow,
+    updated_at: new Date(inactiveMasjidRow.updated_at).toISOString()
+  };
+  const guardedReactivation = await service.rpc("apply_super_admin_masjid_update", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_masjid_id: ids.inactiveMasjid,
+    input_name: inactiveMasjidRow.name,
+    input_slug: inactiveMasjidRow.slug,
+    input_active: true,
+    input_expected_state: inactiveMasjidExpectedState
+  });
+  assert.equal(guardedReactivation.error?.code, "23514", "guarded reactivation accepted incomplete admin coverage");
+
+  const directServiceReactivation = await service
+    .from("masajid")
+    .update({ active: true })
+    .eq("id", ids.inactiveMasjid);
+  assert.equal(directServiceReactivation.error?.code, "23514", "service Data API bypassed reactivation coverage");
+  const directBrowserReactivation = await superAdmin
+    .from("masajid")
+    .update({ active: true })
+    .eq("id", ids.inactiveMasjid)
+    .select("id")
+    .single();
+  assert.ok(directBrowserReactivation.error, "browser Data API bypassed service-only masjid updates");
+
+  const inactiveEditRequestId = randomUUID();
+  const inactiveEditArgs = {
+    input_request_id: inactiveEditRequestId,
+    input_actor_id: ids.users.superAdmin,
+    input_masjid_id: ids.inactiveMasjid,
+    input_name: `${inactiveMasjidRow.name} Edited`,
+    input_slug: inactiveMasjidRow.slug,
+    input_active: false,
+    input_expected_state: inactiveMasjidExpectedState
+  };
+  const inactiveEdit = await service.rpc("apply_super_admin_masjid_update", inactiveEditArgs);
+  assert.equal(inactiveEdit.error, null, inactiveEdit.error?.message);
+  const inactiveEditResult = inactiveEdit.data as {
+    masjid_state?: typeof inactiveMasjidExpectedState;
+  } | null;
+  assert.ok(inactiveEditResult?.masjid_state, "inactive masjid edit omitted canonical state");
+  assert.equal(inactiveEditResult!.masjid_state!.active, false);
+  assert.equal(inactiveEditResult!.masjid_state!.name, inactiveEditArgs.input_name);
+
+  const replayedInactiveEdit = await service.rpc("apply_super_admin_masjid_update", {
+    ...inactiveEditArgs,
+    input_expected_state: inactiveEditResult!.masjid_state
+  });
+  assert.equal(replayedInactiveEdit.error, null, replayedInactiveEdit.error?.message);
+  assert.deepEqual(replayedInactiveEdit.data, inactiveEdit.data, "committed masjid update did not replay");
+
+  const changedInactiveEditReplay = await service.rpc("apply_super_admin_masjid_update", {
+    ...inactiveEditArgs,
+    input_name: `${inactiveEditArgs.input_name} Changed`,
+    input_expected_state: inactiveEditResult!.masjid_state
+  });
+  assert.equal(changedInactiveEditReplay.error?.code, "22023", "changed masjid update reused a request ID");
+
+  const staleInactiveEdit = await service.rpc("apply_super_admin_masjid_update", {
+    ...inactiveEditArgs,
+    input_request_id: randomUUID()
+  });
+  assert.equal(staleInactiveEdit.error?.code, "P0001", "stale masjid update unexpectedly committed");
+  inactiveMasjidExpectedState = inactiveEditResult!.masjid_state!;
+
+  const auditFailureRequestId = randomUUID();
+  const auditFailureUpdate = await service.rpc("apply_super_admin_masjid_update", {
+    input_request_id: auditFailureRequestId,
+    input_actor_id: ids.users.superAdmin,
+    input_masjid_id: ids.inactiveMasjid,
+    input_name: inactiveMasjidExpectedState.name,
+    input_slug: "force-audit-failure",
+    input_active: false,
+    input_expected_state: inactiveMasjidExpectedState
+  });
+  assert.equal(auditFailureUpdate.error?.code, "P0001", "forced audit failure unexpectedly committed");
+  const rolledBackMasjid = await requireData<{ slug: string; active: boolean }>(
+    "load masjid after forced audit failure",
+    service.from("masajid").select("slug,active").eq("id", ids.inactiveMasjid).single()
+  );
+  assert.deepEqual(
+    rolledBackMasjid,
+    { slug: inactiveMasjidExpectedState.slug, active: false },
+    "failed audit did not roll back the masjid update"
+  );
+
+  const validCoverageMasjid = await requireData<{
+    id: string;
+    name: string;
+    slug: string;
+    active: boolean;
+    updated_at: string;
+  }>(
+    "create valid-coverage reactivation masjid",
+    service
+      .from("masajid")
+      .insert({ name: "RLS Valid Reactivation", slug: "rls-valid-reactivation", active: false })
+      .select("id,name,slug,active,updated_at")
+      .single()
+  );
+  await requireData<{ id: string }>(
+    "create valid reactivation coverage",
+    service
+      .from("masjid_staff_memberships")
+      .insert({
+        profile_id: ids.users.adminA,
+        masjid_id: validCoverageMasjid.id,
+        staff_role: "admin",
+        active: true,
+        starts_on: addDays(ids.today, -1),
+        created_by: ids.users.superAdmin
+      })
+      .select("id")
+      .single()
+  );
+  const validReactivation = await service.rpc("apply_super_admin_masjid_update", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_masjid_id: validCoverageMasjid.id,
+    input_name: validCoverageMasjid.name,
+    input_slug: validCoverageMasjid.slug,
+    input_active: true,
+    input_expected_state: {
+      ...validCoverageMasjid,
+      updated_at: new Date(validCoverageMasjid.updated_at).toISOString()
+    }
+  });
+  assert.equal(validReactivation.error, null, validReactivation.error?.message);
+
+  const concurrencyMasjidClosure = await requireData<{
+    id: string;
+    name: string;
+    slug: string;
+    active: boolean;
+    updated_at: string;
+  }>(
+    "create reactivation concurrency masjid",
+    service
+      .from("masajid")
+      .insert({ name: "RLS Reactivation Concurrency", slug: "rls-reactivation-concurrency", active: false })
+      .select("id,name,slug,active,updated_at")
+      .single()
+  );
+  const concurrencyCoverageMembership = await requireData<{ id: string }>(
+    "create reactivation concurrency coverage",
+    service
+      .from("masjid_staff_memberships")
+      .insert({
+        profile_id: ids.users.adminA,
+        masjid_id: concurrencyMasjidClosure.id,
+        staff_role: "admin",
+        active: true,
+        starts_on: addDays(ids.today, -1),
+        created_by: ids.users.superAdmin
+      })
+      .select("id")
+      .single()
+  );
+  const concurrencyCoverageState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminA
+  });
+  assert.equal(concurrencyCoverageState.error, null, concurrencyCoverageState.error?.message);
+  const concurrentReactivationArgs = {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_masjid_id: concurrencyMasjidClosure.id,
+    input_name: concurrencyMasjidClosure.name,
+    input_slug: concurrencyMasjidClosure.slug,
+    input_active: true,
+    input_expected_state: {
+      ...concurrencyMasjidClosure,
+      updated_at: new Date(concurrencyMasjidClosure.updated_at).toISOString()
+    }
+  };
+  const concurrentCoverageEndArgs = {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminA,
+    input_membership_id: concurrencyCoverageMembership.id,
+    input_ends_on: ids.today,
+    input_expected_state: concurrencyCoverageState.data
+  };
+  const [concurrentReactivationResult, concurrentCoverageEndResult] = await Promise.all([
+    service.rpc("apply_super_admin_masjid_update", concurrentReactivationArgs),
+    service.rpc("apply_super_admin_staff_membership_end", concurrentCoverageEndArgs)
+  ]);
+  assert.notEqual(
+    concurrentReactivationResult.error === null,
+    concurrentCoverageEndResult.error === null,
+    "concurrent reactivation and last-admin end did not serialize to one safe winner"
+  );
+  if (concurrentReactivationResult.error) assert.equal(concurrentReactivationResult.error.code, "23514");
+  if (concurrentCoverageEndResult.error) assert.equal(concurrentCoverageEndResult.error.code, "23514");
+  const finalConcurrencyMasjid = await requireData<{ active: boolean }>(
+    "load final reactivation concurrency masjid",
+    service.from("masajid").select("active").eq("id", concurrencyMasjidClosure.id).single()
+  );
+  const { count: finalOpenConcurrencyAdmins, error: finalOpenConcurrencyAdminsError } = await service
+    .from("masjid_staff_memberships")
+    .select("id", { count: "exact", head: true })
+    .eq("masjid_id", concurrencyMasjidClosure.id)
+    .eq("staff_role", "admin")
+    .eq("active", true)
+    .is("ends_on", null);
+  assert.equal(finalOpenConcurrencyAdminsError, null, finalOpenConcurrencyAdminsError?.message);
+  assert.ok(!finalConcurrencyMasjid.active || (finalOpenConcurrencyAdmins ?? 0) > 0);
+
   await assertVisible(superAdmin, "checkins", ids.checkinA);
   await assertVisible(superAdmin, "checkins", ids.checkinB);
   await assertVisible(superAdmin, "masajid", ids.inactiveMasjid);
@@ -1524,13 +2599,42 @@ async function runAssertions(ids: SeedIds) {
   await assertVisible(superAdmin, "cohorts", ids.inactiveCohort);
   await assertVisible(superAdmin, "halaqa_groups", ids.inactiveCohortGroup);
   await assertVisible(superAdmin, "halaqa_groups", ids.inactiveGroup);
-  const { data: superProfileUpdate, error: superProfileError } = await superAdmin
-    .from("profiles")
-    .update({ phone: null })
-    .eq("id", ids.users.studentB)
-    .select("id");
-  assert.equal(superProfileError, null, superProfileError?.message);
-  assert.equal(superProfileUpdate?.length, 1, "super admin profile update was rejected");
+  // A signed super admin may read globally but cannot bypass guarded service RPCs
+  // for profile or access-membership mutations through the Data API.
+  await assertInsertBlocked(superAdmin, "profiles", {
+    id: ids.users.profileTarget,
+    name: "Direct Super Admin Profile",
+    email: "profiletarget@rls.local",
+    phone: null,
+    role: "student",
+    active: true
+  });
+  await assertUpdateBlocked(superAdmin, "profiles", ids.users.studentB, { active: false });
+  await assertDeleteBlocked(superAdmin, "profiles", ids.users.studentB);
+  await assertInsertBlocked(superAdmin, "student_group_memberships", {
+    student_id: ids.users.studentB,
+    group_id: ids.groupA,
+    starts_on: addDays(ids.weekStart, -42),
+    ends_on: addDays(ids.weekStart, -36),
+    assigned_by: ids.users.superAdmin
+  });
+  await assertUpdateBlocked(superAdmin, "student_group_memberships", ids.studentMembershipB, {
+    ends_on: ids.today
+  });
+  await assertDeleteBlocked(superAdmin, "student_group_memberships", ids.studentMembershipB);
+  await assertInsertBlocked(superAdmin, "masjid_staff_memberships", {
+    profile_id: ids.users.teacherB,
+    masjid_id: ids.masjidA,
+    staff_role: "teacher",
+    active: true,
+    starts_on: addDays(ids.weekStart, -42),
+    ends_on: addDays(ids.weekStart, -36),
+    created_by: ids.users.superAdmin
+  });
+  await assertUpdateBlocked(superAdmin, "masjid_staff_memberships", ids.staffMembershipB, {
+    ends_on: ids.today
+  });
+  await assertDeleteBlocked(superAdmin, "masjid_staff_memberships", ids.staffMembershipB);
   const { data: superAccountabilityUpdate, error: superAccountabilityError } = await superAdmin
     .from("accountability_obligations")
     .update({ admin_note: "super-admin operational update" })
@@ -1538,7 +2642,10 @@ async function runAssertions(ids: SeedIds) {
     .select("id");
   assert.equal(superAccountabilityError, null, superAccountabilityError?.message);
   assert.equal(superAccountabilityUpdate?.length, 1, "super admin operational update was rejected");
-  const { data: auditRows, error: auditError } = await superAdmin.from("super_admin_audit_events").select("id");
+  const { data: auditRows, error: auditError } = await superAdmin
+    .from("super_admin_audit_events")
+    .select("id")
+    .eq("id", ids.auditId);
   assert.equal(auditError, null, auditError?.message);
   assert.equal(auditRows?.length, 1);
   const ordinaryAudit = await adminA.from("super_admin_audit_events").select("id");

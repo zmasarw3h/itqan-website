@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
@@ -16,9 +17,7 @@ import {
   adminMasjidConfirmationText,
   buildSuperAdminAccessChangePlan,
   parseSuperAdminAccessPreset,
-  SuperAdminAccessPlanError,
-  type StaffMembershipWindow,
-  type StudentMembershipWindow
+  SuperAdminAccessPlanError
 } from "@/lib/super-admin-access";
 import {
   insertSuperAdminAuditEvent,
@@ -26,7 +25,17 @@ import {
   requireSuperAdminAdminClient
 } from "@/lib/super-admin";
 import { assertProfileRoleTransition, SuperAdminGuardError } from "@/lib/super-admin-rules";
-import type { MasjidStaffMembership, Profile, StaffRole, StudentGroupMembership } from "@/lib/types";
+import {
+  applySuperAdminAccessChangeTransactionally,
+  endStaffMembershipTransactionally,
+  parsePersonAccessState,
+  staffMembershipEndRpcArguments,
+  superAdminAccessChangeRpcArguments,
+  superAdminMutationStatusForOutcome,
+  type PersonAccessState,
+  type StaffMembershipEndResult,
+  type SuperAdminAccessChangeResult
+} from "@/lib/transactional-workflows";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -73,208 +82,6 @@ function statusForError(error: unknown) {
   }
 
   return "save-error";
-}
-
-function profileAuditData(profile: Pick<Profile, "role" | "active">) {
-  return {
-    role: profile.role,
-    active: profile.active
-  };
-}
-
-function studentMembershipAuditData(membership: Pick<StudentGroupMembership, "student_id" | "group_id" | "starts_on" | "ends_on">) {
-  return {
-    student_id: membership.student_id,
-    group_id: membership.group_id,
-    starts_on: membership.starts_on,
-    ends_on: membership.ends_on
-  };
-}
-
-function staffMembershipAuditData(
-  membership: Pick<MasjidStaffMembership, "profile_id" | "masjid_id" | "staff_role" | "active" | "starts_on" | "ends_on">
-) {
-  return {
-    profile_id: membership.profile_id,
-    masjid_id: membership.masjid_id,
-    staff_role: membership.staff_role,
-    active: membership.active,
-    starts_on: membership.starts_on,
-    ends_on: membership.ends_on
-  };
-}
-
-async function auditProfileChange(input: {
-  actor: Profile;
-  adminSupabase: Awaited<ReturnType<typeof requireSuperAdminAdminClient>>["adminSupabase"];
-  target: Profile;
-  nextRole: Profile["role"];
-  nextActive: boolean;
-  preset: string;
-}) {
-  if (input.target.role === input.nextRole && input.target.active === input.nextActive) {
-    return;
-  }
-
-  await insertSuperAdminAuditEvent({
-    actor: input.actor,
-    adminSupabase: input.adminSupabase,
-    event: {
-      action: "profile_access_update",
-      targetTable: "profiles",
-      targetId: input.target.id,
-      beforeData: profileAuditData(input.target),
-      afterData: {
-        role: input.nextRole,
-        active: input.nextActive
-      },
-      metadata: {
-        preset: input.preset
-      }
-    }
-  });
-}
-
-async function closeStudentMembership(input: {
-  actor: Profile;
-  adminSupabase: Awaited<ReturnType<typeof requireSuperAdminAdminClient>>["adminSupabase"];
-  before: StudentMembershipWindow & { masjid_id?: string };
-  endsOn: string;
-}) {
-  const { data, error } = await input.adminSupabase
-    .from("student_group_memberships")
-    .update({ ends_on: input.endsOn, updated_at: new Date().toISOString() })
-    .eq("id", input.before.id)
-    .select("id,student_id,group_id,starts_on,ends_on,assigned_by,created_at,updated_at")
-    .single<StudentGroupMembership>();
-
-  if (error || !data) {
-    throw new Error("Unable to close student membership.");
-  }
-
-  await insertSuperAdminAuditEvent({
-    actor: input.actor,
-    adminSupabase: input.adminSupabase,
-    event: {
-      action: "student_membership_closed",
-      targetTable: "student_group_memberships",
-      targetId: input.before.id,
-      targetMasjidId: input.before.masjid_id ?? null,
-      beforeData: {
-        id: input.before.id,
-        group_id: input.before.group_id,
-        starts_on: input.before.starts_on,
-        ends_on: input.before.ends_on
-      },
-      afterData: studentMembershipAuditData(data)
-    }
-  });
-}
-
-async function insertStudentMembership(input: {
-  actor: Profile;
-  adminSupabase: Awaited<ReturnType<typeof requireSuperAdminAdminClient>>["adminSupabase"];
-  targetId: string;
-  groupId: string;
-  startsOn: string;
-  targetMasjidId: string;
-}) {
-  const { data, error } = await input.adminSupabase
-    .from("student_group_memberships")
-    .insert({
-      student_id: input.targetId,
-      group_id: input.groupId,
-      starts_on: input.startsOn,
-      assigned_by: input.actor.id
-    })
-    .select("id,student_id,group_id,starts_on,ends_on,assigned_by,created_at,updated_at")
-    .single<StudentGroupMembership>();
-
-  if (error || !data) {
-    throw new Error("Unable to create student membership.");
-  }
-
-  await insertSuperAdminAuditEvent({
-    actor: input.actor,
-    adminSupabase: input.adminSupabase,
-    event: {
-      action: "student_membership_created",
-      targetTable: "student_group_memberships",
-      targetId: data.id,
-      targetMasjidId: input.targetMasjidId,
-      afterData: studentMembershipAuditData(data)
-    }
-  });
-}
-
-async function closeStaffMembership(input: {
-  actor: Profile;
-  adminSupabase: Awaited<ReturnType<typeof requireSuperAdminAdminClient>>["adminSupabase"];
-  before: StaffMembershipWindow & Pick<MasjidStaffMembership, "profile_id">;
-  endsOn: string;
-  action?: string;
-}) {
-  const { data, error } = await input.adminSupabase
-    .from("masjid_staff_memberships")
-    .update({ ends_on: input.endsOn, updated_at: new Date().toISOString() })
-    .eq("id", input.before.id)
-    .select("id,profile_id,masjid_id,staff_role,active,starts_on,ends_on,created_by,created_at,updated_at")
-    .single<MasjidStaffMembership>();
-
-  if (error || !data) {
-    throw new Error("Unable to close staff membership.");
-  }
-
-  await insertSuperAdminAuditEvent({
-    actor: input.actor,
-    adminSupabase: input.adminSupabase,
-    event: {
-      action: input.action ?? "staff_membership_closed",
-      targetTable: "masjid_staff_memberships",
-      targetId: input.before.id,
-      targetMasjidId: input.before.masjid_id,
-      beforeData: staffMembershipAuditData(input.before),
-      afterData: staffMembershipAuditData(data)
-    }
-  });
-}
-
-async function insertStaffMembership(input: {
-  actor: Profile;
-  adminSupabase: Awaited<ReturnType<typeof requireSuperAdminAdminClient>>["adminSupabase"];
-  targetId: string;
-  masjidId: string;
-  staffRole: StaffRole;
-  startsOn: string;
-}) {
-  const { data, error } = await input.adminSupabase
-    .from("masjid_staff_memberships")
-    .insert({
-      profile_id: input.targetId,
-      masjid_id: input.masjidId,
-      staff_role: input.staffRole,
-      active: true,
-      starts_on: input.startsOn,
-      created_by: input.actor.id
-    })
-    .select("id,profile_id,masjid_id,staff_role,active,starts_on,ends_on,created_by,created_at,updated_at")
-    .single<MasjidStaffMembership>();
-
-  if (error || !data) {
-    throw new Error("Unable to create staff membership.");
-  }
-
-  await insertSuperAdminAuditEvent({
-    actor: input.actor,
-    adminSupabase: input.adminSupabase,
-    event: {
-      action: "staff_membership_created",
-      targetTable: "masjid_staff_memberships",
-      targetId: data.id,
-      targetMasjidId: input.masjidId,
-      afterData: staffMembershipAuditData(data)
-    }
-  });
 }
 
 export async function savePersonAccess(formData: FormData) {
@@ -376,86 +183,67 @@ export async function savePersonAccess(formData: FormData) {
       throw new ConfirmationMismatchError();
     }
 
-    if (target.role !== plan.nextRole || target.active !== plan.nextActive) {
-      const { error } = await adminSupabase
-        .from("profiles")
-        .update({ role: plan.nextRole, active: plan.nextActive })
-        .eq("id", target.id);
+    const requestIdValue = optionalFormString(formData, "request_id");
+    const requestId = requestIdValue && requireUuid(requestIdValue) ? requestIdValue : randomUUID();
+    const submittedExpectedStateValue = formString(formData, "expected_state");
+    const submittedExpectedState = submittedExpectedStateValue
+      ? parsePersonAccessState(submittedExpectedStateValue)
+      : null;
 
-      if (error) {
-        throw new Error("Unable to update profile.");
-      }
-
-      await auditProfileChange({
-        actor,
-        adminSupabase,
-        target,
-        nextRole: plan.nextRole,
-        nextActive: plan.nextActive,
-        preset
-      });
+    if (submittedExpectedStateValue && !submittedExpectedState) {
+      throw new SuperAdminAccessPlanError("Invalid access state token.");
     }
 
-    const studentMembershipById = new Map(studentMemberships.map((membership) => [membership.id, membership]));
-    const staffMembershipById = new Map(staffMemberships.map((membership) => [membership.id, membership]));
+    const canonicalMasjidId = preset === "student"
+      ? selectedGroupMasjidId
+      : preset === "inactive"
+        ? null
+        : selectedMasjid?.id ?? null;
+    const canonicalGroupId = preset === "student" ? selectedGroupId : null;
+    const outcome = await applySuperAdminAccessChangeTransactionally(
+      {
+        requestId,
+        actorId: actor.id,
+        targetProfileId: target.id,
+        preset,
+        startsOn,
+        selectedMasjidId: canonicalMasjidId,
+        selectedGroupId: canonicalGroupId,
+        submittedExpectedState
+      },
+      {
+        getPersonAccessState: async (actorId, targetProfileId) => {
+          const { data, error } = await adminSupabase.rpc("get_person_access_state", {
+            input_actor_id: actorId,
+            input_target_profile_id: targetProfileId
+          });
 
-    for (const close of plan.studentMembershipCloses) {
-      const before = studentMembershipById.get(close.id);
+          return { data: data as PersonAccessState | null, error };
+        },
+        applyAccessChange: async (accessInput, expectedState) => {
+          const { data, error } = await adminSupabase.rpc(
+            "apply_super_admin_access_change",
+            superAdminAccessChangeRpcArguments(accessInput, expectedState)
+          );
 
-      if (!before) {
-        throw new Error("Unable to find student membership.");
+          return { data: data as SuperAdminAccessChangeResult | null, error };
+        }
       }
+    );
 
-      await closeStudentMembership({
-        actor,
-        adminSupabase,
-        before,
-        endsOn: close.endsOn
-      });
-    }
+    if (!outcome.ok) {
+      failureStatus = superAdminMutationStatusForOutcome(outcome);
 
-    if (plan.studentMembershipInsert) {
-      if (!selectedGroupMasjidId) {
-        throw new Error("Missing student masjid scope.");
+      if (outcome.uncertain) {
+        console.error("Super-admin access change requires operator review.", {
+          requestId,
+          targetProfileId: target.id,
+          mutationErrorCode: outcome.error.code ?? null
+        });
       }
-
-      await insertStudentMembership({
-        actor,
-        adminSupabase,
-        targetId: target.id,
-        groupId: plan.studentMembershipInsert.groupId,
-        startsOn: plan.studentMembershipInsert.startsOn,
-        targetMasjidId: selectedGroupMasjidId
-      });
-    }
-
-    for (const close of plan.staffMembershipCloses) {
-      const before = staffMembershipById.get(close.id);
-
-      if (!before) {
-        throw new Error("Unable to find staff membership.");
-      }
-
-      await closeStaffMembership({
-        actor,
-        adminSupabase,
-        before,
-        endsOn: close.endsOn
-      });
-    }
-
-    for (const insert of plan.staffMembershipInserts) {
-      await insertStaffMembership({
-        actor,
-        adminSupabase,
-        targetId: target.id,
-        masjidId: insert.masjidId,
-        staffRole: insert.staffRole,
-        startsOn: insert.startsOn
-      });
     }
   } catch (error) {
-    failureStatus = statusForError(error);
+    failureStatus ??= statusForError(error);
   }
 
   if (failureStatus) {
@@ -503,15 +291,60 @@ export async function endStaffMembership(formData: FormData) {
       throw new ConfirmationMismatchError();
     }
 
-    await closeStaffMembership({
-      actor,
-      adminSupabase,
-      before: membership,
-      endsOn,
-      action: "staff_membership_ended"
-    });
+    const requestIdValue = optionalFormString(formData, "request_id");
+    const requestId = requestIdValue && requireUuid(requestIdValue) ? requestIdValue : randomUUID();
+    const submittedExpectedStateValue = formString(formData, "expected_state");
+    const submittedExpectedState = submittedExpectedStateValue
+      ? parsePersonAccessState(submittedExpectedStateValue)
+      : null;
+
+    if (submittedExpectedStateValue && !submittedExpectedState) {
+      throw new SuperAdminAccessPlanError("Invalid access state token.");
+    }
+
+    const outcome = await endStaffMembershipTransactionally(
+      {
+        requestId,
+        actorId: actor.id,
+        targetProfileId: target.id,
+        membershipId: membership.id,
+        endsOn,
+        submittedExpectedState
+      },
+      {
+        getPersonAccessState: async (actorId, targetProfileId) => {
+          const { data, error } = await adminSupabase.rpc("get_person_access_state", {
+            input_actor_id: actorId,
+            input_target_profile_id: targetProfileId
+          });
+
+          return { data: data as PersonAccessState | null, error };
+        },
+        applyMembershipEnd: async (endInput, expectedState) => {
+          const { data, error } = await adminSupabase.rpc(
+            "apply_super_admin_staff_membership_end",
+            staffMembershipEndRpcArguments(endInput, expectedState)
+          );
+
+          return { data: data as StaffMembershipEndResult | null, error };
+        }
+      }
+    );
+
+    if (!outcome.ok) {
+      failureStatus = superAdminMutationStatusForOutcome(outcome);
+
+      if (outcome.uncertain) {
+        console.error("Staff membership end requires operator review.", {
+          requestId,
+          targetProfileId: target.id,
+          membershipId: membership.id,
+          mutationErrorCode: outcome.error.code ?? null
+        });
+      }
+    }
   } catch (error) {
-    failureStatus = statusForError(error);
+    failureStatus ??= statusForError(error);
   }
 
   if (failureStatus) {

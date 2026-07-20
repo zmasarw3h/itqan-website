@@ -37,6 +37,12 @@ Core tables:
 - `teacher_rotation_runs`: audit metadata for generated weekly rotation runs.
 - `super_admin_audit_events`: append-only audit target for future super-admin mutations and account recovery actions.
 
+Internal transactional state lives in the unexposed `private` schema:
+
+- `workflow_mutation_requests`: completed service-workflow requests keyed by caller-generated UUID. It stores the normalized input and result so an exact retry returns the original result without duplicating memberships or audit events. It has no browser or service-role table grants; only the guarded definer functions can use it.
+- `workflow_expected_state_snapshots`: binds a staff-grant request UUID to its stable desired inputs and original canonical access snapshot, so a committed response can be replayed after the target state changes.
+- `masjid_update_requests`: stores stable masjid-update inputs and committed results for exact replay without repeating the hierarchy update or audit event.
+
 Server-side helper functions expose narrow caller-relative views used by the app:
 
 - `student_weekly_teacher_name(week_start)`: returns only the signed-in student's assigned teacher display name.
@@ -48,6 +54,22 @@ Server-side helper functions expose narrow caller-relative views used by the app
 The superseded `student_weekly_teacher(student_id, week_start)` and
 `student_cohort_students_for_week(student_id, week_start)` functions remain in the schema for migration
 compatibility but have no browser-role execute grant.
+
+Service-only transactional functions added for Phase 1A and used by the Phase 1B server actions:
+
+- `apply_scoped_user_setup(...)`: validates the Auth user, actor, active hierarchy, and masjid scope before creating the profile, one student/teacher membership, and one audit event atomically.
+- `get_scoped_user_setup_request_result(...)`: validates the current actor and exact original setup payload before returning a completed request result. This lets an identical form retry finish without creating a second Auth user.
+- `get_scoped_user_setup_auth_recovery(...)`: resolves an Auth-only identity only when its trusted Auth metadata exactly matches the setup request UUID, actor, normalized email, and complete canonical setup payload. It never exposes Auth identity lookup to browser roles.
+- `get_person_access_state(actor_id, target_profile_id)`: returns a canonical profile/membership snapshot only after verifying that the passed actor is currently an active super admin.
+- `apply_super_admin_access_change(...)`: locks and compares that snapshot, derives the access transition in PostgreSQL, writes profile/membership/audit changes atomically, and protects the last active super admin and last active admin of an active masjid.
+- `apply_super_admin_masjid_staff_grant(...)`: atomically promotes an active person, reconciles student access, inserts the requested admin and/or teacher memberships, and writes all audit events using an idempotent request ledger and canonical stale-state check.
+- `prepare_super_admin_masjid_staff_grant(...)`: captures or replays the original canonical access snapshot for one stable staff-grant request before the mutation RPC runs.
+- `apply_super_admin_staff_membership_end(...)`: closes one open staff membership and writes its audit event in the same transaction after checking the canonical snapshot, date, target relationship, and continuous future admin-coverage invariant.
+- `apply_super_admin_masjid_update(...)`: atomically updates masjid fields and active state, writes the audit event, rejects stale state, and prevents activation without continuous admin coverage.
+
+All transactional functions are denied to `PUBLIC`, `anon`, and `authenticated` and granted only to
+`service_role`. Their passed actor IDs are treated as untrusted input and revalidated from current
+database state inside each call.
 
 ## Weekly Rotation Foundation
 
@@ -103,6 +125,8 @@ Existing admins receive TIC admin staff memberships. Existing active students re
 - Student checklist items must match the canonical task key/label/weight for the date. Database triggers protect check-in identity, scope, date, and attribution and recalculate score-bearing columns from task completion.
 - Active students without an effective group membership see setup-incomplete screens and cannot create check-ins, weekly plans, or partner recitations.
 - Admin app queries and mutations are scoped by masjid membership. Phase 0 also tightens direct Data API write policies so normal admins cannot grant admin access, mutate global foundation setup, or change other masajid through broad RLS.
+- Signed super-admin sessions are read-capable but cannot directly mutate profiles or student/staff membership history through the Data API. Super-admin access writes use the guarded service-only transactional functions.
+- An active masjid must have gap-free admin coverage from the current effective date through every future membership boundary, ending in at least one open-ended active admin membership. Inactive masajid are exempt until reactivated.
 - Active super admins can read `super_admin_audit_events`; browser/client writes to the audit table are not exposed.
-- Normal admins close or deactivate membership/assignment rows instead of deleting foundation history. Direct deletes of those history rows are super-admin-only.
+- Normal admins close or deactivate membership/assignment rows instead of deleting foundation history. Direct signed-session deletes of student and staff membership history are denied, including for super admins.
 - Teachers are eventually scoped by assigned group/week and can grade/view weekly plans only for assigned students.

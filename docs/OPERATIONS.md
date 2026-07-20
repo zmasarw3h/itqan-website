@@ -15,7 +15,9 @@ Manual in the app:
 7. Share the temporary password shown by the app flow: `itqan2026`.
 8. Ask the user to change their password after first sign-in.
 
-The app creates the Supabase Auth user and matching active `public.profiles` row. It also assigns:
+The app creates the Supabase Auth user first, then calls `apply_scoped_user_setup(...)` once to create
+the matching active `public.profiles` row, scoped membership, and audit event in one database transaction.
+It assigns:
 
 - New students to the selected active group, effective from the current tracker week.
 - New teachers to the selected active masjid with `staff_role = 'teacher'`, effective from the current tracker week.
@@ -27,9 +29,53 @@ from the normal admin app. Use the super-admin console for those operations.
 Admins can also participate in teacher rotation. Keep their profile role as `admin` and add an active
 `masjid_staff_memberships` row with `staff_role = 'teacher'` for the relevant masjid.
 
-The app validates the selected scope before creating the Auth user. If a later membership insert fails,
-the user may exist in Auth/Profile but will not have usable app access until the masjid/cohort/group or
-staff membership is fixed.
+Supabase Auth creation and the PostgreSQL transaction cannot share one transaction. Before creating an
+Auth user, an exact retry checks `get_scoped_user_setup_request_result(...)`; a completed request returns
+its original result without calling Auth again. An unknown setup-RPC response is retried with the same
+request UUID and then checked for boundedly before any cleanup decision. The app never deletes the Auth
+identity after an unresolved response. It reports `setup-uncertain` and logs only request/profile IDs and
+error codes for operator review. The uncertain redirect preserves the validated request UUID and scoped
+selections but no name, phone, or password; the operator re-enters the same name and phone to resume the
+exact request. Other outcomes render a fresh request UUID. Only a definitive database rejection triggers Auth deletion compensation;
+cleanup success and failure remain distinct statuses.
+
+An Auth Admin API response can be lost before PostgreSQL setup begins. This cannot be made atomic across
+Supabase Auth and Postgres. The first attempt reports `auth-uncertain`; unknown Auth failures are not
+reported as an existing account. New Auth identities carry trusted `app_metadata` containing the request
+UUID, actor UUID, and canonical setup payload. Retrying the exact same form causes the duplicate Auth
+response to use `get_scoped_user_setup_auth_recovery(...)`; only an Auth-only identity with an exact actor,
+email, request, and payload match is resumed. Cross-actor, changed-payload, and unrelated duplicate-email
+attempts remain denied. If exact recovery remains unresolved, inspect the logged request ID and use the
+documented repair workflow rather than deleting an identity whose database state is uncertain.
+
+## Transactional Workflow Rollout
+
+Deploy `20260720053556_transactional_workflow_foundation.sql` and then
+`20260720082914_close_transactional_hardening_findings.sql` before deploying the matching app code.
+Both migrations are backward-compatible with the previously deployed actions: they add private
+idempotency state, guarded triggers, and service-only functions without removing current contracts.
+
+After applying the migration:
+
+1. Run the schema sanity query and `supabase migration list`.
+2. Confirm `service_role` alone can execute `apply_scoped_user_setup`, `get_scoped_user_setup_request_result`, `get_scoped_user_setup_auth_recovery`, `get_person_access_state`, `apply_super_admin_access_change`, `prepare_super_admin_masjid_staff_grant`, `apply_super_admin_masjid_staff_grant`, `apply_super_admin_staff_membership_end`, and `apply_super_admin_masjid_update`.
+3. Confirm `anon` and `authenticated` cannot execute those functions.
+4. Deploy the Phase 1B application wiring only after those checks pass. Do not deploy Phase 1B before
+   the migration because user creation, composite access changes, and standalone staff-membership closure now depend on these RPCs.
+
+Each rendered mutation form carries one request UUID through its server action. Retrying the exact same
+request UUID and payload returns the stored result. Reusing a request UUID with different input is
+rejected. The form carries its original server-generated snapshot only as an untrusted retry token. The
+super-admin action reloads target and scope records and calls `get_person_access_state(...)` on every
+submission. On the normal path it passes the freshly loaded canonical snapshot. If the original token
+differs, PostgreSQL accepts it only for an already-completed exact request replay; otherwise the database
+stale-state comparison rejects it and the UI asks the operator to review current access before submitting
+again.
+
+Unknown or malformed super-admin mutation responses are retried once with the same request UUID and
+payload. If both responses remain unresolved, the UI reports `access-uncertain`; review the freshly loaded
+canonical access state before submitting a new request. The person editor's displayed role/memberships,
+form defaults, and expected-state token all come from the same service-only canonical snapshot.
 
 ## Masjid Setup
 
@@ -234,6 +280,19 @@ Super admin workflow in the app:
 3. Create a masjid with a slug, active state, optional starter brothers/sisters cohort, and optional starter group.
 4. Open the masjid detail page to edit the masjid, create or deactivate cohorts, and create or deactivate groups.
 5. Grant the first admin or admin-teacher from an existing active person by email or phone.
+
+Staff grants use one stable form request UUID and the guarded transactional workflow. Profile promotion,
+student-membership reconciliation, one or both staff memberships, and all audit events commit or roll back
+together. An ambiguous response is retried with the same UUID and reports `staff-grant-uncertain` if its
+result still cannot be established. After commit, the same UUID and stable grant inputs replay the stored
+result even when the current expected-state token has changed; actor, target, masjid, grant, and effective
+date remain part of replay identity. Active masajid must retain continuous future admin coverage through
+all scheduled handoffs and ultimately have open-ended admin coverage.
+
+Masjid edits and active-state changes use one guarded transaction for the row update and audit event.
+Reactivation locks against concurrent admin-access changes and is rejected unless coverage is continuous
+from the current effective date through an open-ended administrator. An ambiguous update preserves its
+validated request UUID in the form so the exact desired update can be replayed; changed inputs with that UUID are rejected.
 
 Setup changes are audited in `super_admin_audit_events`. The UI does not delete masajid, cohorts, groups,
 or staff memberships; deactivation uses the `active` flag and requires typed confirmation when turning

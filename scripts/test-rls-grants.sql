@@ -63,7 +63,7 @@ begin
   from application_definers definers
   join pg_proc p on p.oid = definers.function_oid
   join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname <> 'public'
+  where n.nspname not in ('public', 'private')
     or not p.prosecdef
     or p.proowner <> (
       select anchor.proowner from pg_proc anchor
@@ -139,7 +139,19 @@ begin
     select signature from application_definers
     where has_function_privilege('service_role', function_oid, 'EXECUTE')
     except
-    select 'apply_teacher_rotation_generation(uuid,date,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,integer,integer,integer,integer)'
+    select signature
+    from (values
+      ('apply_scoped_user_setup(uuid,uuid,uuid,text,text,text,text,date,uuid,uuid)'),
+      ('apply_super_admin_access_change(uuid,uuid,uuid,text,date,uuid,uuid,jsonb)'),
+      ('apply_super_admin_masjid_update(uuid,uuid,uuid,text,text,boolean,jsonb)'),
+      ('apply_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date,jsonb)'),
+      ('apply_super_admin_staff_membership_end(uuid,uuid,uuid,uuid,date,jsonb)'),
+      ('apply_teacher_rotation_generation(uuid,date,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,integer,integer,integer,integer)'),
+      ('get_person_access_state(uuid,uuid)'),
+      ('prepare_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date)'),
+      ('get_scoped_user_setup_auth_recovery(uuid,uuid,text,text,text,text,date,uuid,uuid)'),
+      ('get_scoped_user_setup_request_result(uuid,uuid,text,text,text,text,date,uuid,uuid)')
+    ) expected_service(signature)
   ) difference;
 
   if invalid_allowlist is not null then
@@ -170,6 +182,147 @@ begin
   ) then
     raise exception 'service_role lacks guarded rotation generation EXECUTE';
   end if;
+
+  if not has_function_privilege(
+    'service_role',
+    'public.apply_scoped_user_setup(uuid,uuid,uuid,text,text,text,text,date,uuid,uuid)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.get_scoped_user_setup_auth_recovery(uuid,uuid,text,text,text,text,date,uuid,uuid)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.get_scoped_user_setup_request_result(uuid,uuid,text,text,text,text,date,uuid,uuid)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.apply_super_admin_access_change(uuid,uuid,uuid,text,date,uuid,uuid,jsonb)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.apply_super_admin_masjid_update(uuid,uuid,uuid,text,text,boolean,jsonb)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.apply_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date,jsonb)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.apply_super_admin_staff_membership_end(uuid,uuid,uuid,uuid,date,jsonb)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.prepare_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.get_person_access_state(uuid,uuid)',
+    'EXECUTE'
+  ) then
+    raise exception 'service_role lacks transactional workflow RPC EXECUTE';
+  end if;
+end;
+$$;
+
+-- Disposable-only fault injection used to prove a failed audit insert rolls the
+-- masjid mutation back. This is created after catalog assertions and never ships.
+create function public.test_reject_masjid_update_audit()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.action = 'masjid_updated'
+    and new.after_data ->> 'slug' = 'force-audit-failure' then
+    raise exception using errcode = 'P0001', message = 'forced masjid audit failure';
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger test_reject_masjid_update_audit_trigger
+  before insert on public.super_admin_audit_events
+  for each row
+  execute function public.test_reject_masjid_update_audit();
+
+-- The signed super-admin role is intentionally read-capable but cannot own
+-- direct profile/access-history writes. These policy-shape assertions catch a
+-- future migration that accidentally restores the Data API bypass.
+do $$
+begin
+  if exists (
+    select 1
+    from pg_catalog.pg_policies
+    where schemaname = 'public'
+      and tablename = 'masajid'
+      and cmd in ('ALL', 'INSERT', 'UPDATE', 'DELETE')
+      and 'authenticated' = any (roles)
+  ) then
+    raise exception 'authenticated masjid mutation policy bypasses guarded service workflows';
+  end if;
+end;
+$$;
+
+do $$
+declare
+  policy_expression text;
+begin
+  select lower(regexp_replace(coalesce(with_check, ''), '[()[:space:]]', '', 'g'))
+  into policy_expression
+  from pg_policies
+  where schemaname = 'public'
+    and tablename = 'profiles'
+    and policyname = 'Admins can insert profiles';
+  if policy_expression is distinct from 'false' then
+    raise exception 'profiles insert policy is not deny-only: %', policy_expression;
+  end if;
+
+  select lower(regexp_replace(coalesce(qual, '') || coalesce(with_check, ''), '[()[:space:]]', '', 'g'))
+  into policy_expression
+  from pg_policies
+  where schemaname = 'public'
+    and tablename = 'profiles'
+    and policyname = 'Admins can update profiles';
+  if policy_expression is distinct from 'falsefalse' then
+    raise exception 'profiles update policy is not deny-only: %', policy_expression;
+  end if;
+
+  for policy_expression in
+    select lower(coalesce(with_check, '') || coalesce(qual, ''))
+    from pg_policies
+    where schemaname = 'public'
+      and (
+        (tablename = 'student_group_memberships' and policyname in (
+          'Admins can insert student memberships',
+          'Admins can close student memberships'
+        ))
+        or (tablename = 'masjid_staff_memberships' and policyname in (
+          'Admins can insert teacher staff memberships',
+          'Admins can close teacher staff memberships'
+        ))
+      )
+  loop
+    if position('is_active_super_admin' in policy_expression) = 0
+      or position('not' in policy_expression) = 0 then
+      raise exception 'scoped membership policy does not explicitly exclude signed super admins: %', policy_expression;
+    end if;
+  end loop;
+
+  for policy_expression in
+    select lower(regexp_replace(coalesce(qual, ''), '[()[:space:]]', '', 'g'))
+    from pg_policies
+    where schemaname = 'public'
+      and (
+        (tablename = 'student_group_memberships' and policyname = 'Super admins can delete student membership history')
+        or (tablename = 'masjid_staff_memberships' and policyname = 'Super admins can delete staff membership history')
+      )
+  loop
+    if policy_expression is distinct from 'false' then
+      raise exception 'membership delete policy is not deny-only: %', policy_expression;
+    end if;
+  end loop;
 end;
 $$;
 
@@ -277,6 +430,36 @@ begin
     or has_table_privilege('service_role', 'public.super_admin_audit_events', 'DELETE')
     or has_table_privilege('service_role', 'public.super_admin_audit_events', 'TRUNCATE') then
     raise exception 'service_role has forbidden audit UPDATE/DELETE/TRUNCATE privileges';
+  end if;
+
+  if exists (
+    select 1
+    from (values ('anon'), ('authenticated'), ('service_role')) as roles(role_name)
+    cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE')) as privileges(privilege_name)
+    where has_table_privilege(
+      roles.role_name,
+      'private.workflow_mutation_requests',
+      privileges.privilege_name
+    )
+  ) then
+    raise exception 'workflow mutation ledger is directly accessible outside its owner functions';
+  end if;
+
+  if exists (
+    select 1
+    from (values ('anon'), ('authenticated'), ('service_role')) as roles(role_name)
+    cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE')) as privileges(privilege_name)
+    cross join (values
+      ('private.workflow_expected_state_snapshots'),
+      ('private.masjid_update_requests')
+    ) as protected_tables(table_name)
+    where has_table_privilege(
+      roles.role_name,
+      protected_tables.table_name,
+      privileges.privilege_name
+    )
+  ) then
+    raise exception 'transactional closure state is directly accessible outside owner functions';
   end if;
 end;
 $$;

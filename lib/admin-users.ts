@@ -4,6 +4,46 @@ import type { Role } from "@/lib/types";
 export const DEFAULT_USER_PASSWORD = "itqan2026";
 
 const CREATEABLE_ROLES = new Set<Role>(["student", "teacher"]);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UNCERTAIN_SETUP_STATUSES = new Set(["setup-uncertain", "auth-uncertain"]);
+
+export type ScopedUserSetupRetryContext = {
+  status: string;
+  requestId: string;
+  role: "student" | "teacher";
+  studentMasjidId?: string | null;
+  studentCohortId?: string | null;
+  studentGroupId?: string | null;
+  teacherMasjidId?: string | null;
+};
+
+export function preservedScopedUserSetupRequestId(status: string | undefined, requestId: string | undefined) {
+  return status && UNCERTAIN_SETUP_STATUSES.has(status) && requestId && UUID_PATTERN.test(requestId)
+    ? requestId
+    : null;
+}
+
+export function scopedUserSetupFailureSearchParams(input: ScopedUserSetupRetryContext) {
+  const params = new URLSearchParams({ status: input.status, role: input.role });
+
+  if (!UNCERTAIN_SETUP_STATUSES.has(input.status) || !UUID_PATTERN.test(input.requestId)) {
+    return params;
+  }
+
+  params.set("request_id", input.requestId);
+  const scopeValues = {
+    student_masjid_id: input.studentMasjidId,
+    student_cohort_id: input.studentCohortId,
+    student_group_id: input.studentGroupId,
+    teacher_masjid_id: input.teacherMasjidId
+  };
+
+  for (const [key, value] of Object.entries(scopeValues)) {
+    if (value && UUID_PATTERN.test(value)) params.set(key, value);
+  }
+
+  return params;
+}
 
 export function buildAdminUserCreateInput(input: {
   name: FormDataEntryValue | null;

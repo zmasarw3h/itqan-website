@@ -12,16 +12,26 @@ import {
   normalizeMasjidSlug,
   parseCohortKind,
   parsePositiveInteger,
-  parseStaffAccessGrant,
-  staffRolesForGrant
+  parseStaffAccessGrant
 } from "@/lib/super-admin-setup";
 import {
   insertSuperAdminAuditEvent,
-  loadActiveSuperAdminCount,
   requireSuperAdminAdminClient
 } from "@/lib/super-admin";
-import { assertProfileRoleTransition, type JsonValue } from "@/lib/super-admin-rules";
-import type { Cohort, HalaqaGroup, Masjid, MasjidStaffMembership, Profile, StaffRole } from "@/lib/types";
+import { type JsonValue } from "@/lib/super-admin-rules";
+import {
+  grantMasjidStaffAccessTransactionally,
+  masjidStaffGrantPreparationRpcArguments,
+  masjidStaffGrantRpcArguments,
+  masjidUpdateRpcArguments,
+  parseMasjidUpdateState,
+  superAdminMutationStatusForOutcome,
+  updateMasjidTransactionally,
+  type MasjidUpdateResult,
+  type MasjidStaffGrantResult,
+  type PersonAccessState
+} from "@/lib/transactional-workflows";
+import type { Cohort, HalaqaGroup, Masjid, Profile } from "@/lib/types";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -29,9 +39,13 @@ function masajidPath(status?: string) {
   return status ? `/super-admin/masajid?${new URLSearchParams({ status }).toString()}` : "/super-admin/masajid";
 }
 
-function masjidPath(masjidId: string, status?: string) {
-  return status
-    ? `/super-admin/masajid/${masjidId}?${new URLSearchParams({ status }).toString()}`
+function masjidPath(masjidId: string, status?: string, requestId?: string) {
+  const searchParams = new URLSearchParams();
+  if (status) searchParams.set("status", status);
+  if (requestId) searchParams.set("request_id", requestId);
+
+  return searchParams.size > 0
+    ? `/super-admin/masajid/${masjidId}?${searchParams.toString()}`
     : `/super-admin/masajid/${masjidId}`;
 }
 
@@ -79,19 +93,6 @@ function groupAuditData(group: Pick<HalaqaGroup, "cohort_id" | "name" | "active"
   };
 }
 
-function staffMembershipAuditData(
-  membership: Pick<MasjidStaffMembership, "profile_id" | "masjid_id" | "staff_role" | "active" | "starts_on" | "ends_on">
-) {
-  return {
-    profile_id: membership.profile_id,
-    masjid_id: membership.masjid_id,
-    staff_role: membership.staff_role,
-    active: membership.active,
-    starts_on: membership.starts_on,
-    ends_on: membership.ends_on
-  };
-}
-
 async function auditSetupEvent(input: {
   actor: Profile;
   adminSupabase: Awaited<ReturnType<typeof requireSuperAdminAdminClient>>["adminSupabase"];
@@ -116,31 +117,6 @@ async function auditSetupEvent(input: {
       metadata: input.metadata ?? undefined
     }
   });
-}
-
-async function currentStaffRoleExists(input: {
-  adminSupabase: Awaited<ReturnType<typeof requireSuperAdminAdminClient>>["adminSupabase"];
-  profileId: string;
-  masjidId: string;
-  staffRole: StaffRole;
-  startsOn: string;
-}) {
-  const { data, error } = await input.adminSupabase
-    .from("masjid_staff_memberships")
-    .select("id")
-    .eq("profile_id", input.profileId)
-    .eq("masjid_id", input.masjidId)
-    .eq("staff_role", input.staffRole)
-    .eq("active", true)
-    .lte("starts_on", input.startsOn)
-    .or(`ends_on.is.null,ends_on.gte.${input.startsOn}`)
-    .limit(1);
-
-  if (error) {
-    throw new Error("Unable to check staff access.");
-  }
-
-  return Boolean(data?.length);
 }
 
 export async function createMasjidSetup(formData: FormData) {
@@ -263,8 +239,17 @@ export async function updateMasjidSetup(formData: FormData) {
   const name = formString(formData, "name");
   const slug = normalizeMasjidSlug(formString(formData, "slug"));
   const active = formBoolean(formData, "active");
+  const requestId = formString(formData, "request_id");
+  const expectedState = parseMasjidUpdateState(formString(formData, "expected_state"));
 
-  if (!requireUuid(masjidId) || !validateName(name) || !isValidMasjidSlug(slug)) {
+  if (
+    !requireUuid(masjidId) ||
+    !requireUuid(requestId) ||
+    !expectedState ||
+    expectedState.id !== masjidId ||
+    !validateName(name) ||
+    !isValidMasjidSlug(slug)
+  ) {
     redirect(masajidPath("invalid"));
   }
 
@@ -279,27 +264,39 @@ export async function updateMasjidSetup(formData: FormData) {
     redirect(masjidPath(masjidId, "confirmation-mismatch"));
   }
 
-  const { data, error } = await adminSupabase
-    .from("masajid")
-    .update({ name, slug, active, updated_at: new Date().toISOString() })
-    .eq("id", masjidId)
-    .select("id,name,slug,active,created_at,updated_at")
-    .single<Masjid>();
+  const outcome = await updateMasjidTransactionally(
+    { requestId, actorId: actor.id, masjidId, name, slug, active, expectedState },
+    {
+      applyMasjidUpdate: async (input) => {
+        const { data, error } = await adminSupabase.rpc(
+          "apply_super_admin_masjid_update",
+          masjidUpdateRpcArguments(input)
+        );
+        return { data: data as MasjidUpdateResult | null, error };
+      }
+    }
+  );
 
-  if (error || !data) {
-    redirect(masjidPath(masjidId, "save-error"));
+  if (!outcome.ok) {
+    const baseStatus = superAdminMutationStatusForOutcome(outcome);
+    const status = outcome.uncertain
+      ? "masjid-update-uncertain"
+      : baseStatus === "access-stale"
+        ? "masjid-update-stale"
+        : outcome.error.code === "23514"
+          ? "masjid-coverage-required"
+          : "save-error";
+
+    if (outcome.uncertain) {
+      console.error("Masjid update requires operator review.", {
+        requestId,
+        masjidId,
+        mutationErrorCode: outcome.error.code ?? null
+      });
+    }
+
+    redirect(masjidPath(masjidId, status, outcome.uncertain ? requestId : undefined));
   }
-
-  await auditSetupEvent({
-    actor,
-    adminSupabase,
-    action: "masjid_updated",
-    targetTable: "masajid",
-    targetId: masjidId,
-    targetMasjidId: masjidId,
-    beforeData: masjidAuditData(current.masjid),
-    afterData: masjidAuditData(data)
-  });
 
   revalidatePath("/super-admin/masajid");
   revalidatePath(`/super-admin/masajid/${masjidId}`);
@@ -501,8 +498,9 @@ export async function grantMasjidStaffAccess(formData: FormData) {
   const personQuery = formString(formData, "person_query");
   const grant = parseStaffAccessGrant(formData.get("staff_access"));
   const startsOn = formString(formData, "starts_on") || todayDateString();
+  const requestId = formString(formData, "request_id");
 
-  if (!requireUuid(masjidId) || !personQuery || !grant || !isValidDateString(startsOn)) {
+  if (!requireUuid(masjidId) || !personQuery || !grant || !isValidDateString(startsOn) || !requireUuid(requestId)) {
     redirect(masajidPath("invalid"));
   }
 
@@ -526,86 +524,50 @@ export async function grantMasjidStaffAccess(formData: FormData) {
     redirect(masjidPath(masjidId, "confirmation-mismatch"));
   }
 
-  const activeSuperAdminCount = await loadActiveSuperAdminCount(adminSupabase);
-  const nextRole = target.role === "super_admin" ? "super_admin" : "admin";
-
-  assertProfileRoleTransition({
-    actorId: actor.id,
-    targetProfileId: target.id,
-    targetRole: target.role,
-    targetActive: target.active,
-    nextRole,
-    nextActive: true,
-    activeSuperAdminCount
-  });
-
-  try {
-    if (target.role !== nextRole || !target.active) {
-      const { error: profileError } = await adminSupabase
-        .from("profiles")
-        .update({ role: nextRole, active: true })
-        .eq("id", target.id);
-
-      if (profileError) {
-        throw new Error("Unable to update profile role.");
+  const outcome = await grantMasjidStaffAccessTransactionally(
+    {
+      requestId,
+      actorId: actor.id,
+      targetProfileId: target.id,
+      masjidId,
+      grant,
+      startsOn
+    },
+    {
+      prepareExpectedState: async (input) => {
+        const { data, error } = await adminSupabase.rpc(
+          "prepare_super_admin_masjid_staff_grant",
+          masjidStaffGrantPreparationRpcArguments(input)
+        );
+        return { data: data as PersonAccessState | null, error };
+      },
+      applyStaffGrant: async (input, expectedState) => {
+        const { data, error } = await adminSupabase.rpc(
+          "apply_super_admin_masjid_staff_grant",
+          masjidStaffGrantRpcArguments(input, expectedState)
+        );
+        return { data: data as MasjidStaffGrantResult | null, error };
       }
-
-      await auditSetupEvent({
-        actor,
-        adminSupabase,
-        action: "profile_staff_grant_update",
-        targetTable: "profiles",
-        targetId: target.id,
-        targetMasjidId: masjidId,
-        beforeData: { role: target.role, active: target.active },
-        afterData: { role: nextRole, active: true },
-        metadata: { staff_access: grant }
-      });
     }
+  );
 
-    for (const staffRole of staffRolesForGrant(grant)) {
-      const exists = await currentStaffRoleExists({
-        adminSupabase,
-        profileId: target.id,
+  if (!outcome.ok) {
+    const status = outcome.uncertain
+      ? "staff-grant-uncertain"
+      : superAdminMutationStatusForOutcome(outcome) === "access-stale"
+        ? "staff-grant-stale"
+        : "save-error";
+
+    if (outcome.uncertain) {
+      console.error("Masjid staff grant requires operator review.", {
+        requestId,
+        targetProfileId: target.id,
         masjidId,
-        staffRole,
-        startsOn
-      });
-
-      if (exists) {
-        continue;
-      }
-
-      const { data, error } = await adminSupabase
-        .from("masjid_staff_memberships")
-        .insert({
-          profile_id: target.id,
-          masjid_id: masjidId,
-          staff_role: staffRole,
-          active: true,
-          starts_on: startsOn,
-          created_by: actor.id
-        })
-        .select("id,profile_id,masjid_id,staff_role,active,starts_on,ends_on,created_by,created_at,updated_at")
-        .single<MasjidStaffMembership>();
-
-      if (error || !data) {
-        throw new Error("Unable to grant staff access.");
-      }
-
-      await auditSetupEvent({
-        actor,
-        adminSupabase,
-        action: "staff_membership_created",
-        targetTable: "masjid_staff_memberships",
-        targetId: data.id,
-        targetMasjidId: masjidId,
-        afterData: staffMembershipAuditData(data),
-        metadata: { source: "masjid_setup" }
+        mutationErrorCode: outcome.error.code ?? null
       });
     }
-  } catch {
-    redirect(masjidPath(masjidId, "save-error"));
+
+    redirect(masjidPath(masjidId, status));
   }
 
   revalidatePath("/super-admin/masajid");

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import AppNav from "@/app/nav";
@@ -17,6 +18,10 @@ import {
 } from "@/app/super-admin/masajid/data";
 import { todayDateString } from "@/lib/dates";
 import { requireSuperAdminAdminClient } from "@/lib/super-admin";
+import {
+  masjidUpdateState,
+  preservedMasjidUpdateRequestId
+} from "@/lib/transactional-workflows";
 import type { Cohort, HalaqaGroup, StaffRole } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -33,12 +38,14 @@ function roleLabel(role: StaffRole) {
   return role === "admin" ? "Admin" : "Teacher";
 }
 
-function MasjidEditor({ data }: { data: MasjidSetupDetailData }) {
+function MasjidEditor({ data, requestId }: { data: MasjidSetupDetailData; requestId?: string | null }) {
   return (
     <section className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
       <h2 className="text-lg font-semibold text-ink">Masjid</h2>
       <form action={updateMasjidSetup} className="mt-4 grid gap-4">
         <input name="masjid_id" type="hidden" value={data.masjid.id} />
+        <input name="request_id" type="hidden" value={requestId ?? randomUUID()} />
+        <input name="expected_state" type="hidden" value={JSON.stringify(masjidUpdateState(data.masjid))} />
         <div className="grid gap-4 md:grid-cols-2">
           <label className="block">
             <span className="text-sm font-medium text-ink">Name</span>
@@ -121,6 +128,7 @@ function StaffAccess({ data }: { data: MasjidSetupDetailData }) {
 
       <form action={grantMasjidStaffAccess} className="mt-5 grid gap-4 rounded-md bg-stone-50 p-4">
         <input name="masjid_id" type="hidden" value={data.masjid.id} />
+        <input name="request_id" type="hidden" value={randomUUID()} />
         <h3 className="font-semibold text-ink">Grant First Admin Or Admin-Teacher</h3>
         <div className="grid gap-4 md:grid-cols-2">
           <label className="block">
@@ -323,6 +331,10 @@ export default async function SuperAdminMasjidDetailPage({
   }
 
   const status = statusFor(resolvedSearchParams.status);
+  const updateRequestId = preservedMasjidUpdateRequestId(
+    resolvedSearchParams.status,
+    resolvedSearchParams.request_id
+  );
 
   return (
     <>
@@ -346,7 +358,7 @@ export default async function SuperAdminMasjidDetailPage({
 
         <section className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,25rem)]">
           <div className="space-y-6">
-            <MasjidEditor data={data} />
+            <MasjidEditor data={data} requestId={updateRequestId} />
             <CreateCohort masjidId={data.masjid.id} />
             {data.cohorts.map((cohort) => (
               <CohortCard
