@@ -63,7 +63,7 @@ begin
   from application_definers definers
   join pg_proc p on p.oid = definers.function_oid
   join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname <> 'public'
+  where n.nspname not in ('public', 'private')
     or not p.prosecdef
     or p.proowner <> (
       select anchor.proowner from pg_proc anchor

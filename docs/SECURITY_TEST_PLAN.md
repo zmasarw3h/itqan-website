@@ -357,7 +357,8 @@ Phase 1 is not mergeable until a local disposable Supabase harness:
 - Proves signed super admins cannot directly mutate profiles or insert/update/delete student/staff
   memberships while service-role-only guarded workflow RPCs remain executable.
 - Proves admin/admin-teacher staff grants are atomic, stale-safe, replay-safe, browser-denied, and roll back
-  profile, student membership, partial staff membership, and audit writes together on failure.
+  profile, student membership, partial staff membership, and audit writes together on failure. A committed
+  request replays its stored result when only the expected-state token changes, while changed stable inputs fail.
 - Proves super-admin access changes reject stale snapshots and request-ID reuse with changed input.
 - Proves standalone staff-membership closure serializes concurrent retries, rejects stale state and sole
   active-masjid-admin removal, and rolls membership plus audit writes back together when a guard fails.

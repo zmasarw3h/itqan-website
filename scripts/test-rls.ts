@@ -1434,7 +1434,12 @@ async function runAssertions(ids: SeedIds) {
     ...adminGrantArgs,
     input_expected_state: (concurrentAdminGrants[0].data as { access_state?: unknown } | null)?.access_state
   });
-  assert.equal(changedExpectedStateReplay.error?.code, "22023", "changed expected-state replay was accepted");
+  assert.equal(changedExpectedStateReplay.error, null, changedExpectedStateReplay.error?.message);
+  assert.deepEqual(
+    changedExpectedStateReplay.data,
+    concurrentAdminGrants[0].data,
+    "committed staff grant did not replay after its expected-state token changed"
+  );
 
   const adminGrantState = (concurrentAdminGrants[0].data as { access_state?: unknown } | null)?.access_state;
   assert.ok(adminGrantState, "admin grant omitted access state");

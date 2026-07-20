@@ -284,8 +284,10 @@ Super admin workflow in the app:
 Staff grants use one stable form request UUID and the guarded transactional workflow. Profile promotion,
 student-membership reconciliation, one or both staff memberships, and all audit events commit or roll back
 together. An ambiguous response is retried with the same UUID and reports `staff-grant-uncertain` if its
-result still cannot be established. Active masajid must retain continuous future admin coverage through all
-scheduled handoffs and ultimately have open-ended admin coverage.
+result still cannot be established. After commit, the same UUID and stable grant inputs replay the stored
+result even when the current expected-state token has changed; actor, target, masjid, grant, and effective
+date remain part of replay identity. Active masajid must retain continuous future admin coverage through
+all scheduled handoffs and ultimately have open-ended admin coverage.
 
 Masjid edits and active-state changes use one guarded transaction for the row update and audit event.
 Reactivation locks against concurrent admin-access changes and is rejected unless coverage is continuous
