@@ -49,6 +49,7 @@ insert into expected_authenticated_definers (signature) values
   ('student_weekly_teacher_name(date)'),
   ('teacher_assignment_contexts()'),
   ('teacher_can_read_membership(uuid,date,date)'),
+  ('teacher_grade_scope_snapshot_matches(uuid,date,uuid,uuid,uuid)'),
   ('teacher_group_roster_context(uuid,date)');
 
 do $$

@@ -44,6 +44,40 @@ $$;
 revoke all on function private.raw_can_teacher_access_assignment(uuid, uuid, date)
   from public, anon, authenticated, service_role;
 
+-- Grade history needs the membership and hierarchy identities that were
+-- effective for the completed week, even if the hierarchy was later disabled.
+create or replace function private.raw_student_scope_for_grade_week(
+  input_student_id uuid,
+  input_week_start date
+)
+returns table (
+  group_id uuid,
+  cohort_id uuid,
+  masjid_id uuid
+)
+language sql
+stable
+set search_path = ''
+as $$
+  select groups.id, cohorts.id, masajid.id
+  from public.student_group_memberships as memberships
+  join public.halaqa_groups as groups on groups.id = memberships.group_id
+  join public.cohorts on cohorts.id = groups.cohort_id
+  join public.masajid on masajid.id = cohorts.masjid_id
+  where memberships.student_id = input_student_id
+    and memberships.starts_on <= input_week_start
+    and (memberships.ends_on is null or memberships.ends_on >= input_week_start)
+    and (
+      input_week_start + 6 < public.current_effective_date()
+      or (groups.active = true and cohorts.active = true and masajid.active = true)
+    )
+  order by memberships.starts_on desc, memberships.id desc
+  limit 1;
+$$;
+
+revoke all on function private.raw_student_scope_for_grade_week(uuid, date)
+  from public, anon, authenticated, service_role;
+
 -- Teachers must not inherit the full profiles row, which includes contact
 -- fields. Roster names are exposed only through the projection below.
 create or replace function public.can_read_profile(input_profile_id uuid)
@@ -115,11 +149,118 @@ as $$
     )
     or private.raw_can_teacher_access_assignment(
       (select auth.uid()),
-      private.raw_student_group_for_week(input_student_id, input_week_start),
+      (
+        select scope.group_id
+        from private.raw_student_scope_for_grade_week(input_student_id, input_week_start) as scope
+      ),
       input_week_start
     )
   );
 $$;
+
+create or replace function public.teacher_grade_scope_snapshot_matches(
+  input_student_id uuid,
+  input_week_start date,
+  input_masjid_id uuid,
+  input_cohort_id uuid,
+  input_group_id uuid
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.profiles as students
+    join private.raw_student_scope_for_grade_week(input_student_id, input_week_start) as scope
+      on true
+    where students.id = input_student_id
+      and students.role = 'student'
+      and students.active = true
+      and scope.group_id = input_group_id
+      and scope.cohort_id = input_cohort_id
+      and scope.masjid_id = input_masjid_id
+      and private.raw_can_teacher_access_assignment(
+        (select auth.uid()), scope.group_id, input_week_start
+      )
+  );
+$$;
+
+-- Keep grade snapshot creation isolated from the shared operational trigger.
+create or replace function public.set_halaqa_grade_scope_snapshot()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  scope_group_id uuid;
+  scope_cohort_id uuid;
+  scope_masjid_id uuid;
+begin
+  select resolved.group_id, resolved.cohort_id, resolved.masjid_id
+  into scope_group_id, scope_cohort_id, scope_masjid_id
+  from private.raw_student_scope_for_grade_week(new.student_id, new.week_start) as resolved;
+
+  new.halaqa_group_id := scope_group_id;
+  new.cohort_id := scope_cohort_id;
+  new.masjid_id := scope_masjid_id;
+
+  return new;
+end;
+$$;
+
+revoke execute on function public.teacher_grade_scope_snapshot_matches(uuid, date, uuid, uuid, uuid)
+  from public, anon, authenticated, service_role;
+grant execute on function public.teacher_grade_scope_snapshot_matches(uuid, date, uuid, uuid, uuid)
+  to authenticated;
+revoke execute on function public.set_halaqa_grade_scope_snapshot()
+  from public, anon, authenticated, service_role;
+
+drop trigger if exists set_halaqa_grades_scope_snapshot_trigger on public.halaqa_grades;
+create trigger set_halaqa_grades_scope_snapshot_trigger
+  before insert or update of student_id, week_start on public.halaqa_grades
+  for each row execute function public.set_halaqa_grade_scope_snapshot();
+
+drop trigger if exists protect_halaqa_grades_scope_snapshot_trigger on public.halaqa_grades;
+create trigger protect_halaqa_grades_scope_snapshot_trigger
+  before update of masjid_id, cohort_id, halaqa_group_id on public.halaqa_grades
+  for each row execute function public.set_halaqa_grade_scope_snapshot();
+
+alter policy "Admins can insert halaqa grades"
+  on public.halaqa_grades
+  to authenticated
+  with check (
+    public.can_grade_student_for_week(student_id, week_start)
+    and graded_by = (select auth.uid())
+    and (
+      public.student_scope_snapshot_matches(
+        student_id, week_start, masjid_id, cohort_id, halaqa_group_id
+      )
+      or public.teacher_grade_scope_snapshot_matches(
+        student_id, week_start, masjid_id, cohort_id, halaqa_group_id
+      )
+    )
+  );
+
+alter policy "Admins can update halaqa grades"
+  on public.halaqa_grades
+  to authenticated
+  using (public.can_grade_student_for_week(student_id, week_start))
+  with check (
+    public.can_grade_student_for_week(student_id, week_start)
+    and graded_by = (select auth.uid())
+    and (
+      public.student_scope_snapshot_matches(
+        student_id, week_start, masjid_id, cohort_id, halaqa_group_id
+      )
+      or public.teacher_grade_scope_snapshot_matches(
+        student_id, week_start, masjid_id, cohort_id, halaqa_group_id
+      )
+    )
+  );
 
 create or replace function public.can_read_operational_student_row(
   input_masjid_id uuid,
@@ -375,6 +516,7 @@ as $$
     'public.protect_foundation_row_identity()',
     'public.recalculate_student_checkin_score()',
     'public.set_student_scope_snapshot()',
+    'public.set_halaqa_grade_scope_snapshot()',
     'public.student_cohort_for_week(uuid,date)',
     'public.student_cohort_leaderboard_for_week(date)',
     'public.student_cohort_students_for_week(uuid,date)',
@@ -388,6 +530,7 @@ as $$
     'public.teacher_assignment_contexts()',
     'public.teacher_can_read_membership(uuid,date,date)',
     'public.teacher_group_roster_context(uuid,date)',
+    'public.teacher_grade_scope_snapshot_matches(uuid,date,uuid,uuid,uuid)',
     'public.teacher_rotation_row_scope_matches()',
     'private.apply_super_admin_masjid_staff_grant_once(uuid,uuid,uuid,uuid,text,date,jsonb)'
   ]::text[]) as listed(signature);

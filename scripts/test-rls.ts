@@ -2311,6 +2311,7 @@ async function runAssertions(ids: SeedIds) {
     input_week_start: ids.weekStart
   });
   await assertRpcDenied(studentA, "set_student_scope_snapshot");
+  await assertRpcDenied(studentA, "set_halaqa_grade_scope_snapshot");
   await assertRpcDenied(studentA, "enforce_student_accountability_attestation");
   await assertRpcDenied(studentA, "teacher_rotation_row_scope_matches");
   const { data: crossGroup } = await studentA.rpc("student_group_for_week", {
@@ -2949,6 +2950,58 @@ async function runAssertions(ids: SeedIds) {
   );
   await assertVisible(expiredAssignmentTeacher, "weekly_plans", ids.historicalPlanA);
   await assertVisible(expiredAssignmentTeacher, "halaqa_grades", ids.historicalGradeA);
+  const { data: updatedHistoricalGrade, error: updatedHistoricalGradeError } =
+    await expiredAssignmentTeacher
+      .from("halaqa_grades")
+      .update({
+        notes: "historical teacher update",
+        graded_by: ids.users.expiredAssignmentTeacher
+      })
+      .eq("id", ids.historicalGradeA)
+      .select("id,notes,graded_by")
+      .single();
+  assert.equal(updatedHistoricalGradeError, null, updatedHistoricalGradeError?.message);
+  assert.deepEqual(updatedHistoricalGrade, {
+    id: ids.historicalGradeA,
+    notes: "historical teacher update",
+    graded_by: ids.users.expiredAssignmentTeacher
+  });
+
+  const { data: insertedHistoricalGrade, error: insertedHistoricalGradeError } =
+    await expiredAssignmentTeacher
+      .from("halaqa_grades")
+      .insert({
+        student_id: ids.users.studentA2,
+        week_start: ids.previousWeekStart,
+        attended: true,
+        attendance_points: 100,
+        recitation_points: 42,
+        notes: "historical teacher insert",
+        graded_by: ids.users.expiredAssignmentTeacher
+      })
+      .select("id,masjid_id,cohort_id,halaqa_group_id")
+      .single();
+  assert.equal(insertedHistoricalGradeError, null, insertedHistoricalGradeError?.message);
+  assert.equal(insertedHistoricalGrade?.masjid_id, ids.masjidA);
+  assert.equal(insertedHistoricalGrade?.cohort_id, ids.cohortA);
+  assert.equal(insertedHistoricalGrade?.halaqa_group_id, ids.groupA);
+
+  await assertUpdateBlocked(teacherB, "halaqa_grades", ids.historicalGradeA, {
+    notes: "wrong historical teacher",
+    graded_by: ids.users.teacherB
+  });
+  await assertUpdateBlocked(expiredAssignmentTeacher, "halaqa_grades", ids.gradeA, {
+    notes: "wrong assignment week",
+    graded_by: ids.users.expiredAssignmentTeacher
+  });
+  await assertInsertBlocked(expiredAssignmentTeacher, "halaqa_grades", {
+    student_id: ids.users.studentA2,
+    week_start: addDays(ids.previousWeekStart, -7),
+    attended: true,
+    attendance_points: 100,
+    recitation_points: 40,
+    graded_by: ids.users.expiredAssignmentTeacher
+  });
   const historicalPlanSigned = await expiredAssignmentTeacher.storage
     .from("weekly-plans")
     .createSignedUrl(`${ids.users.studentA}/${ids.previousWeekStart}/plan.pdf`, 60);
@@ -3028,6 +3081,13 @@ async function runAssertions(ids: SeedIds) {
       input_week_start: ids.weekStart
     }],
     ["student_scope_snapshot_matches", {
+      input_student_id: ids.users.studentA,
+      input_week_start: ids.weekStart,
+      input_masjid_id: ids.masjidA,
+      input_cohort_id: ids.cohortA,
+      input_group_id: ids.groupA
+    }],
+    ["teacher_grade_scope_snapshot_matches", {
       input_student_id: ids.users.studentA,
       input_week_start: ids.weekStart,
       input_masjid_id: ids.masjidA,
