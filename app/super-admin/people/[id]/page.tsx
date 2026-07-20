@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { endStaffMembership, resetPersonPassword, savePersonAccess } from "@/app/super-admin/actions";
@@ -18,6 +19,7 @@ import {
 } from "@/lib/super-admin-access";
 import { formatDateTimeInAppTimeZone, formatWeekRange, todayDateString } from "@/lib/dates";
 import { requireSuperAdminAdminClient } from "@/lib/super-admin";
+import type { PersonAccessState } from "@/lib/transactional-workflows";
 import type { Profile, Role } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -154,7 +156,7 @@ function WarningsPanel({ warnings }: { warnings: string[] }) {
   );
 }
 
-function AccessEditor({ data }: { data: PersonDetailData }) {
+function AccessEditor({ data, expectedState }: { data: PersonDetailData; expectedState: PersonAccessState }) {
   const preset = defaultPreset(data);
 
   return (
@@ -162,6 +164,8 @@ function AccessEditor({ data }: { data: PersonDetailData }) {
       <h2 className="text-lg font-semibold text-ink">Access Editor</h2>
       <form action={savePersonAccess} className="mt-4 grid gap-4">
         <input name="person_id" type="hidden" value={data.profile.id} />
+        <input name="request_id" type="hidden" value={randomUUID()} />
+        <input name="expected_state" type="hidden" value={JSON.stringify(expectedState)} />
         <div className="grid gap-4 md:grid-cols-2">
           <label className="block">
             <span className="text-sm font-medium text-ink">Access preset</span>
@@ -485,6 +489,15 @@ export default async function SuperAdminPersonPage({
     notFound();
   }
 
+  const { data: expectedState, error: expectedStateError } = await adminSupabase.rpc("get_person_access_state", {
+    input_actor_id: profile.id,
+    input_target_profile_id: data.profile.id
+  });
+
+  if (expectedStateError || !expectedState) {
+    throw new Error("Unable to load the current access state.");
+  }
+
   const status = statusFor(resolvedSearchParams.status);
 
   return (
@@ -502,7 +515,7 @@ export default async function SuperAdminPersonPage({
             <TeacherAssignments assignments={data.teacherAssignments} />
           </div>
           <aside className="space-y-6">
-            <AccessEditor data={data} />
+            <AccessEditor data={data} expectedState={expectedState as PersonAccessState} />
             <PasswordResetPanel profile={data.profile} />
           </aside>
         </section>

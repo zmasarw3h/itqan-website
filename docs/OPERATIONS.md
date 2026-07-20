@@ -15,7 +15,9 @@ Manual in the app:
 7. Share the temporary password shown by the app flow: `itqan2026`.
 8. Ask the user to change their password after first sign-in.
 
-The app creates the Supabase Auth user and matching active `public.profiles` row. It also assigns:
+The app creates the Supabase Auth user first, then calls `apply_scoped_user_setup(...)` once to create
+the matching active `public.profiles` row, scoped membership, and audit event in one database transaction.
+It assigns:
 
 - New students to the selected active group, effective from the current tracker week.
 - New teachers to the selected active masjid with `staff_role = 'teacher'`, effective from the current tracker week.
@@ -27,10 +29,11 @@ from the normal admin app. Use the super-admin console for those operations.
 Admins can also participate in teacher rotation. Keep their profile role as `admin` and add an active
 `masjid_staff_memberships` row with `staff_role = 'teacher'` for the relevant masjid.
 
-The Phase 1A database foundation provides an atomic profile/membership/audit RPC, but the deployed app
-must not be described as using it until Phase 1B wires the admin action. Until then, a failure after Auth
-creation can still leave an Auth-only account that requires cleanup. Phase 1B must create Auth first,
-call the transactional setup RPC, and delete the new Auth user as compensation if the RPC fails.
+Supabase Auth creation and the PostgreSQL transaction cannot share one transaction. If database setup
+fails, the app checks whether the atomic transaction committed despite a response error. It never deletes
+a confirmed completed account. When setup did not commit, it deletes the newly created Auth user as
+compensation. If that cleanup cannot be confirmed, the app reports a distinct error and the server log
+includes the affected profile UUID for super-admin repair; do not retry until that account is inspected.
 
 ## Transactional Workflow Rollout
 
@@ -43,12 +46,17 @@ After applying the migration:
 1. Run the schema sanity query and `supabase migration list`.
 2. Confirm `service_role` alone can execute `apply_scoped_user_setup`, `get_person_access_state`, and `apply_super_admin_access_change`.
 3. Confirm `anon` and `authenticated` cannot execute those functions.
-4. Deploy the Phase 1B application wiring only after those checks pass.
+4. Deploy the Phase 1B application wiring only after those checks pass. Do not deploy Phase 1B before
+   the migration because both user creation and composite access changes now depend on these RPCs.
 
-Every application call must use a fresh request UUID. Retrying the exact same request UUID and payload
-returns the stored result. Reusing a request UUID with different input is rejected. Super-admin access
-screens must load and submit the current access-state snapshot; stale snapshots are rejected with
-`access state changed; reload before saving.`
+Each rendered mutation form carries one request UUID through its server action. Retrying the exact same
+request UUID and payload returns the stored result. Reusing a request UUID with different input is
+rejected. The form carries its original server-generated snapshot only as an untrusted retry token. The
+super-admin action reloads target and scope records and calls `get_person_access_state(...)` on every
+submission. On the normal path it passes the freshly loaded canonical snapshot. If the original token
+differs, PostgreSQL accepts it only for an already-completed exact request replay; otherwise the database
+stale-state comparison rejects it and the UI asks the operator to review current access before submitting
+again.
 
 ## Masjid Setup
 

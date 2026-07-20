@@ -53,7 +53,7 @@ The superseded `student_weekly_teacher(student_id, week_start)` and
 `student_cohort_students_for_week(student_id, week_start)` functions remain in the schema for migration
 compatibility but have no browser-role execute grant.
 
-Service-only transactional functions added for Phase 1A:
+Service-only transactional functions added for Phase 1A and used by the Phase 1B server actions:
 
 - `apply_scoped_user_setup(...)`: validates the Auth user, actor, active hierarchy, and masjid scope before creating the profile, one student/teacher membership, and one audit event atomically.
 - `get_person_access_state(actor_id, target_profile_id)`: returns a canonical profile/membership snapshot only after verifying that the passed actor is currently an active super admin.

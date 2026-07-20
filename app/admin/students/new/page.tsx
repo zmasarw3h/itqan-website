@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import AppNav from "@/app/nav";
 import { createUser } from "@/app/admin/actions";
@@ -39,6 +40,16 @@ function statusMessage(status: string | undefined, role: Role | undefined) {
       return {
         tone: "error",
         text: "The user was created, but scoped access could not be assigned. Check the masjid, cohort, and group setup before they log in."
+      };
+    case "setup-error":
+      return {
+        tone: "error",
+        text: "Account setup failed and the new login was removed. Check the selected scope and try again."
+      };
+    case "setup-cleanup-error":
+      return {
+        tone: "error",
+        text: "Account setup failed and login cleanup could not be confirmed. Contact a super admin before retrying."
       };
     default:
       return null;
@@ -133,6 +144,7 @@ export default async function NewStudentPage({
         ) : null}
 
         <form action={createUser} className="mt-6 grid gap-4 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+          <input name="request_id" type="hidden" value={randomUUID()} />
           <label className="block">
             <span className="text-sm font-medium text-ink">Name</span>
             <input
