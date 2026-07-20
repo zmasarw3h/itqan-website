@@ -11,6 +11,14 @@ import { requireProfile } from "@/lib/supabase-server";
 import type { Profile } from "@/lib/types";
 
 type SupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
+type TeacherRosterRpcRow = {
+  student_id: string;
+  student_name: string;
+  daily_checkin_days: number | string;
+  daily_points: number | string;
+  partner_rounds: number | string;
+  partner_points: number | string;
+};
 
 export class TeacherScopeError extends Error {}
 
@@ -68,12 +76,12 @@ export async function assertTeacherGroupAssignment(
   groupId: string,
   weekStart: string
 ) {
-  const { data, error } = await supabase.rpc("is_teacher_for_group_week", {
+  const { error } = await supabase.rpc("teacher_group_roster_context", {
     input_group_id: groupId,
     input_week_start: weekStart
   });
 
-  if (error || data !== true) {
+  if (error) {
     throw new TeacherScopeError("This group is not assigned to you for the selected week.");
   }
 }
@@ -84,19 +92,12 @@ export async function assertTeacherStudentAssignment(
   groupId: string,
   weekStart: string
 ) {
-  await assertTeacherGroupAssignment(supabase, groupId, weekStart);
-
-  const { data, error } = await supabase.rpc("student_group_for_week", {
-    input_student_id: studentId,
+  const { data, error } = await supabase.rpc("teacher_group_roster_context", {
+    input_group_id: groupId,
     input_week_start: weekStart
   });
 
-  const { data: canGrade, error: gradeError } = await supabase.rpc("can_grade_student_for_week", {
-    input_student_id: studentId,
-    input_week_start: weekStart
-  });
-
-  if (error || data !== groupId || gradeError || canGrade !== true) {
+  if (error || !(data as TeacherRosterRpcRow[] | null)?.some((student) => student.student_id === studentId)) {
     throw new TeacherScopeError("This student is not in your assigned group for the selected week.");
   }
 }
@@ -106,25 +107,16 @@ export async function loadTeacherGroupRoster(
   groupId: string,
   weekStart: string
 ) {
-  await assertTeacherGroupAssignment(supabase, groupId, weekStart);
-
   const { data, error } = await supabase.rpc("teacher_group_roster_context", {
     input_group_id: groupId,
     input_week_start: weekStart
   });
 
   if (error) {
-    throw new Error("Unable to load assigned students.");
+    throw new TeacherScopeError("This group is not assigned to you for the selected week.");
   }
 
-  return ((data ?? []) as Array<{
-    student_id: string;
-    student_name: string;
-    daily_checkin_days: number | string;
-    daily_points: number | string;
-    partner_rounds: number | string;
-    partner_points: number | string;
-  }>).map<TeacherRosterContext>((student) => ({
+  return ((data ?? []) as TeacherRosterRpcRow[]).map<TeacherRosterContext>((student) => ({
     id: student.student_id,
     name: student.student_name,
     dailyCheckinDays: Number(student.daily_checkin_days ?? 0),

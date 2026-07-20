@@ -27,17 +27,21 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return new NextResponse("Forbidden", { status: 403 });
   }
 
-  const { data: groupId, error: groupError } = await auth.supabase.rpc("student_group_for_week", {
-    input_student_id: studentId,
-    input_week_start: weekStart
-  });
+  const { data: plan, error: planError } = await auth.supabase
+    .from("weekly_plans")
+    .select("id,student_id,week_start,file_path,file_name,file_type,file_size,uploaded_at,masjid_id,cohort_id,halaqa_group_id")
+    .eq("student_id", studentId)
+    .eq("week_start", weekStart)
+    .maybeSingle<WeeklyPlan>();
 
-  if (groupError || !groupId) {
+  if (planError || !plan?.halaqa_group_id) {
     return NextResponse.redirect(new URL(`/teacher?week=${weekStart}`, request.url));
   }
 
+  const groupId = plan.halaqa_group_id;
+
   try {
-    await assertTeacherStudentAssignment(auth.supabase, studentId, String(groupId), weekStart);
+    await assertTeacherStudentAssignment(auth.supabase, studentId, groupId, weekStart);
   } catch (error) {
     if (error instanceof TeacherScopeError) {
       return new NextResponse("Forbidden", { status: 403 });
@@ -46,19 +50,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     throw error;
   }
 
-  const { data: plan, error: planError } = await auth.supabase
-    .from("weekly_plans")
-    .select("id,student_id,week_start,file_path,file_name,file_type,file_size,uploaded_at,masjid_id,cohort_id,halaqa_group_id")
-    .eq("student_id", studentId)
-    .eq("week_start", weekStart)
-    .eq("halaqa_group_id", groupId)
-    .maybeSingle<WeeklyPlan>();
-
   const returnUrl = new URL(`/teacher/groups/${groupId}`, request.url);
   returnUrl.searchParams.set("week", weekStart);
 
-  if (planError || !plan || !weeklyPlanPathBelongsToStudent(studentId, weekStart, plan.file_path)) {
-    returnUrl.searchParams.set("status", planError ? "plan-error" : "plan-missing");
+  if (!weeklyPlanPathBelongsToStudent(studentId, weekStart, plan.file_path)) {
+    returnUrl.searchParams.set("status", "plan-missing");
     return NextResponse.redirect(returnUrl);
   }
 

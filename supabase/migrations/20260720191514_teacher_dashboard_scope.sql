@@ -1,6 +1,49 @@
 -- Teacher dashboard scope projections and assigned weekly-plan file access.
 -- Ordinary teacher application reads remain signed-session/RLS bound.
 
+-- Completed assignments remain auditable if their hierarchy is later
+-- deactivated. Current and future assignments still require active hierarchy.
+create or replace function private.raw_can_teacher_access_assignment(
+  input_actor_id uuid,
+  input_group_id uuid,
+  input_week_start date
+)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.profiles as actors
+    join public.group_teacher_assignments as assignments
+      on assignments.teacher_id = actors.id
+    join public.halaqa_groups as groups on groups.id = assignments.group_id
+    join public.cohorts on cohorts.id = groups.cohort_id
+    join public.masajid on masajid.id = cohorts.masjid_id
+    join public.masjid_staff_memberships as staff
+      on staff.profile_id = actors.id
+      and staff.masjid_id = masajid.id
+      and staff.staff_role = 'teacher'
+    where actors.id = input_actor_id
+      and actors.role in ('teacher', 'admin', 'super_admin')
+      and actors.active = true
+      and assignments.group_id = input_group_id
+      and assignments.week_start = input_week_start
+      and assignments.active = true
+      and staff.active = true
+      and staff.starts_on <= input_week_start
+      and (staff.ends_on is null or staff.ends_on >= input_week_start)
+      and (
+        input_week_start + 6 < public.current_effective_date()
+        or (groups.active = true and cohorts.active = true and masajid.active = true)
+      )
+  );
+$$;
+
+revoke all on function private.raw_can_teacher_access_assignment(uuid, uuid, date)
+  from public, anon, authenticated, service_role;
+
 -- Teachers must not inherit the full profiles row, which includes contact
 -- fields. Roster names are exposed only through the projection below.
 create or replace function public.can_read_profile(input_profile_id uuid)
@@ -70,12 +113,32 @@ as $$
       private.raw_student_masjid_for_week(input_student_id, input_week_start),
       public.current_effective_date()
     )
-    or private.raw_is_teacher_for_group_week(
+    or private.raw_can_teacher_access_assignment(
       (select auth.uid()),
       private.raw_student_group_for_week(input_student_id, input_week_start),
       input_week_start
     )
   );
+$$;
+
+create or replace function public.can_read_operational_student_row(
+  input_masjid_id uuid,
+  input_group_id uuid,
+  input_week_start date
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select private.raw_is_active_super_admin((select auth.uid()))
+    or private.raw_is_admin_for_masjid(
+      (select auth.uid()), input_masjid_id, public.current_effective_date()
+    )
+    or private.raw_can_teacher_access_assignment(
+      (select auth.uid()), input_group_id, input_week_start
+    );
 $$;
 
 create or replace function public.teacher_assignment_contexts()
@@ -122,10 +185,7 @@ as $$
   join public.masajid on masajid.id = cohorts.masjid_id
   where assignments.teacher_id = (select auth.uid())
     and assignments.active = true
-    and groups.active = true
-    and cohorts.active = true
-    and masajid.active = true
-    and private.raw_is_teacher_for_group_week(
+    and private.raw_can_teacher_access_assignment(
       (select auth.uid()), assignments.group_id, assignments.week_start
     )
   order by assignments.week_start desc, masajid.name, cohorts.sort_order, groups.sort_order, groups.name;
@@ -152,18 +212,8 @@ begin
   perform private.require_tracker_week_start(input_week_start);
 
   if (select auth.uid()) is null
-    or not private.raw_is_teacher_for_group_week(
+    or not private.raw_can_teacher_access_assignment(
       (select auth.uid()), input_group_id, input_week_start
-    )
-    or not exists (
-      select 1
-      from public.halaqa_groups as groups
-      join public.cohorts on cohorts.id = groups.cohort_id
-      join public.masajid on masajid.id = cohorts.masjid_id
-      where groups.id = input_group_id
-        and groups.active = true
-        and cohorts.active = true
-        and masajid.active = true
     ) then
     raise exception using
       errcode = '42501',
@@ -233,20 +283,25 @@ begin
       return false;
   end;
 
-  assigned_group_id := private.raw_student_group_for_week(parsed_student_id, parsed_week_start);
+  select plans.halaqa_group_id
+  into assigned_group_id
+  from public.weekly_plans as plans
+  where plans.student_id = parsed_student_id
+    and plans.week_start = parsed_week_start
+    and plans.file_path = input_file_path;
 
   return assigned_group_id is not null
-    and private.raw_is_teacher_for_group_week(
+    and private.raw_can_teacher_access_assignment(
       (select auth.uid()), assigned_group_id, parsed_week_start
     )
     and exists (
       select 1
-      from public.weekly_plans as plans
-      join public.profiles as students on students.id = plans.student_id
-      where plans.student_id = parsed_student_id
-        and plans.week_start = parsed_week_start
-        and plans.file_path = input_file_path
-        and plans.halaqa_group_id = assigned_group_id
+      from public.student_group_memberships as memberships
+      join public.profiles as students on students.id = memberships.student_id
+      where memberships.student_id = parsed_student_id
+        and memberships.group_id = assigned_group_id
+        and memberships.starts_on <= parsed_week_start
+        and (memberships.ends_on is null or memberships.ends_on >= parsed_week_start)
         and students.role = 'student'
         and students.active = true
     );

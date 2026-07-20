@@ -120,6 +120,7 @@ Authenticated E2E tests are opt-in and should use a local or staging Supabase pr
 
 ```bash
 E2E_AUTH_ENABLED=true
+E2E_TEST_ENVIRONMENT=local
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
@@ -127,11 +128,18 @@ E2E_TEST_STUDENT_PHONE=
 E2E_TEST_STUDENT_PASSWORD=
 E2E_TEST_TEACHER_PHONE=
 E2E_TEST_TEACHER_PASSWORD=
+E2E_TEST_ADMIN_TEACHER_PHONE=
+E2E_TEST_ADMIN_TEACHER_PASSWORD=
+E2E_TEST_PURE_ADMIN_PHONE=
+E2E_TEST_PURE_ADMIN_PASSWORD=
 ```
 
-Teacher credentials are independently optional. When present, Playwright signs in, opens the current
-assigned group, verifies roster scoring context and grade controls, and checks the page for horizontal
-mobile overflow without submitting a grade.
+Each role fixture is independently optional. Teacher coverage verifies available-week canonicalization,
+assigned groups, roster scoring context, plan downloads when present, and desktop/mobile overflow.
+Admin-teacher and pure-admin fixtures verify capability-aware routing and navigation. To exercise grade
+submission against disposable local or staging data, also set `E2E_TEST_DATA_MUTATIONS_ENABLED=true`;
+only the desktop project submits. The suite refuses an `E2E_TEST_ENVIRONMENT=production` or an
+`itqan.website`/`itqan.app` target.
 
 Normal CI runs the deterministic `npm run check` job and a separate Docker-backed `npm run test:rls`
 job. The E2E workflow is manual for now and can be run from GitHub Actions when a browser smoke check

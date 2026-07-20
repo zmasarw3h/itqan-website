@@ -73,12 +73,14 @@ type SeedIds = {
   planA: string;
   planA2: string;
   planB: string;
+  historicalPlanA: string;
   partnerA: string;
   partnerA2: string;
   partnerB: string;
   gradeA: string;
   gradeA2: string;
   gradeB: string;
+  historicalGradeA: string;
   oldCheckinA: string;
   oldPlanA: string;
   oldPartnerA: string;
@@ -499,6 +501,19 @@ async function seed(): Promise<SeedIds> {
       }).select("id")
     )
   )[0].id;
+  const historicalPlanA = (
+    await requireData<Array<{ id: string }>>(
+      "insert completed-assignment weekly plan",
+      admin.from("weekly_plans").insert({
+        student_id: users.studentA,
+        week_start: previousWeekStart,
+        file_path: `${users.studentA}/${previousWeekStart}/plan.pdf`,
+        file_name: "historical-plan.pdf",
+        file_type: "application/pdf",
+        file_size: 15
+      }).select("id")
+    )
+  )[0].id;
 
   const partners = await requireData<Array<{ id: string; student_id: string }>>(
     "insert partner recitations",
@@ -543,6 +558,19 @@ async function seed(): Promise<SeedIds> {
         attended: true,
         attendance_points: 100,
         recitation_points: 30,
+        graded_by: users.adminA
+      }).select("id")
+    )
+  )[0].id;
+  const historicalGradeA = (
+    await requireData<Array<{ id: string }>>(
+      "insert completed-assignment grade",
+      admin.from("halaqa_grades").insert({
+        student_id: users.studentA,
+        week_start: previousWeekStart,
+        attended: true,
+        attendance_points: 100,
+        recitation_points: 35,
         graded_by: users.adminA
       }).select("id")
     )
@@ -635,6 +663,16 @@ async function seed(): Promise<SeedIds> {
     { contentType: "application/pdf", upsert: true }
   );
   assert.equal(oldPlanUploadError, null, `upload old weekly plan fixture: ${oldPlanUploadError?.message}`);
+  const { error: historicalPlanUploadError } = await admin.storage.from("weekly-plans").upload(
+    `${users.studentA}/${previousWeekStart}/plan.pdf`,
+    new Blob(["historical plan"], { type: "application/pdf" }),
+    { contentType: "application/pdf", upsert: true }
+  );
+  assert.equal(
+    historicalPlanUploadError,
+    null,
+    `upload completed-assignment weekly plan fixture: ${historicalPlanUploadError?.message}`
+  );
 
   return {
     users,
@@ -665,12 +703,14 @@ async function seed(): Promise<SeedIds> {
     planA,
     planA2,
     planB,
+    historicalPlanA,
     partnerA,
     partnerA2,
     partnerB,
     gradeA,
     gradeA2,
     gradeB,
+    historicalGradeA,
     oldCheckinA,
     oldPlanA,
     oldPartnerA,
@@ -753,6 +793,7 @@ async function runAssertions(ids: SeedIds) {
     adminA,
     adminB,
     teacherA,
+    teacherB,
     studentA,
     studentA2,
     studentWriter,
@@ -771,6 +812,7 @@ async function runAssertions(ids: SeedIds) {
     signIn("adminA"),
     signIn("adminB"),
     signIn("teacherA"),
+    signIn("teacherB"),
     signIn("studentA"),
     signIn("studentA2"),
     signIn("studentWriter"),
@@ -2865,6 +2907,95 @@ async function runAssertions(ids: SeedIds) {
     action: "also-forbidden"
   });
   assert.ok(superAuditInsert.error, "signed super-admin inserted an audit row directly");
+
+  for (const [table, id] of [
+    ["halaqa_groups", ids.groupA],
+    ["cohorts", ids.cohortA],
+    ["masajid", ids.masjidA]
+  ] as const) {
+    const { error } = await service.from(table).update({ active: false }).eq("id", id);
+    assert.equal(error, null, `deactivate ${table} historical fixture: ${error?.message}`);
+  }
+
+  const { data: inactiveHistoricalContexts, error: inactiveHistoricalContextsError } =
+    await expiredAssignmentTeacher.rpc("teacher_assignment_contexts");
+  assert.equal(inactiveHistoricalContextsError, null, inactiveHistoricalContextsError?.message);
+  assert.deepEqual(
+    (inactiveHistoricalContexts ?? []).map((row: { group_id: string; week_start: string }) => ({
+      group_id: row.group_id,
+      week_start: row.week_start
+    })),
+    [{ group_id: ids.groupA, week_start: ids.previousWeekStart }],
+    "completed assignment labels disappeared after hierarchy deactivation"
+  );
+
+  const { data: inactiveHistoricalRoster, error: inactiveHistoricalRosterError } =
+    await expiredAssignmentTeacher.rpc("teacher_group_roster_context", {
+      input_group_id: ids.groupA,
+      input_week_start: ids.previousWeekStart
+    });
+  assert.equal(inactiveHistoricalRosterError, null, inactiveHistoricalRosterError?.message);
+  assert.ok(
+    (inactiveHistoricalRoster ?? []).some(
+      (row: { student_id: string }) => row.student_id === ids.users.studentA
+    ),
+    "completed assignment roster disappeared after hierarchy deactivation"
+  );
+  assert.ok(
+    !(inactiveHistoricalRoster ?? []).some(
+      (row: { student_id: string }) => row.student_id === ids.users.studentB
+    ),
+    "completed assignment roster leaked a student from another group"
+  );
+  await assertVisible(expiredAssignmentTeacher, "weekly_plans", ids.historicalPlanA);
+  await assertVisible(expiredAssignmentTeacher, "halaqa_grades", ids.historicalGradeA);
+  const historicalPlanSigned = await expiredAssignmentTeacher.storage
+    .from("weekly-plans")
+    .createSignedUrl(`${ids.users.studentA}/${ids.previousWeekStart}/plan.pdf`, 60);
+  assert.equal(
+    historicalPlanSigned.error,
+    null,
+    `completed assignment plan signing failed after hierarchy deactivation: ${historicalPlanSigned.error?.message}`
+  );
+
+  await assertRpcDenied(teacherB, "teacher_group_roster_context", {
+    input_group_id: ids.groupA,
+    input_week_start: ids.previousWeekStart
+  });
+  await assertHidden(teacherB, "weekly_plans", ids.historicalPlanA);
+  await assertHidden(teacherB, "halaqa_grades", ids.historicalGradeA);
+  const wrongTeacherHistoricalPlan = await teacherB.storage
+    .from("weekly-plans")
+    .createSignedUrl(`${ids.users.studentA}/${ids.previousWeekStart}/plan.pdf`, 60);
+  assert.ok(wrongTeacherHistoricalPlan.error, "wrong teacher signed a completed assignment plan");
+  await assertRpcDenied(expiredAssignmentTeacher, "teacher_group_roster_context", {
+    input_group_id: ids.groupA,
+    input_week_start: ids.weekStart
+  });
+  await assertRpcDenied(teacherA, "teacher_group_roster_context", {
+    input_group_id: ids.groupA,
+    input_week_start: ids.weekStart
+  });
+  await assertRpcDenied(futureAssignmentTeacher, "teacher_group_roster_context", {
+    input_group_id: ids.groupA,
+    input_week_start: addDays(ids.weekStart, 7)
+  });
+  const { data: inactiveCurrentContexts } = await teacherA.rpc("teacher_assignment_contexts");
+  assert.deepEqual(inactiveCurrentContexts, [], "inactive hierarchy exposed a current assignment");
+  const { data: inactiveFutureContexts } = await futureAssignmentTeacher.rpc("teacher_assignment_contexts");
+  assert.deepEqual(inactiveFutureContexts, [], "inactive hierarchy exposed a future assignment");
+  await assertHidden(expiredAssignmentTeacher, "masajid", ids.masjidA);
+  await assertHidden(expiredAssignmentTeacher, "cohorts", ids.cohortA);
+  await assertHidden(expiredAssignmentTeacher, "halaqa_groups", ids.groupA);
+
+  for (const [table, id] of [
+    ["masajid", ids.masjidA],
+    ["cohorts", ids.cohortA],
+    ["halaqa_groups", ids.groupA]
+  ] as const) {
+    const { error } = await service.from(table).update({ active: true }).eq("id", id);
+    assert.equal(error, null, `restore ${table} historical fixture: ${error?.message}`);
+  }
 
   const anon = localClient(anonKey);
   const authenticatedDefinerProbes: Array<[string, Record<string, unknown>?]> = [
