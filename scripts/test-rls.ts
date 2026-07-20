@@ -59,6 +59,7 @@ type SeedIds = {
   inactiveGroup: string;
   groupA: string;
   groupB: string;
+  groupAdminTeacher: string;
   groupWriter: string;
   today: string;
   weekStart: string;
@@ -96,6 +97,7 @@ type SeedIds = {
   staffMembershipA: string;
   staffMembershipB: string;
   assignmentA: string;
+  assignmentAdminTeacher: string;
   assignmentB: string;
   assignmentWriter: string;
   expiredTeacherAssignment: string;
@@ -266,6 +268,7 @@ async function seed(): Promise<SeedIds> {
     "insert groups",
     admin.from("halaqa_groups").insert([
       { cohort_id: cohortA, name: "A Group", active: true, sort_order: 10 },
+      { cohort_id: cohortA, name: "A Admin Teacher Group", active: true, sort_order: 15 },
       { cohort_id: cohortWriter, name: "A Writer Group", active: true, sort_order: 10 },
       { cohort_id: cohortB, name: "B Group", active: true, sort_order: 10 },
       { cohort_id: inactiveMasjidCohort, name: "Inactive Masjid Group", active: true, sort_order: 10 },
@@ -274,6 +277,7 @@ async function seed(): Promise<SeedIds> {
     ]).select("id,name")
   );
   const groupA = groups.find((row) => row.name === "A Group")!.id;
+  const groupAdminTeacher = groups.find((row) => row.name === "A Admin Teacher Group")!.id;
   const groupWriter = groups.find((row) => row.name === "A Writer Group")!.id;
   const groupB = groups.find((row) => row.name === "B Group")!.id;
   const inactiveMasjidGroup = groups.find((row) => row.name === "Inactive Masjid Group")!.id;
@@ -348,6 +352,7 @@ async function seed(): Promise<SeedIds> {
     "insert staff memberships",
     admin.from("masjid_staff_memberships").insert([
       { profile_id: users.adminA, masjid_id: masjidA, staff_role: "admin", active: true, starts_on: startsOn },
+      { profile_id: users.adminA, masjid_id: masjidA, staff_role: "teacher", active: true, starts_on: startsOn },
       { profile_id: users.adminA, masjid_id: inactiveMasjid, staff_role: "admin", active: true, starts_on: startsOn },
       { profile_id: users.adminB, masjid_id: masjidB, staff_role: "admin", active: true, starts_on: startsOn },
       { profile_id: users.teacherA, masjid_id: masjidA, staff_role: "teacher", active: true, starts_on: startsOn },
@@ -396,6 +401,7 @@ async function seed(): Promise<SeedIds> {
     "insert teacher assignments",
     admin.from("group_teacher_assignments").insert([
       { group_id: groupA, teacher_id: users.teacherA, week_start: weekStart, active: true, assigned_by: users.adminA },
+      { group_id: groupAdminTeacher, teacher_id: users.adminA, week_start: weekStart, active: true, assigned_by: users.superAdmin },
       { group_id: groupWriter, teacher_id: users.teacherA, week_start: weekStart, active: true, assigned_by: users.superAdmin },
       { group_id: groupB, teacher_id: users.teacherB, week_start: weekStart, active: true, assigned_by: users.adminB },
       {
@@ -415,6 +421,7 @@ async function seed(): Promise<SeedIds> {
     ]).select("id,group_id,teacher_id")
   );
   const assignmentA = assignments.find((row) => row.group_id === groupA)!.id;
+  const assignmentAdminTeacher = assignments.find((row) => row.group_id === groupAdminTeacher)!.id;
   const assignmentWriter = assignments.find((row) => row.group_id === groupWriter)!.id;
   const assignmentB = assignments.find((row) => row.group_id === groupB)!.id;
   const expiredTeacherAssignment = assignments.find(
@@ -635,6 +642,7 @@ async function seed(): Promise<SeedIds> {
     inactiveGroup,
     groupA,
     groupB,
+    groupAdminTeacher,
     groupWriter,
     today,
     weekStart,
@@ -672,6 +680,7 @@ async function seed(): Promise<SeedIds> {
     staffMembershipA,
     staffMembershipB,
     assignmentA,
+    assignmentAdminTeacher,
     assignmentB,
     assignmentWriter,
     expiredTeacherAssignment,
@@ -733,6 +742,7 @@ async function assertRpcAllowed(client: SupabaseClient, name: string, args: Reco
 async function runAssertions(ids: SeedIds) {
   const [
     adminA,
+    adminB,
     teacherA,
     studentA,
     studentA2,
@@ -750,6 +760,7 @@ async function runAssertions(ids: SeedIds) {
     superAdmin
   ] = await Promise.all([
     signIn("adminA"),
+    signIn("adminB"),
     signIn("teacherA"),
     signIn("studentA"),
     signIn("studentA2"),
@@ -1885,6 +1896,43 @@ async function runAssertions(ids: SeedIds) {
     graded_by: ids.users.teacherA
   });
 
+  const { data: teacherContexts, error: teacherContextsError } = await teacherA.rpc(
+    "teacher_assignment_contexts"
+  );
+  assert.equal(teacherContextsError, null, teacherContextsError?.message);
+  assert.deepEqual(
+    (teacherContexts ?? []).map((row: { group_id: string }) => row.group_id),
+    [ids.groupA],
+    "teacher assignment projection returned an unassigned group"
+  );
+  assert.equal(
+    (teacherContexts?.[0] as { roster_count?: number } | undefined)?.roster_count,
+    2,
+    "teacher assignment projection returned the wrong effective roster count"
+  );
+
+  const { data: adminTeacherContexts, error: adminTeacherContextsError } = await adminA.rpc(
+    "teacher_assignment_contexts"
+  );
+  assert.equal(adminTeacherContextsError, null, adminTeacherContextsError?.message);
+  assert.deepEqual(
+    (adminTeacherContexts ?? []).map((row: { group_id: string }) => row.group_id),
+    [ids.groupAdminTeacher],
+    "admin-teacher assignment projection did not use teacher capability"
+  );
+
+  const { data: pureAdminContexts, error: pureAdminContextsError } = await adminB.rpc(
+    "teacher_assignment_contexts"
+  );
+  assert.equal(pureAdminContextsError, null, pureAdminContextsError?.message);
+  assert.deepEqual(pureAdminContexts, [], "pure admin received teacher assignment context");
+
+  const { data: studentTeacherContexts, error: studentTeacherContextsError } = await studentA.rpc(
+    "teacher_assignment_contexts"
+  );
+  assert.equal(studentTeacherContextsError, null, studentTeacherContextsError?.message);
+  assert.deepEqual(studentTeacherContexts, [], "student received teacher assignment context");
+
   const studentOwnedTables: Array<[string, string, string, string]> = [
     ["checkins", ids.checkinA, ids.checkinA2, ids.checkinB],
     ["checkin_items", ids.itemA, ids.itemA2, ids.itemB],
@@ -2128,6 +2176,22 @@ async function runAssertions(ids: SeedIds) {
     .from("weekly-plans")
     .createSignedUrl(`${ids.users.studentB}/${ids.weekStart}/plan.pdf`, 60);
   assert.ok(adminCrossSigned.error, "admin signed a cross-masjid weekly-plan path");
+  const teacherAssignedSigned = await teacherA.storage
+    .from("weekly-plans")
+    .createSignedUrl(`${ids.users.studentA}/${ids.weekStart}/plan.pdf`, 60);
+  assert.equal(
+    teacherAssignedSigned.error,
+    null,
+    `assigned teacher weekly-plan signing failed: ${teacherAssignedSigned.error?.message}`
+  );
+  const teacherCrossSigned = await teacherA.storage
+    .from("weekly-plans")
+    .createSignedUrl(`${ids.users.studentB}/${ids.weekStart}/plan.pdf`, 60);
+  assert.ok(teacherCrossSigned.error, "teacher signed an unassigned student's weekly plan");
+  const teacherWrongWeekSigned = await teacherA.storage
+    .from("weekly-plans")
+    .createSignedUrl(`${ids.users.studentA}/${addDays(ids.weekStart, -14)}/plan.pdf`, 60);
+  assert.ok(teacherWrongWeekSigned.error, "teacher signed a weekly plan outside the assigned week");
 
   const { data: canDeleteMovedStudent, error: canDeleteMovedStudentError } = await adminA.rpc(
     "can_admin_delete_student",
@@ -2713,10 +2777,14 @@ async function runAssertions(ids: SeedIds) {
     ["can_admin_read_weekly_plan_path", {
       input_file_path: `${ids.users.studentA}/${ids.weekStart}/plan.pdf`
     }],
+    ["can_teacher_read_weekly_plan_path", {
+      input_file_path: `${ids.users.studentA}/${ids.weekStart}/plan.pdf`
+    }],
     ["student_weekly_teacher_name", { input_week_start: ids.weekStart }],
     ["student_cohort_leaderboard_for_week", { input_week_start: ids.weekStart }],
     ["student_leaderboard_available_weeks"],
-    ["admin_students_for_week", { input_week_start: ids.weekStart }]
+    ["admin_students_for_week", { input_week_start: ids.weekStart }],
+    ["teacher_assignment_contexts"]
   ];
 
   for (const [name, args = {}] of authenticatedDefinerProbes) {

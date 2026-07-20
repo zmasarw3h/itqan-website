@@ -85,11 +85,11 @@ The `authenticated` role can execute only these caller-relative definer function
   `student_scope_snapshot_matches(uuid,date,uuid,uuid,uuid)`,
   `teacher_can_read_membership(uuid,date,date)`, and
   `is_rotation_teacher_for_masjid_week(uuid,uuid,date)`, plus the path-only
-  `can_admin_read_weekly_plan_path(text)` used by Storage RLS and the history-safe
+  `can_admin_read_weekly_plan_path(text)` and `can_teacher_read_weekly_plan_path(text)` used by Storage RLS and the history-safe
   `can_admin_manage_group_history(uuid)` closure helper.
 - Application RPCs: `student_weekly_teacher_name(date)`,
-  `student_cohort_leaderboard_for_week(date)`, `student_leaderboard_available_weeks()`, and
-  `admin_students_for_week(date)`, plus the atomic, actor-scoped
+  `student_cohort_leaderboard_for_week(date)`, `student_leaderboard_available_weeks()`,
+  `teacher_assignment_contexts()`, and `admin_students_for_week(date)`, plus the atomic, actor-scoped
   `apply_admin_checkin_correction(uuid,date,text,text,text[])` mutation.
 
 `apply_teacher_rotation_generation(...)` is service-role-only and repeats actor/cohort scope validation

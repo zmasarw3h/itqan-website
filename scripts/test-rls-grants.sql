@@ -26,6 +26,7 @@ insert into expected_authenticated_definers (signature) values
   ('can_read_operational_student_row(uuid,uuid,date)'),
   ('can_read_profile(uuid)'),
   ('can_read_student_for_week(uuid,date)'),
+  ('can_teacher_read_weekly_plan_path(text)'),
   ('cohort_masjid_id(uuid)'),
   ('current_effective_date()'),
   ('current_partner_recitation_round()'),
@@ -46,6 +47,7 @@ insert into expected_authenticated_definers (signature) values
   ('student_masjid_for_week(uuid,date)'),
   ('student_scope_snapshot_matches(uuid,date,uuid,uuid,uuid)'),
   ('student_weekly_teacher_name(date)'),
+  ('teacher_assignment_contexts()'),
   ('teacher_can_read_membership(uuid,date,date)');
 
 do $$

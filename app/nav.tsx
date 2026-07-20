@@ -1,46 +1,19 @@
 import Link from "next/link";
 import { signOut } from "@/app/actions";
+import { navigationLinksForRole } from "@/lib/access";
+import { loadActiveTeacherCapability } from "@/lib/teacher-scope";
+import { getCurrentProfile } from "@/lib/supabase-server";
 import type { Role } from "@/lib/types";
 
-function linksForRole(role: Role) {
+export default async function AppNav({ role, name }: { role: Role; name: string }) {
+  let hasTeacherCapability = role === "teacher";
+
   if (role === "admin") {
-    return [
-      { href: "/admin", label: "Admin" },
-      { href: "/admin/rotation", label: "Rotation" },
-      { href: "/admin/incentives", label: "Incentives" },
-      { href: "/admin/rewards", label: "Rewards" },
-      { href: "/admin/students/new", label: "Add User" },
-      { href: "/account/change-password", label: "Password" }
-    ];
+    const { supabase, profile } = await getCurrentProfile();
+    hasTeacherCapability = profile ? await loadActiveTeacherCapability(supabase, profile) : false;
   }
 
-  if (role === "student") {
-    return [
-      { href: "/student/check-in", label: "Check-In" },
-      { href: "/student/partner-recitation", label: "Partner Recitation" },
-      { href: "/student/grades", label: "Grades" },
-      { href: "/student/leaderboard", label: "Leaderboard" },
-      { href: "/student/weekly-plan", label: "Weekly Plan" },
-      { href: "/student/rewards", label: "Rewards" },
-      { href: "/student/history", label: "History" },
-      { href: "/account/change-password", label: "Password" }
-    ];
-  }
-
-  if (role === "super_admin") {
-    return [
-      { href: "/super-admin", label: "Super Admin" },
-      { href: "/super-admin/people", label: "People" },
-      { href: "/super-admin/masajid", label: "Masajid" },
-      { href: "/account/change-password", label: "Password" }
-    ];
-  }
-
-  return [{ href: "/account/change-password", label: "Password" }];
-}
-
-export default function AppNav({ role, name }: { role: Role; name: string }) {
-  const links = linksForRole(role);
+  const links = navigationLinksForRole(role, hasTeacherCapability);
 
   return (
     <header className="border-b border-stone-200 bg-white">

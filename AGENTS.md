@@ -21,8 +21,8 @@ Scoped access comes from `student_group_memberships`, `masjid_staff_memberships`
 `group_teacher_assignments`. An admin-teacher remains `profiles.role = 'admin'` and also has an active
 teacher staff membership for the relevant masjid. Do not add a separate `admin_teacher` role.
 
-The teacher-facing dashboard is planned but not implemented yet. Do not claim that teacher workflows
-are complete until the teacher routes, assigned-group access, weekly plans, and grading experience exist.
+The teacher-facing dashboard is implemented under `/teacher`. Teacher access remains week-specific and
+must always be derived from active teacher staff membership plus an exact group assignment.
 
 ## Current Core Features
 
@@ -36,6 +36,16 @@ Students can:
 - Upload one weekly plan file for the current halaqa week.
 - View their own check-in history.
 - Change their password.
+
+Teachers can:
+
+- View every group assigned to them for a selected tracker week.
+- View only the students whose group membership is effective for that assigned group/week.
+- View/download assigned students' weekly plans through short-lived, server-guarded links.
+- Create or update halaqa grades only for the exact assigned student/group/week.
+
+Admin-teachers keep `profiles.role = 'admin'`, default to the admin experience, and can switch to the
+teacher dashboard through capability-aware navigation.
 
 Admins can:
 

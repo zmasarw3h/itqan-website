@@ -13,7 +13,53 @@ export function defaultPathForRole(role: Role) {
     return "/student/check-in";
   }
 
-  return "/account/change-password";
+  return "/teacher";
+}
+
+export type AppNavigationLink = {
+  href: string;
+  label: string;
+};
+
+export function navigationLinksForRole(role: Role, hasTeacherCapability = false): AppNavigationLink[] {
+  if (role === "admin") {
+    return [
+      { href: "/admin", label: "Admin" },
+      ...(hasTeacherCapability ? [{ href: "/teacher", label: "Teaching" }] : []),
+      { href: "/admin/rotation", label: "Rotation" },
+      { href: "/admin/incentives", label: "Incentives" },
+      { href: "/admin/rewards", label: "Rewards" },
+      { href: "/admin/students/new", label: "Add User" },
+      { href: "/account/change-password", label: "Password" }
+    ];
+  }
+
+  if (role === "student") {
+    return [
+      { href: "/student/check-in", label: "Check-In" },
+      { href: "/student/partner-recitation", label: "Partner Recitation" },
+      { href: "/student/grades", label: "Grades" },
+      { href: "/student/leaderboard", label: "Leaderboard" },
+      { href: "/student/weekly-plan", label: "Weekly Plan" },
+      { href: "/student/rewards", label: "Rewards" },
+      { href: "/student/history", label: "History" },
+      { href: "/account/change-password", label: "Password" }
+    ];
+  }
+
+  if (role === "super_admin") {
+    return [
+      { href: "/super-admin", label: "Super Admin" },
+      { href: "/super-admin/people", label: "People" },
+      { href: "/super-admin/masajid", label: "Masajid" },
+      { href: "/account/change-password", label: "Password" }
+    ];
+  }
+
+  return [
+    { href: "/teacher", label: "Teaching" },
+    { href: "/account/change-password", label: "Password" }
+  ];
 }
 
 export function canUseApp(profile: Profile | null) {

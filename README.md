@@ -8,6 +8,7 @@ Lightweight masjid operations system that started as an emergency Canvas replace
 - Students upload one weekly plan image/PDF for the current Sunday-Saturday tracker week before using daily check-in.
 - Admins sign in, add students/teachers/admins, view all active students, review weekly/date submission scores, filter by student/date/status, correct check-ins, enter Saturday halaqa grades, and export CSV.
 - Admins can view/download a student's uploaded weekly plan from that student's admin screen.
+- Teachers can open their week-specific assigned groups, view the effective roster, download assigned students' weekly plans, and save halaqa grades. Admin-teachers can switch between admin and teaching views.
 - The app now includes scoped masjid/cohort foundations and weekly teacher rotation operations. It still excludes plan approval, comments, plan parsing/OCR, announcements, payments, booking, parent accounts, and Quran selection.
 
 ## Stack
@@ -176,6 +177,10 @@ The upload accepts:
 Uploading again during the same week replaces the existing weekly plan record. The page shows the uploaded file name, upload timestamp, and a signed view/download link. If nothing is uploaded, it shows `No weekly plan uploaded yet.`
 
 Admins open `/admin/students/[id]` from the student list to view the student's current weekly plan. If a plan exists, the admin sees the file name, upload timestamp, and a signed view/download link. If no plan exists, the page shows `No plan uploaded for this week.`
+
+Teachers open `/teacher` and choose an assignment week. A weekly-plan link appears only for a student
+whose membership is effective in that teacher's assigned group for the exact week. The download route
+rechecks the assignment server-side and creates a five-minute signed URL with the signed-in session.
 
 ## Weekly Scoring
 

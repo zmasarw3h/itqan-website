@@ -309,7 +309,8 @@ Run these checks through the app using staging users:
 - Admin login lands on `/admin`.
 - Admin dashboard, filters, correction form, student/teacher creation, halaqa grade form, and CSV export expose only the admin's effective masjid scope.
 - A super admin can open `/super-admin`, `/super-admin/people`, and `/super-admin/masajid`; all other roles are rejected server-side.
-- A teacher's database reads are limited to their effective assignment. The teacher-facing dashboard remains a separate implementation phase.
+- Teacher dashboard and group-detail routes expose only exact-week assignments and effective rosters; manual group/week URL changes are denied.
+- Teacher weekly-plan links are short-lived and fail for unassigned students or weeks. Teacher grade writes fail outside the exact assignment.
 - Switching between test users from masjid A and masjid B never leaks names, counts, IDs, files, grades, or leaderboard data across masjids.
 - Browser DevTools Network responses for student pages do not include another student's profile, check-ins, check-in items, weekly plans, partner recitations, or halaqa grades.
 - Browser bundles do not contain `SUPABASE_SERVICE_ROLE_KEY`.
