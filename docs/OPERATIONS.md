@@ -27,9 +27,28 @@ from the normal admin app. Use the super-admin console for those operations.
 Admins can also participate in teacher rotation. Keep their profile role as `admin` and add an active
 `masjid_staff_memberships` row with `staff_role = 'teacher'` for the relevant masjid.
 
-The app validates the selected scope before creating the Auth user. If a later membership insert fails,
-the user may exist in Auth/Profile but will not have usable app access until the masjid/cohort/group or
-staff membership is fixed.
+The Phase 1A database foundation provides an atomic profile/membership/audit RPC, but the deployed app
+must not be described as using it until Phase 1B wires the admin action. Until then, a failure after Auth
+creation can still leave an Auth-only account that requires cleanup. Phase 1B must create Auth first,
+call the transactional setup RPC, and delete the new Auth user as compensation if the RPC fails.
+
+## Transactional Workflow Rollout
+
+Deploy `20260720053556_transactional_workflow_foundation.sql` before deploying any Phase 1B app code
+that calls its RPCs. The migration is backward-compatible with the existing actions: it adds private
+idempotency state and new service-only functions without removing or changing current contracts.
+
+After applying the migration:
+
+1. Run the schema sanity query and `supabase migration list`.
+2. Confirm `service_role` alone can execute `apply_scoped_user_setup`, `get_person_access_state`, and `apply_super_admin_access_change`.
+3. Confirm `anon` and `authenticated` cannot execute those functions.
+4. Deploy the Phase 1B application wiring only after those checks pass.
+
+Every application call must use a fresh request UUID. Retrying the exact same request UUID and payload
+returns the stored result. Reusing a request UUID with different input is rejected. Super-admin access
+screens must load and submit the current access-state snapshot; stale snapshots are rejected with
+`access state changed; reload before saving.`
 
 ## Masjid Setup
 

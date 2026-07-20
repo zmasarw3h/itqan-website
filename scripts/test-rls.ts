@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { calculateDailySubmission, tasksForDate } from "../lib/scoring";
 
@@ -33,6 +34,10 @@ type UserName =
   | "expiredMembershipStudent"
   | "futureMembershipStudent"
   | "studentB"
+  | "setupStudent"
+  | "setupTeacher"
+  | "setupCrossMasjid"
+  | "teacherAccessTarget"
   | "expiredAdmin"
   | "futureAdmin"
   | "inactiveAdmin"
@@ -183,6 +188,10 @@ async function seed(): Promise<SeedIds> {
     "expiredMembershipStudent",
     "futureMembershipStudent",
     "studentB",
+    "setupStudent",
+    "setupTeacher",
+    "setupCrossMasjid",
+    "teacherAccessTarget",
     "expiredAdmin",
     "futureAdmin",
     "inactiveAdmin",
@@ -197,7 +206,13 @@ async function seed(): Promise<SeedIds> {
     users[name] = authRow.id;
   }
 
-  const profileRows = names.filter((name) => name !== "profileTarget").map((name) => {
+  const authOnlyNames = new Set<UserName>([
+    "profileTarget",
+    "setupStudent",
+    "setupTeacher",
+    "setupCrossMasjid"
+  ]);
+  const profileRows = names.filter((name) => !authOnlyNames.has(name)).map((name) => {
     const authRow = authRows.get(name)!;
     const role = name === "superAdmin"
       ? "super_admin"
@@ -1084,6 +1099,264 @@ async function runAssertions(ids: SeedIds) {
 
   // The guarded server-only RPC remains the sole positive mutation route.
   const service = localClient(serviceRoleKey);
+
+  const setupStudentRequestId = randomUUID();
+  const setupStudentArgs = {
+    input_request_id: setupStudentRequestId,
+    input_actor_id: ids.users.adminA,
+    input_profile_id: ids.users.setupStudent,
+    input_name: "Setup Student",
+    input_email: "setupstudent@rls.local",
+    input_phone: "+15550001001",
+    input_role: "student",
+    input_starts_on: ids.weekStart,
+    input_masjid_id: ids.masjidA,
+    input_group_id: ids.groupA
+  };
+
+  await assertRpcDenied(adminA, "apply_scoped_user_setup", setupStudentArgs);
+  await assertRpcDenied(superAdmin, "get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherAccessTarget
+  });
+  await assertRpcDenied(superAdmin, "apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherAccessTarget,
+    input_preset: "teacher",
+    input_starts_on: ids.weekStart,
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: null,
+    input_expected_state: {}
+  });
+
+  const setupStudentFirst = await service.rpc("apply_scoped_user_setup", setupStudentArgs);
+  assert.equal(setupStudentFirst.error, null, setupStudentFirst.error?.message);
+  const setupStudentRetry = await service.rpc("apply_scoped_user_setup", setupStudentArgs);
+  assert.equal(setupStudentRetry.error, null, setupStudentRetry.error?.message);
+  assert.deepEqual(setupStudentRetry.data, setupStudentFirst.data, "setup retry changed the result");
+
+  const { data: setupStudentProfiles, error: setupStudentProfileError } = await service
+    .from("profiles")
+    .select("id,role,active")
+    .eq("id", ids.users.setupStudent);
+  assert.equal(setupStudentProfileError, null, setupStudentProfileError?.message);
+  assert.equal(setupStudentProfiles?.length, 1, "setup retry created the wrong profile count");
+  const { data: setupStudentMemberships, error: setupStudentMembershipError } = await service
+    .from("student_group_memberships")
+    .select("id,group_id")
+    .eq("student_id", ids.users.setupStudent);
+  assert.equal(setupStudentMembershipError, null, setupStudentMembershipError?.message);
+  assert.equal(setupStudentMemberships?.length, 1, "setup retry duplicated student membership");
+  assert.equal(setupStudentMemberships?.[0]?.group_id, ids.groupA);
+  const { count: setupStudentAuditCount, error: setupStudentAuditError } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.users.setupStudent)
+    .eq("action", "scoped_user_created");
+  assert.equal(setupStudentAuditError, null, setupStudentAuditError?.message);
+  assert.equal(setupStudentAuditCount, 1, "setup retry duplicated audit semantics");
+
+  const setupTeacherArgs = {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_profile_id: ids.users.setupTeacher,
+    input_name: "Setup Teacher",
+    input_email: "setupteacher@rls.local",
+    input_phone: "+15550001002",
+    input_role: "teacher",
+    input_starts_on: ids.weekStart,
+    input_masjid_id: ids.masjidA,
+    input_group_id: null
+  };
+  const concurrentSetupResults = await Promise.all([
+    service.rpc("apply_scoped_user_setup", setupTeacherArgs),
+    service.rpc("apply_scoped_user_setup", setupTeacherArgs)
+  ]);
+  for (const result of concurrentSetupResults) {
+    assert.equal(result.error, null, `concurrent setup retry failed: ${result.error?.message}`);
+  }
+  assert.deepEqual(
+    concurrentSetupResults[0].data,
+    concurrentSetupResults[1].data,
+    "concurrent setup retries returned different results"
+  );
+  const { count: setupTeacherMembershipCount } = await service
+    .from("masjid_staff_memberships")
+    .select("id", { count: "exact", head: true })
+    .eq("profile_id", ids.users.setupTeacher)
+    .eq("staff_role", "teacher");
+  assert.equal(setupTeacherMembershipCount, 1, "concurrent setup duplicated teacher membership");
+
+  const crossMasjidSetup = await service.rpc("apply_scoped_user_setup", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_profile_id: ids.users.setupCrossMasjid,
+    input_name: "Cross Masjid Setup",
+    input_email: "setupcrossmasjid@rls.local",
+    input_phone: "+15550001003",
+    input_role: "student",
+    input_starts_on: ids.weekStart,
+    input_masjid_id: ids.masjidB,
+    input_group_id: ids.groupB
+  });
+  assert.ok(crossMasjidSetup.error, "cross-masjid setup unexpectedly succeeded");
+  assert.equal(crossMasjidSetup.error?.code, "42501");
+  const { count: crossMasjidProfileCount } = await service
+    .from("profiles")
+    .select("id", { count: "exact", head: true })
+    .eq("id", ids.users.setupCrossMasjid);
+  assert.equal(crossMasjidProfileCount, 0, "denied setup left a profile behind");
+
+  const accessStateResult = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherAccessTarget
+  });
+  assert.equal(accessStateResult.error, null, accessStateResult.error?.message);
+  assert.ok(accessStateResult.data, "access state RPC returned no state");
+
+  const staleExpectedState = accessStateResult.data;
+  const { error: staleSetupError } = await service
+    .from("profiles")
+    .update({ active: false })
+    .eq("id", ids.users.teacherAccessTarget);
+  assert.equal(staleSetupError, null, staleSetupError?.message);
+  const staleAccessChange = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherAccessTarget,
+    input_preset: "admin_teacher",
+    input_starts_on: ids.weekStart,
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: null,
+    input_expected_state: staleExpectedState
+  });
+  assert.ok(staleAccessChange.error, "stale access state unexpectedly succeeded");
+  assert.equal(staleAccessChange.error?.code, "P0001");
+  assert.match(
+    staleAccessChange.error?.message ?? "",
+    /access state changed/i,
+    `unexpected stale-state error: ${JSON.stringify(staleAccessChange.error)}`
+  );
+  const { error: restoreAccessTargetError } = await service
+    .from("profiles")
+    .update({ active: true })
+    .eq("id", ids.users.teacherAccessTarget);
+  assert.equal(restoreAccessTargetError, null, restoreAccessTargetError?.message);
+
+  const refreshedAccessState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherAccessTarget
+  });
+  assert.equal(refreshedAccessState.error, null, refreshedAccessState.error?.message);
+  const accessRequestId = randomUUID();
+  const accessChangeArgs = {
+    input_request_id: accessRequestId,
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherAccessTarget,
+    input_preset: "admin_teacher",
+    input_starts_on: ids.weekStart,
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: null,
+    input_expected_state: refreshedAccessState.data
+  };
+  const accessChangeFirst = await service.rpc("apply_super_admin_access_change", accessChangeArgs);
+  assert.equal(accessChangeFirst.error, null, accessChangeFirst.error?.message);
+  const { count: accessAuditCountBeforeRetry } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.users.teacherAccessTarget);
+  const accessChangeRetry = await service.rpc("apply_super_admin_access_change", accessChangeArgs);
+  assert.equal(accessChangeRetry.error, null, accessChangeRetry.error?.message);
+  assert.deepEqual(accessChangeRetry.data, accessChangeFirst.data, "access retry changed the result");
+  const { count: accessAuditCountAfterRetry } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.users.teacherAccessTarget);
+  assert.equal(accessAuditCountAfterRetry, accessAuditCountBeforeRetry, "access retry duplicated audit events");
+  const accessStateAfterChange = (
+    accessChangeFirst.data as { access_state?: unknown } | null
+  )?.access_state;
+  assert.ok(accessStateAfterChange, "access change result omitted the next access state");
+  const nonSundayAccessChange = await service.rpc("apply_super_admin_access_change", {
+    ...accessChangeArgs,
+    input_request_id: randomUUID(),
+    input_starts_on: addDays(ids.weekStart, 2),
+    input_expected_state: accessStateAfterChange
+  });
+  assert.equal(
+    nonSundayAccessChange.error,
+    null,
+    `existing date-granular access behavior regressed: ${nonSundayAccessChange.error?.message}`
+  );
+  const reusedRequest = await service.rpc("apply_super_admin_access_change", {
+    ...accessChangeArgs,
+    input_preset: "admin"
+  });
+  assert.ok(reusedRequest.error, "request id reuse with changed input unexpectedly succeeded");
+
+  const lastAdminState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminB
+  });
+  assert.equal(lastAdminState.error, null, lastAdminState.error?.message);
+  const { count: adminBAuditCountBefore } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.users.adminB);
+  const removeLastMasjidAdmin = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.adminB,
+    input_preset: "teacher",
+    input_starts_on: ids.weekStart,
+    input_selected_masjid_id: ids.masjidB,
+    input_selected_group_id: null,
+    input_expected_state: lastAdminState.data
+  });
+  assert.ok(removeLastMasjidAdmin.error, "last active masjid admin removal unexpectedly succeeded");
+  assert.equal(removeLastMasjidAdmin.error?.code, "23514");
+  const { data: adminBAfterRollback } = await service
+    .from("profiles")
+    .select("role,active")
+    .eq("id", ids.users.adminB)
+    .single();
+  assert.deepEqual(adminBAfterRollback, { role: "admin", active: true }, "failed access change mutated profile");
+  const { data: adminBStaffAfterRollback } = await service
+    .from("masjid_staff_memberships")
+    .select("staff_role,ends_on")
+    .eq("profile_id", ids.users.adminB)
+    .eq("masjid_id", ids.masjidB)
+    .order("staff_role");
+  assert.deepEqual(
+    adminBStaffAfterRollback,
+    [{ staff_role: "admin", ends_on: null }],
+    "failed access change did not roll back staff mutations"
+  );
+  const { count: adminBAuditCountAfter } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.users.adminB);
+  assert.equal(adminBAuditCountAfter, adminBAuditCountBefore, "failed access change left audit rows");
+
+  const superAdminState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.superAdmin
+  });
+  assert.equal(superAdminState.error, null, superAdminState.error?.message);
+  const selfDeactivate = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.superAdmin,
+    input_preset: "inactive",
+    input_starts_on: ids.weekStart,
+    input_selected_masjid_id: null,
+    input_selected_group_id: null,
+    input_expected_state: superAdminState.data
+  });
+  assert.ok(selfDeactivate.error, "super admin self-deactivation unexpectedly succeeded");
+  assert.equal(selfDeactivate.error?.code, "42501");
+
   const { data: generatedRunId, error: generatedRunError } = await service.rpc(
     "apply_teacher_rotation_generation",
     {
@@ -1342,7 +1615,7 @@ async function runAssertions(ids: SeedIds) {
     { input_week_start: ids.weekStart }
   );
   assert.equal(leaderboardError, null, leaderboardError?.message);
-  assert.ok(Array.isArray(leaderboard) && leaderboard.length === 2, "leaderboard should contain only cohort A");
+  assert.ok(Array.isArray(leaderboard) && leaderboard.length === 3, "leaderboard should contain only cohort A");
   const expectedLeaderboardFields = [
     "is_current_student",
     "previous_rank",
@@ -1359,6 +1632,7 @@ async function runAssertions(ids: SeedIds) {
     assert.ok(!Object.values(row).includes(ids.users.studentB), "leaderboard exposed another masjid UUID");
   }
   assert.ok((leaderboard ?? []).some((row) => row.student_name === "studentA2"));
+  assert.ok((leaderboard ?? []).some((row) => row.student_name === "Setup Student"));
   assert.ok(!(leaderboard ?? []).some((row) => row.student_name === "studentB"));
   const currentLeaderboardRow = (leaderboard ?? []).find((row) => row.is_current_student);
   assert.ok(Number(currentLeaderboardRow?.score_percentage) <= 100, "leaderboard score exceeded 100%");
@@ -1538,7 +1812,10 @@ async function runAssertions(ids: SeedIds) {
     .select("id");
   assert.equal(superAccountabilityError, null, superAccountabilityError?.message);
   assert.equal(superAccountabilityUpdate?.length, 1, "super admin operational update was rejected");
-  const { data: auditRows, error: auditError } = await superAdmin.from("super_admin_audit_events").select("id");
+  const { data: auditRows, error: auditError } = await superAdmin
+    .from("super_admin_audit_events")
+    .select("id")
+    .eq("id", ids.auditId);
   assert.equal(auditError, null, auditError?.message);
   assert.equal(auditRows?.length, 1);
   const ordinaryAudit = await adminA.from("super_admin_audit_events").select("id");

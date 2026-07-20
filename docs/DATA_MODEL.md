@@ -37,6 +37,10 @@ Core tables:
 - `teacher_rotation_runs`: audit metadata for generated weekly rotation runs.
 - `super_admin_audit_events`: append-only audit target for future super-admin mutations and account recovery actions.
 
+Internal transactional state lives in the unexposed `private` schema:
+
+- `workflow_mutation_requests`: completed service-workflow requests keyed by caller-generated UUID. It stores the normalized input and result so an exact retry returns the original result without duplicating memberships or audit events. It has no browser or service-role table grants; only the guarded definer functions can use it.
+
 Server-side helper functions expose narrow caller-relative views used by the app:
 
 - `student_weekly_teacher_name(week_start)`: returns only the signed-in student's assigned teacher display name.
@@ -48,6 +52,16 @@ Server-side helper functions expose narrow caller-relative views used by the app
 The superseded `student_weekly_teacher(student_id, week_start)` and
 `student_cohort_students_for_week(student_id, week_start)` functions remain in the schema for migration
 compatibility but have no browser-role execute grant.
+
+Service-only transactional functions added for Phase 1A:
+
+- `apply_scoped_user_setup(...)`: validates the Auth user, actor, active hierarchy, and masjid scope before creating the profile, one student/teacher membership, and one audit event atomically.
+- `get_person_access_state(actor_id, target_profile_id)`: returns a canonical profile/membership snapshot only after verifying that the passed actor is currently an active super admin.
+- `apply_super_admin_access_change(...)`: locks and compares that snapshot, derives the access transition in PostgreSQL, writes profile/membership/audit changes atomically, and protects the last active super admin and last active admin of an active masjid.
+
+All three functions are denied to `PUBLIC`, `anon`, and `authenticated` and granted only to
+`service_role`. Their passed actor IDs are treated as untrusted input and revalidated from current
+database state inside each call.
 
 ## Weekly Rotation Foundation
 

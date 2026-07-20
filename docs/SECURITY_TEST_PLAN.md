@@ -348,6 +348,11 @@ Phase 1 is not mergeable until a local disposable Supabase harness:
 - Rejects non-Sunday week inputs to weekly projection RPCs.
 - Catalog-checks Storage policy command, role, permissiveness, and expressions, plus exact function and
   audit-table privileges rather than relying only on behavioral happy paths.
+- Proves transactional account setup denies direct signed calls and cross-masjid actor spoofing, and
+  that exact sequential or concurrent request retries create one profile, membership, and audit event.
+- Proves super-admin access changes reject stale snapshots, reject request-ID reuse with changed input,
+  preserve the last active super admin and last active admin of an active masjid, and roll back profile,
+  membership, and audit writes together when a guard fails.
 - Runs through a documented opt-in command with disposable credentials only. It must never target production.
 
 Keep `npm run check` deterministic. The Docker-backed RLS integration command runs as a separate GitHub

@@ -93,7 +93,10 @@ The `authenticated` role can execute only these caller-relative definer function
   `apply_admin_checkin_correction(uuid,date,text,text,text[])` mutation.
 
 `apply_teacher_rotation_generation(...)` is service-role-only and repeats actor/cohort scope validation
-inside the transaction. Trigger functions (`enforce_student_accountability_attestation()`,
+inside the transaction. The Phase 1A functions `apply_scoped_user_setup(...)`,
+`get_person_access_state(uuid,uuid)`, and `apply_super_admin_access_change(...)` are also
+service-role-only. They independently validate the passed actor, use explicit current-state or hierarchy
+checks, and keep membership/profile changes plus audit insertion inside one transaction. Trigger functions (`enforce_student_accountability_attestation()`,
 `enforce_student_checkin_integrity()`, `enforce_student_checkin_item_integrity()`,
 `recalculate_student_checkin_score()`, `set_student_scope_snapshot()`, `teacher_rotation_row_scope_matches()`, and
 `protect_foundation_row_identity()`) and the superseded broad

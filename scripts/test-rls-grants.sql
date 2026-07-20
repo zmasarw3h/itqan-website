@@ -139,7 +139,13 @@ begin
     select signature from application_definers
     where has_function_privilege('service_role', function_oid, 'EXECUTE')
     except
-    select 'apply_teacher_rotation_generation(uuid,date,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,integer,integer,integer,integer)'
+    select signature
+    from (values
+      ('apply_scoped_user_setup(uuid,uuid,uuid,text,text,text,text,date,uuid,uuid)'),
+      ('apply_super_admin_access_change(uuid,uuid,uuid,text,date,uuid,uuid,jsonb)'),
+      ('apply_teacher_rotation_generation(uuid,date,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,integer,integer,integer,integer)'),
+      ('get_person_access_state(uuid,uuid)')
+    ) expected_service(signature)
   ) difference;
 
   if invalid_allowlist is not null then
@@ -169,6 +175,22 @@ begin
     'EXECUTE'
   ) then
     raise exception 'service_role lacks guarded rotation generation EXECUTE';
+  end if;
+
+  if not has_function_privilege(
+    'service_role',
+    'public.apply_scoped_user_setup(uuid,uuid,uuid,text,text,text,text,date,uuid,uuid)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.apply_super_admin_access_change(uuid,uuid,uuid,text,date,uuid,uuid,jsonb)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.get_person_access_state(uuid,uuid)',
+    'EXECUTE'
+  ) then
+    raise exception 'service_role lacks transactional workflow RPC EXECUTE';
   end if;
 end;
 $$;
@@ -277,6 +299,19 @@ begin
     or has_table_privilege('service_role', 'public.super_admin_audit_events', 'DELETE')
     or has_table_privilege('service_role', 'public.super_admin_audit_events', 'TRUNCATE') then
     raise exception 'service_role has forbidden audit UPDATE/DELETE/TRUNCATE privileges';
+  end if;
+
+  if exists (
+    select 1
+    from (values ('anon'), ('authenticated'), ('service_role')) as roles(role_name)
+    cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE')) as privileges(privilege_name)
+    where has_table_privilege(
+      roles.role_name,
+      'private.workflow_mutation_requests',
+      privileges.privilege_name
+    )
+  ) then
+    raise exception 'workflow mutation ledger is directly accessible outside its owner functions';
   end if;
 end;
 $$;
