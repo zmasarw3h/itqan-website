@@ -309,7 +309,9 @@ Run these checks through the app using staging users:
 - Admin login lands on `/admin`.
 - Admin dashboard, filters, correction form, student/teacher creation, halaqa grade form, and CSV export expose only the admin's effective masjid scope.
 - A super admin can open `/super-admin`, `/super-admin/people`, and `/super-admin/masajid`; all other roles are rejected server-side.
-- A teacher's database reads are limited to their effective assignment. The teacher-facing dashboard remains a separate implementation phase.
+- Teacher dashboard and group-detail routes expose only exact-week assignments and effective rosters; manual group/week URL changes are denied.
+- Assigned teachers cannot select student `profiles` rows or contact columns; the roster RPC returns only its documented safe fields and exact-week scoring aggregates.
+- Teacher weekly-plan links are short-lived and fail for unassigned students or weeks. Teacher grade writes fail outside the exact assignment.
 - Switching between test users from masjid A and masjid B never leaks names, counts, IDs, files, grades, or leaderboard data across masjids.
 - Browser DevTools Network responses for student pages do not include another student's profile, check-ins, check-in items, weekly plans, partner recitations, or halaqa grades.
 - Browser bundles do not contain `SUPABASE_SERVICE_ROLE_KEY`.
@@ -337,6 +339,8 @@ Phase 1 is not mergeable until a local disposable Supabase harness:
 - Proves normal admins cannot read or mutate another masjid's operational data.
 - Proves students cannot read another student's owned operational records, including a student in the same cohort. The intentional cohort leaderboard RPC may expose only its documented leaderboard fields.
 - Proves teachers are limited to their effective assigned group/week.
+- Proves assigned teachers cannot read student email/phone through `profiles`, while the safe roster RPC rejects arbitrary groups/weeks and returns no undocumented fields.
+- Proves inactive and non-student grade targets are denied and old-week Storage denial is exercised against an uploaded object.
 - Proves inactive profiles and expired/future memberships do not grant current access.
 - Tests `security definer` execute grants for `anon`, ordinary authenticated users, admins, and super admins.
 - Tests private weekly-plan Storage access and signed-link authorization.

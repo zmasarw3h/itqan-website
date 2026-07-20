@@ -8,6 +8,7 @@ Lightweight masjid operations system that started as an emergency Canvas replace
 - Students upload one weekly plan image/PDF for the current Sunday-Saturday tracker week before using daily check-in.
 - Admins sign in, add students/teachers/admins, view all active students, review weekly/date submission scores, filter by student/date/status, correct check-ins, enter Saturday halaqa grades, and export CSV.
 - Admins can view/download a student's uploaded weekly plan from that student's admin screen.
+- Teachers can open their week-specific assigned groups, view the effective roster, download assigned students' weekly plans, and save halaqa grades. Admin-teachers can switch between admin and teaching views.
 - The app now includes scoped masjid/cohort foundations and weekly teacher rotation operations. It still excludes plan approval, comments, plan parsing/OCR, announcements, payments, booking, parent accounts, and Quran selection.
 
 ## Stack
@@ -107,7 +108,7 @@ Run the default E2E smoke suite:
 npm run test:e2e
 ```
 
-By default, Playwright starts the app on `http://127.0.0.1:3100` and only verifies that `/login` renders. It does not require Supabase credentials and does not sign in.
+By default, Playwright starts the app on `http://127.0.0.1:3100` and verifies `/login` in desktop and mobile Chromium projects. It does not require Supabase credentials and does not sign in.
 
 To run against an already-running app:
 
@@ -119,12 +120,26 @@ Authenticated E2E tests are opt-in and should use a local or staging Supabase pr
 
 ```bash
 E2E_AUTH_ENABLED=true
+E2E_TEST_ENVIRONMENT=local
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 E2E_TEST_STUDENT_PHONE=
 E2E_TEST_STUDENT_PASSWORD=
+E2E_TEST_TEACHER_PHONE=
+E2E_TEST_TEACHER_PASSWORD=
+E2E_TEST_ADMIN_TEACHER_PHONE=
+E2E_TEST_ADMIN_TEACHER_PASSWORD=
+E2E_TEST_PURE_ADMIN_PHONE=
+E2E_TEST_PURE_ADMIN_PASSWORD=
 ```
+
+Each role fixture is independently optional. Teacher coverage verifies available-week canonicalization,
+assigned groups, roster scoring context, plan downloads when present, and desktop/mobile overflow.
+Admin-teacher and pure-admin fixtures verify capability-aware routing and navigation. To exercise grade
+submission against disposable local or staging data, also set `E2E_TEST_DATA_MUTATIONS_ENABLED=true`;
+only the desktop project submits. The suite refuses an `E2E_TEST_ENVIRONMENT=production` or an
+`itqan.website`/`itqan.app` target.
 
 Normal CI runs the deterministic `npm run check` job and a separate Docker-backed `npm run test:rls`
 job. The E2E workflow is manual for now and can be run from GitHub Actions when a browser smoke check
@@ -176,6 +191,10 @@ The upload accepts:
 Uploading again during the same week replaces the existing weekly plan record. The page shows the uploaded file name, upload timestamp, and a signed view/download link. If nothing is uploaded, it shows `No weekly plan uploaded yet.`
 
 Admins open `/admin/students/[id]` from the student list to view the student's current weekly plan. If a plan exists, the admin sees the file name, upload timestamp, and a signed view/download link. If no plan exists, the page shows `No plan uploaded for this week.`
+
+Teachers open `/teacher` and choose an assignment week. A weekly-plan link appears only for a student
+whose membership is effective in that teacher's assigned group for the exact week. The download route
+rechecks the assignment server-side and creates a five-minute signed URL with the signed-in session.
 
 ## Weekly Scoring
 

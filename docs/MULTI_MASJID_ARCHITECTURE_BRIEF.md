@@ -1,8 +1,8 @@
 # Multi-Masjid Architecture Brief
 
-> Status: implemented foundation with remaining experience work. The database hierarchy, scoped
-> memberships, teacher rotation foundation, and super-admin console now exist. The teacher dashboard,
-> explicit multi-masjid/cohort rotation selection, sisters rotation, and final RLS hardening remain open.
+> Status: core multi-masjid architecture implemented. The database hierarchy, scoped memberships,
+> transactional account workflows, hardened RLS, super-admin console, and assigned-group teacher
+> dashboard now exist. Explicit multi-masjid/cohort rotation selection and sisters rotation remain open.
 
 ## Purpose
 
@@ -55,7 +55,7 @@ These decisions were locked on June 23, 2026:
 - One halaqa group has exactly one assigned teacher per week for the first release.
 - Teachers can view weekly plans for students in groups assigned to them for the relevant week.
 - A student with no active/effective group membership can log in but sees a setup-incomplete state and cannot use student workflows until assigned.
-- Add the `super_admin` role value while changing the role constraint, but defer super-admin UI to a later release. New masajid should be created by server-only operational scripts for the first release.
+- The `super_admin` role and console are implemented. Super admins create masajid, starter cohorts/groups, and scoped admin or admin-teacher access in-app through guarded transactional workflows.
 
 ## Scope Hierarchy
 
@@ -112,6 +112,10 @@ Teachers can:
 - Enter/update halaqa grades for assigned group students for the assigned week.
 - Change password.
 
+An active `teacher` profile always reaches the teacher shell. Having no assignment for the selected week
+produces a clear empty state; roster, plan, and grade access still requires an exact week assignment and
+effective teacher staff membership.
+
 Teachers cannot:
 
 - Add students.
@@ -141,20 +145,18 @@ Admins can:
 
 Admins cannot:
 
-- See or manage masajid outside their admin membership unless a future super-admin role is explicitly introduced.
+- See or manage masajid outside their admin membership. Cross-masjid foundation management belongs to active super admins.
 
 ### Platform Owner / Super Admin
 
-The first multi-masjid release needs a way to create and manage masajid, cohorts, and top-level admin memberships. Do not overload normal masjid admins with cross-masjid creation powers.
+The super-admin console is implemented at `/super-admin`, with people/access management at
+`/super-admin/people` and hierarchy management at `/super-admin/masajid`. Active super admins can create
+masajid, create/deactivate brothers or sisters cohorts and groups, and grant scoped admin or admin-teacher
+access. These operations use guarded server-side workflows; they do not replace normal masjid-scoped
+admin checks.
 
-Recommended approach:
-
-- Add a `super_admin` profile role value while changing the role constraint, but keep UI deferred unless the first release includes in-app masjid creation.
-- `super_admin` can create masajid, create brothers/sisters cohorts, create initial groups, and grant masjid admin memberships.
-- `super_admin` should not replace scoped masjid admin checks. Normal admin screens should still operate through explicit masjid membership.
-- If in-app masjid creation is not needed for the first release, seed new masajid and initial admin memberships through a server-only operational script using the service role, then add `super_admin` UI later when the operational need is real.
-
-First-release decision: include the `super_admin` role value for future-proofing, keep masjid creation operational/scripted, and defer broad super-admin UI until there is a real operational need.
+Still deferred are the audit-event browser, repair console, and broader bulk setup operations. Normal
+admins remain unable to create or manage hierarchy outside masajid they actively administer.
 
 ## Role And Visibility Matrix
 
@@ -420,9 +422,15 @@ Add admin management routes as needed:
 
 - `/admin/groups`
 - `/admin/teacher-assignments`
-- `/admin/masajid` is deferred to a later release with super-admin UI.
 
-For the first release, masjid creation should happen through a server-only operational script and normal admins should only manage groups/teachers inside masajid where they already have admin membership.
+Implemented super-admin management routes:
+
+- `/super-admin`
+- `/super-admin/people`
+- `/super-admin/masajid`
+
+Masjid creation and hierarchy maintenance happen in the super-admin console. Normal admins only manage
+students, groups, and teachers within their active masjid scope.
 
 Add teacher routes:
 
@@ -522,7 +530,7 @@ npm run check
 - Add group and teacher assignment management.
 - Update admin CSV exports.
 
-### Phase 4: Teacher Experience
+### Phase 4: Teacher Experience (implemented)
 
 - Add teacher nav.
 - Add teacher dashboard.
@@ -603,4 +611,4 @@ Optional but recommended after the first three:
 - Should students with no cohort assignment be blocked from login, shown a limited state, or routed to support text?
 - Should teacher assignments be copied forward automatically week to week?
 - Are masajid all expected to use the same timezone for the first multi-masjid release?
-- What exact server-only operational command/script should create future masajid, cohorts, initial groups, and initial admin memberships?
+- Which repair and bulk-setup operations should eventually move into the super-admin console?

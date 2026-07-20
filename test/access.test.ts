@@ -4,7 +4,8 @@ import {
   canReadCheckInScores,
   canReadStudentData,
   canSubmitStudentCheckIn,
-  defaultPathForRole
+  defaultPathForRole,
+  navigationLinksForRole
 } from "@/lib/access";
 import type { Profile } from "@/lib/types";
 
@@ -99,7 +100,13 @@ describe("access rules", () => {
   it("routes roles to their default app area", () => {
     expect(defaultPathForRole("student")).toBe("/student/check-in");
     expect(defaultPathForRole("admin")).toBe("/admin");
-    expect(defaultPathForRole("teacher")).toBe("/account/change-password");
+    expect(defaultPathForRole("teacher")).toBe("/teacher");
     expect(defaultPathForRole("super_admin")).toBe("/super-admin");
+  });
+
+  it("adds teacher navigation only for admins with teacher capability", () => {
+    expect(navigationLinksForRole("admin", false).some((link) => link.href === "/teacher")).toBe(false);
+    expect(navigationLinksForRole("admin", true).some((link) => link.href === "/teacher")).toBe(true);
+    expect(navigationLinksForRole("teacher").map((link) => link.href)).toContain("/teacher");
   });
 });

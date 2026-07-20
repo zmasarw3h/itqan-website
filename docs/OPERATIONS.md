@@ -260,6 +260,23 @@ Current limitation: the rotation page resolves one active brothers cohort from t
 masjid memberships. It does not yet provide an explicit masjid/cohort selector and cannot operate a
 sisters cohort. Server-side checks still verify that the signed-in admin manages the resolved masjid.
 
+## Teacher Dashboard
+
+Active teacher profiles land on `/teacher`. Admin-teachers continue to land on `/admin` and receive a
+`Teaching` navigation item when they have at least one historical, current, or future assignment whose
+teacher staff membership is effective for that assignment week. This does not grant unrelated weeks.
+
+The dashboard defaults to the current tracker week and also lists weeks with effective assignments. A
+valid Sunday that is neither current nor assigned is canonicalized back to the current week. Opening a
+group shows the roster effective for that exact week, including compact capped daily-check-in and
+partner-recitation progress. Teachers cannot query student profile rows; the roster projection returns
+only ID, name, and those aggregates. Teachers can download a student's plan through a five-minute signed
+link and save the student's halaqa grade. If a profile is no longer an active student or a membership,
+staff window, or assignment no longer covers that week, the server action and RLS both deny the operation.
+
+Apply `20260720191514_teacher_dashboard_scope.sql` before deploying the teacher routes. The migration is
+additive and supplies the assignment projection plus teacher-scoped weekly-plan Storage authorization.
+
 ## Weekly Incentive Run Constraint Limitation
 
 `weekly_incentive_runs_week_start_key` remains globally unique by `week_start`. Consequently, a run for

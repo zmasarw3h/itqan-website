@@ -46,6 +46,9 @@ Internal transactional state lives in the unexposed `private` schema:
 Server-side helper functions expose narrow caller-relative views used by the app:
 
 - `student_weekly_teacher_name(week_start)`: returns only the signed-in student's assigned teacher display name.
+- `teacher_assignment_contexts()`: returns only the signed-in teacher's effective assignments with safe masjid/cohort/group labels and roster counts.
+- `teacher_group_roster_context(group_id, week_start)`: returns only active students effective in the caller's exact assigned group/week, with student ID/name and capped daily-check-in and partner-recitation aggregates. It never returns contact details, notes, or raw records.
+- `can_teacher_read_weekly_plan_path(path)`: authorizes a weekly-plan Storage path only when its metadata, student membership, and the caller's exact group/week assignment agree.
 - `student_cohort_leaderboard_for_week(week_start)`: returns the minimum documented same-cohort leaderboard projection without peer UUIDs or contact details.
 - `student_leaderboard_available_weeks()`: returns weeks with activity in the signed-in student's effective cohort.
 - `admin_students_for_week(week_start)`: returns active students only in masajid the signed-in admin currently serves.
@@ -129,4 +132,4 @@ Existing admins receive TIC admin staff memberships. Existing active students re
 - An active masjid must have gap-free admin coverage from the current effective date through every future membership boundary, ending in at least one open-ended active admin membership. Inactive masajid are exempt until reactivated.
 - Active super admins can read `super_admin_audit_events`; browser/client writes to the audit table are not exposed.
 - Normal admins close or deactivate membership/assignment rows instead of deleting foundation history. Direct signed-session deletes of student and staff membership history are denied, including for super admins.
-- Teachers are eventually scoped by assigned group/week and can grade/view weekly plans only for assigned students.
+- Teachers are scoped by assigned group/week and can grade/view weekly plans only for students whose membership is effective in that exact assignment.
