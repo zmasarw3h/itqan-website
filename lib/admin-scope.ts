@@ -3,30 +3,29 @@ import {
   AdminScopeError,
   isScopeWindowEffectiveOn
 } from "@/lib/admin-scope-rules";
+import type {
+  AdminCreateUserScopeOptions,
+  AdminUserCohortScope as AdminCohortScope,
+  AdminUserGroupScope as AdminGroupScope,
+  AdminUserMasjidScope as AdminMasjidScope
+} from "@/lib/admin-user-scope";
 import { todayDateString } from "@/lib/dates";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import type { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requireProfile } from "@/lib/supabase-server";
-import type { Cohort, CohortKind, HalaqaGroup, Masjid, Profile } from "@/lib/types";
+import type { CohortKind, Masjid, Profile } from "@/lib/types";
+
+export type {
+  AdminCreateUserScopeOptions,
+  AdminUserCohortScope as AdminCohortScope,
+  AdminUserGroupScope as AdminGroupScope,
+  AdminUserMasjidScope as AdminMasjidScope
+} from "@/lib/admin-user-scope";
 
 type SupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
 type AdminSupabaseClient = ReturnType<typeof createSupabaseAdminClient>;
 
 export type ScopedAdminProfile = Pick<Profile, "id" | "role">;
-
-export type AdminMasjidScope = Pick<Masjid, "id" | "name" | "slug"> & {
-  membership_starts_on: string | null;
-};
-
-export type AdminCohortScope = Pick<Cohort, "id" | "masjid_id" | "kind" | "name" | "sort_order">;
-
-export type AdminGroupScope = Pick<HalaqaGroup, "id" | "cohort_id" | "name" | "sort_order">;
-
-export type AdminCreateUserScopeOptions = {
-  masjids: AdminMasjidScope[];
-  cohorts: AdminCohortScope[];
-  groups: AdminGroupScope[];
-};
 
 type AdminMasjidMembershipRow = {
   masjid_id: string;
