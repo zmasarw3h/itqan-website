@@ -9,7 +9,9 @@ import {
 } from "@/lib/rotation-scope";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
+  buildCohortGroupRebalancePreview,
   buildTeacherRotationPersistencePlan,
+  type CohortGroupRebalancePreview,
   type CurrentStudentGroupMembership,
   type PriorTeacherAssignment,
   type RotationGroup,
@@ -72,6 +74,7 @@ export type RotationPageData = {
   students: RotationStudentRow[];
   teachers: RotationTeacherRow[];
   assignments: RotationAssignmentRow[];
+  rebalancePreview: CohortGroupRebalancePreview | null;
   persistencePlan: TeacherRotationPersistencePlan | null;
   setupIssues: string[];
 };
@@ -87,8 +90,20 @@ export const ROTATION_STATUS_MESSAGES: Record<string, { text: string; className:
     className: "bg-green-50 text-green-800"
   },
   generated: {
-    text: "Rotation generated.",
+    text: "Teacher assignments published.",
     className: "bg-green-50 text-green-800"
+  },
+  rebalanced: {
+    text: "Student groups rebalanced.",
+    className: "bg-green-50 text-green-800"
+  },
+  "rebalance-confirmation-required": {
+    text: "Confirm the student group changes before applying the rebalance.",
+    className: "bg-red-50 text-red-700"
+  },
+  "rebalance-error": {
+    text: "Unable to rebalance student groups.",
+    className: "bg-red-50 text-red-700"
   },
   invalid: {
     text: "Use a valid Sunday week and positive group count.",
@@ -172,37 +187,6 @@ export async function loadActiveRotationGroups(
   }
 
   return data ?? [];
-}
-
-export async function ensureTargetRotationGroups(input: {
-  adminSupabase: AdminSupabaseClient;
-  cohortId: string;
-  targetGroupCount: number;
-}) {
-  let groups = await loadActiveRotationGroups(input.adminSupabase, input.cohortId);
-
-  if (groups.length >= input.targetGroupCount) {
-    return groups;
-  }
-
-  const rowsToInsert = Array.from({ length: input.targetGroupCount - groups.length }, (_, index) => {
-    const groupNumber = groups.length + index + 1;
-
-    return {
-      cohort_id: input.cohortId,
-      name: `Group ${groupNumber}`,
-      active: true,
-      sort_order: groupNumber * 10
-    };
-  });
-  const { error } = await input.adminSupabase.from("halaqa_groups").insert(rowsToInsert);
-
-  if (error) {
-    throw new Error("Unable to create rotation groups.");
-  }
-
-  groups = await loadActiveRotationGroups(input.adminSupabase, input.cohortId);
-  return groups;
 }
 
 async function loadCurrentMembershipsForGroups(input: {
@@ -461,6 +445,7 @@ export async function loadRotationPageData(input: {
       students: [],
       teachers: [],
       assignments: [],
+      rebalancePreview: null,
       persistencePlan: null,
       setupIssues: [
         resolution.error === "invalid-selection"
@@ -494,6 +479,9 @@ export async function loadRotationPageData(input: {
     settings && groups.length > settings.target_group_count
       ? "Active group count is above the saved target. Increase the target or manually review groups before generating."
       : null,
+    settings && groups.length < settings.target_group_count
+      ? "Apply the student rebalance to create the missing target groups before publishing assignments."
+      : null,
     groups.length ? null : "No active halaqa groups exist yet.",
     studentData.students.length ? null : "No active students are assigned to this cohort for the selected week.",
     teachers.length ? null : "No active teachers are assigned to this masjid for the selected week."
@@ -507,6 +495,13 @@ export async function loadRotationPageData(input: {
           weekStart: selectedWeekStart
         })
       : null;
+  const rebalancePreview = settings
+    ? buildCohortGroupRebalancePreview({
+        students: studentData.students,
+        groups,
+        targetGroupCount: settings.target_group_count
+      })
+    : null;
 
   return {
     context,
@@ -519,6 +514,7 @@ export async function loadRotationPageData(input: {
     students: studentData.students,
     teachers,
     assignments: buildAssignmentRows({ groups, teachers, priorAssignments, weekStart: selectedWeekStart }),
+    rebalancePreview,
     persistencePlan,
     setupIssues
   };

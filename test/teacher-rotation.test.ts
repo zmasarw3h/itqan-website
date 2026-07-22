@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   balanceStudentsIntoGroups,
+  buildCohortGroupRebalancePreview,
   buildTeacherRotationPersistencePlan,
   generateTeacherRotationAssignments,
   planBalancedMembershipChanges,
@@ -69,6 +70,64 @@ describe("balanceStudentsIntoGroups", () => {
 
   it("handles no groups", () => {
     expect(balanceStudentsIntoGroups(students(3), [])).toEqual([]);
+  });
+});
+
+describe("buildCohortGroupRebalancePreview", () => {
+  it("previews missing groups, balanced sizes, and moved students without mutating input", () => {
+    const scopedStudents = students(5).map((student) => ({ ...student, group_id: "group-a" }));
+    const existingGroups = [groups[0]];
+    const originalStudents = structuredClone(scopedStudents);
+    const originalGroups = structuredClone(existingGroups);
+
+    expect(
+      buildCohortGroupRebalancePreview({
+        students: scopedStudents,
+        groups: existingGroups,
+        targetGroupCount: 2
+      })
+    ).toEqual({
+      groups: [
+        {
+          id: "group-a",
+          name: "A",
+          current_student_count: 5,
+          proposed_student_count: 3,
+          is_new: false
+        },
+        {
+          id: "new-group-2",
+          name: "Group 2",
+          current_student_count: 0,
+          proposed_student_count: 2,
+          is_new: true
+        }
+      ],
+      moved_student_ids: ["student-4", "student-5"],
+      target_group_count: 2
+    });
+    expect(scopedStudents).toEqual(originalStudents);
+    expect(existingGroups).toEqual(originalGroups);
+  });
+
+  it("rejects invalid targets below the active group count", () => {
+    expect(
+      buildCohortGroupRebalancePreview({
+        students: [],
+        groups,
+        targetGroupCount: 2
+      })
+    ).toBeNull();
+  });
+
+  it("skips active group names that would collide with an automatically created group", () => {
+    const preview = buildCohortGroupRebalancePreview({
+      students: [],
+      groups: [{ id: "existing-group", name: "Group 2", sort_order: 10 }],
+      targetGroupCount: 2
+    });
+
+    expect(preview?.groups.map((group) => group.name)).toEqual(["Group 2", "Group 3"]);
   });
 });
 

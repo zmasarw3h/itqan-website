@@ -69,8 +69,8 @@ Super admins can:
 - Grant scoped admin or admin-teacher access.
 
 The rotation UI supports explicit masjid/cohort selection for brothers and sisters cohorts. Student
-group balancing and weekly teacher assignment generation are still combined in one action until the
-next rotation workflow phase separates them.
+group balancing is an explicit confirmed operation, separate from weekly teacher assignment
+publishing. Publishing assignments must never change student group memberships.
 
 ## Preserved Features
 

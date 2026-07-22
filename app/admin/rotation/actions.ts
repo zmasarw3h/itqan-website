@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
-  ensureTargetRotationGroups,
   loadActiveRotationGroups,
   loadActiveRotationTeachers,
   loadPriorTeacherAssignments,
@@ -17,11 +16,7 @@ import { assertAdminCanManageCohort } from "@/lib/admin-scope";
 import { rotationPath } from "@/lib/rotation-scope";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
-import {
-  balanceStudentsIntoGroups,
-  buildTeacherRotationPersistencePlan,
-  planBalancedMembershipChanges
-} from "@/lib/teacher-rotation";
+import { buildTeacherRotationPersistencePlan } from "@/lib/teacher-rotation";
 
 function positiveInteger(value: FormDataEntryValue | null) {
   const parsed = Number(value);
@@ -162,6 +157,41 @@ export async function saveTeacherAvailability(formData: FormData) {
   redirect(rotationRedirectPath(context, weekStart, "availability-saved"));
 }
 
+export async function rebalanceStudentGroups(formData: FormData) {
+  const weekStart = validRotationWeekStart(String(formData.get("week_start") ?? ""));
+  const { profile, context } = await requireRotationContext(formData, weekStart);
+
+  if (formData.get("confirm_rebalance") !== "confirmed") {
+    redirect(rotationRedirectPath(context, weekStart, "rebalance-confirmation-required"));
+  }
+
+  const adminSupabase = createSupabaseAdminClient();
+  const settings = await loadRotationSettings(adminSupabase, context);
+
+  if (!settings) {
+    redirect(rotationRedirectPath(context, weekStart, "setup-incomplete"));
+  }
+
+  const { error } = await adminSupabase.rpc("apply_cohort_group_rebalance", {
+    input_cohort_id: context.cohort.id,
+    input_week_start: weekStart,
+    input_rebalanced_by: profile.id,
+    input_target_group_count: settings.target_group_count
+  });
+
+  if (error) {
+    redirect(rotationRedirectPath(context, weekStart, "rebalance-error"));
+  }
+
+  revalidatePath("/admin/rotation");
+  revalidatePath("/admin");
+  revalidatePath("/student/check-in");
+  revalidatePath("/student/grades");
+  revalidatePath("/student/weekly-plan");
+  revalidatePath("/teacher");
+  redirect(rotationRedirectPath(context, weekStart, "rebalanced"));
+}
+
 function throwIfRedirect(error: unknown) {
   if (
     error instanceof Error &&
@@ -182,24 +212,17 @@ export async function generateRotation(formData: FormData) {
   }
 
   try {
-    const groups = await ensureTargetRotationGroups({
-      adminSupabase,
-      cohortId: context.cohort.id,
-      targetGroupCount: settings.target_group_count
-    });
+    const groups = await loadActiveRotationGroups(adminSupabase, context.cohort.id);
     const studentData = await loadRotationStudents({ adminSupabase, groups, weekStart });
     const teachers = await loadActiveRotationTeachers({ adminSupabase, context, weekStart });
 
-    if (studentData.students.length === 0 || teachers.length === 0) {
+    if (
+      groups.length !== settings.target_group_count ||
+      studentData.students.length === 0 ||
+      teachers.length === 0
+    ) {
       redirect(rotationRedirectPath(context, weekStart, "setup-incomplete"));
     }
-
-    const balancedGroups = balanceStudentsIntoGroups(studentData.students, groups);
-    const membershipChanges = planBalancedMembershipChanges({
-      currentMemberships: studentData.memberships,
-      proposedGroups: balancedGroups,
-      nextWeekStart: weekStart
-    });
 
     const groupIds = groups.map((group) => group.id);
     const priorAssignments = await loadPriorTeacherAssignments({ adminSupabase, groupIds, weekStart });
@@ -214,9 +237,9 @@ export async function generateRotation(formData: FormData) {
       input_cohort_id: context.cohort.id,
       input_week_start: weekStart,
       input_generated_by: profile.id,
-      membership_closes: membershipChanges.close,
-      membership_inserts: membershipChanges.insert,
-      membership_replaces: membershipChanges.replace,
+      membership_closes: [],
+      membership_inserts: [],
+      membership_replaces: [],
       assignment_upserts: persistencePlan.assignmentUpserts,
       assignment_deactivations: persistencePlan.assignmentDeactivations,
       available_teacher_count: persistencePlan.run.available_teacher_count,
@@ -235,7 +258,9 @@ export async function generateRotation(formData: FormData) {
 
   revalidatePath("/admin/rotation");
   revalidatePath("/admin");
+  revalidatePath("/student/check-in");
   revalidatePath("/student/grades");
   revalidatePath("/student/weekly-plan");
+  revalidatePath("/teacher");
   redirect(rotationRedirectPath(context, weekStart, "generated"));
 }

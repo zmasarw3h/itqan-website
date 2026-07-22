@@ -246,23 +246,27 @@ Admin workflow in the app:
 3. Select a masjid and one of its active brothers or sisters cohorts.
 4. Choose the target Sunday tracker week. The page defaults to next week.
 5. Set the selected cohort's target group count.
-6. Check the teachers who are available for that cohort and week and save availability.
-7. Use `Generate / rebalance` to balance active students across stable groups and assign available teachers.
+6. Review the group setup preview. When the group count or membership balance needs to change, confirm
+   the displayed move count and use `Apply student rebalance`.
+7. Check the teachers who are available for that cohort and week and save availability.
+8. Review the proposed teacher assignments and warnings.
+9. Use `Publish assignments` to save the weekly teacher assignments.
 
 Target group count cannot be saved below the current number of active groups. The app does not
 deactivate or delete groups automatically in this release.
 
 If fewer teachers are available than groups, some groups remain unassigned and the run should surface a
 warning. If more teachers are available than groups, extra teachers remain unassigned and the run should
-surface a warning. Do not rebalance student groups based on weekly teacher availability; rebalance only
-when an admin intentionally runs the rotation action.
+surface a warning. Publishing assignments never changes student memberships. Rebalance only when an
+admin explicitly confirms the separate group setup action.
 
 The page lists only active cohorts inside masajid the signed-in admin currently manages. Every mutation
 independently verifies the submitted cohort, its parent masjid, and the admin's active masjid access.
 Supplied invalid or cross-masjid context pairs are rejected without silently selecting another cohort.
 
-Current limitation: `Generate / rebalance` still combines intentional student group balancing with
-weekly teacher assignment generation. The next rotation workflow phase separates those operations.
+The `apply_cohort_group_rebalance` RPC performs group creation and effective-dated student membership
+changes in one transaction. Apply migration
+`20260722161859_cohort_group_rebalance.sql` before deploying the app code that calls it.
 
 ## Teacher Dashboard
 

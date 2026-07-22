@@ -7,6 +7,7 @@ import {
 } from "@/app/admin/rotation/data";
 import {
   generateRotation,
+  rebalanceStudentGroups,
   saveRotationSettings,
   saveTeacherAvailability
 } from "@/app/admin/rotation/actions";
@@ -108,8 +109,10 @@ export default async function AdminRotationPage({
             <section className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <h2 className="text-lg font-semibold text-ink">Teacher Availability</h2>
-                  <p className="mt-1 text-sm text-stone-600">{formatWeekRange(data.selectedWeekStart)}</p>
+                  <h2 className="text-lg font-semibold text-ink">Group setup</h2>
+                  <p className="mt-1 text-sm text-stone-600">
+                    Preview and intentionally apply balanced student groups for {formatWeekRange(data.selectedWeekStart)}.
+                  </p>
                 </div>
                 <form action={saveRotationSettings} className="flex flex-wrap items-end gap-2">
                   <input name="masjid_id" type="hidden" value={data.context?.masjid.id ?? ""} />
@@ -133,6 +136,71 @@ export default async function AdminRotationPage({
                     Save
                   </button>
                 </form>
+              </div>
+
+              {data.rebalancePreview ? (
+                <>
+                  <div className="mt-5 overflow-x-auto rounded-md border border-stone-200">
+                    <table className="min-w-full divide-y divide-stone-200 text-sm">
+                      <thead className="bg-stone-50">
+                        <tr className="text-left text-stone-600">
+                          <th className="px-3 py-2 font-medium">Group</th>
+                          <th className="px-3 py-2 font-medium">Current</th>
+                          <th className="px-3 py-2 font-medium">After rebalance</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-stone-100">
+                        {data.rebalancePreview.groups.map((group) => (
+                          <tr key={group.id}>
+                            <td className="px-3 py-3 font-medium text-ink">
+                              {group.name}
+                              {group.is_new ? <span className="ml-2 text-xs text-moss">New</span> : null}
+                            </td>
+                            <td className="px-3 py-3 text-stone-700">{group.current_student_count}</td>
+                            <td className="px-3 py-3 text-stone-700">{group.proposed_student_count}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <form action={rebalanceStudentGroups} className="mt-4">
+                    <input name="masjid_id" type="hidden" value={data.context?.masjid.id ?? ""} />
+                    <input name="cohort_id" type="hidden" value={data.context?.cohort.id ?? ""} />
+                    <input name="week_start" type="hidden" value={data.selectedWeekStart} />
+                    <label className="flex items-start gap-3 rounded-md bg-amber-50 px-3 py-3 text-sm text-amber-950">
+                      <input
+                        className="mt-0.5 h-4 w-4 rounded border-amber-300 text-moss"
+                        name="confirm_rebalance"
+                        required
+                        type="checkbox"
+                        value="confirmed"
+                      />
+                      <span>
+                        Confirm moving {data.rebalancePreview.moved_student_ids.length} student
+                        {data.rebalancePreview.moved_student_ids.length === 1 ? "" : "s"}. Membership changes take
+                        effect for the selected week.
+                      </span>
+                    </label>
+                    <button
+                      className="mt-3 rounded-md bg-ink px-4 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={!data.context || !data.settings}
+                    >
+                      Apply student rebalance
+                    </button>
+                  </form>
+                </>
+              ) : (
+                <p className="mt-5 rounded-md bg-stone-50 px-3 py-3 text-sm text-stone-600">
+                  Save a valid target group count to preview the student rebalance.
+                </p>
+              )}
+            </section>
+
+            <section className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+              <div>
+                <h2 className="text-lg font-semibold text-ink">Teacher Availability</h2>
+                <p className="mt-1 text-sm text-stone-600">{formatWeekRange(data.selectedWeekStart)}</p>
               </div>
 
               <form action={saveTeacherAvailability} className="mt-5">
@@ -186,7 +254,7 @@ export default async function AdminRotationPage({
                     className="rounded-md bg-gold px-4 py-2.5 text-sm font-semibold text-ink hover:bg-moss hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={!data.context || !data.settings}
                   >
-                    Generate / rebalance
+                    Publish assignments
                   </button>
                 </form>
               </div>
@@ -207,7 +275,7 @@ export default async function AdminRotationPage({
                     <tr className="text-left text-stone-600">
                       <th className="py-2 pr-4 font-medium">Group</th>
                       <th className="py-2 pr-4 font-medium">Current teacher</th>
-                      <th className="py-2 pr-4 font-medium">Generated teacher</th>
+                      <th className="py-2 pr-4 font-medium">Proposed teacher</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100">
