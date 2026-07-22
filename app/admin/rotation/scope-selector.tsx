@@ -48,23 +48,35 @@ export default function RotationScopeSelector({
     return null;
   }
 
+  const hasMultipleMasjids = masjids.length > 1;
+
   return (
-    <form className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
-      <label className="block min-w-0">
-        <span className="text-xs font-semibold uppercase text-stone-500">Masjid</span>
-        <select
-          className="mt-1 w-full rounded-md border border-stone-300 bg-white px-3 py-2.5 text-sm"
-          name="masjid"
-          onChange={(event) => selectMasjid(event.target.value)}
-          value={masjidId}
-        >
-          {masjids.map((masjid) => (
-            <option key={masjid.id} value={masjid.id}>
-              {masjid.name}
-            </option>
-          ))}
-        </select>
-      </label>
+    <form
+      className={`grid gap-3 sm:items-end ${
+        hasMultipleMasjids
+          ? "sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
+          : "sm:grid-cols-[minmax(0,1fr)_auto]"
+      }`}
+    >
+      {hasMultipleMasjids ? (
+        <label className="block min-w-0">
+          <span className="text-xs font-semibold uppercase text-stone-500">Masjid</span>
+          <select
+            className="mt-1 w-full rounded-md border border-stone-300 bg-white px-3 py-2.5 text-sm"
+            name="masjid"
+            onChange={(event) => selectMasjid(event.target.value)}
+            value={masjidId}
+          >
+            {masjids.map((masjid) => (
+              <option key={masjid.id} value={masjid.id}>
+                {masjid.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <input name="masjid" type="hidden" value={masjidId} />
+      )}
       <label className="block min-w-0">
         <span className="text-xs font-semibold uppercase text-stone-500">Cohort</span>
         <select

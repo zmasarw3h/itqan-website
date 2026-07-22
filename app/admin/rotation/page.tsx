@@ -88,7 +88,10 @@ export default async function AdminRotationPage({
         <header>
           <p className="text-sm font-medium text-moss">Saturday halaqa operations</p>
           <h1 className="mt-1 text-2xl font-semibold text-ink">Weekly Rotation</h1>
-          <p className="mt-1 text-sm text-stone-600">{formatHalaqaSaturday(data.selectedWeekStart)}</p>
+          <p className="mt-1 text-sm text-stone-600">
+            {data.context ? `${data.context.masjid.name} · ` : ""}
+            {formatHalaqaSaturday(data.selectedWeekStart)}
+          </p>
         </header>
 
         <section className="mt-5 border-y border-stone-200 bg-white px-4 py-4 sm:rounded-lg sm:border">

@@ -1,5 +1,5 @@
 import "server-only";
-import { addDays, formatWeekRange, isValidDateString, todayDateString, weekStartForDate } from "@/lib/dates";
+import { formatWeekRange, isValidDateString, todayDateString, weekStartForDate } from "@/lib/dates";
 import { loadAdminCreateUserScopeOptions } from "@/lib/admin-scope";
 import {
   buildRotationContexts,
@@ -132,7 +132,7 @@ export const ROTATION_STATUS_MESSAGES: Record<string, { text: string; className:
 };
 
 export function defaultRotationWeekStart(today = todayDateString()) {
-  return addDays(weekStartForDate(today), 7);
+  return weekStartForDate(today);
 }
 
 export function validRotationWeekStart(value: string | undefined, fallback = defaultRotationWeekStart()) {

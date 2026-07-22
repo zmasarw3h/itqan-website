@@ -216,7 +216,7 @@ test.describe("authenticated pure-admin flow", () => {
     await page.goto("/admin/rotation");
     await expect(page.getByRole("heading", { name: "Weekly Rotation" })).toBeVisible();
     await expect(page.getByText(/^Saturday, /).first()).toBeVisible();
-    await expect(page.getByLabel("Masjid")).toBeVisible();
+    await expect(page.getByLabel("Masjid")).toHaveCount(0);
     await expect(page.getByLabel("Cohort")).toBeVisible();
     await expect(page.getByRole("navigation", { name: "Halaqa week" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Rotation readiness" })).toBeVisible();
