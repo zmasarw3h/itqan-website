@@ -132,6 +132,34 @@ export function formatWeekRange(weekStart: string) {
   return `${startMonth} ${startDay}, ${startYear}–${endMonth} ${endDay}, ${endYear}`;
 }
 
+export function halaqaSaturdayForWeek(weekStart: string) {
+  if (!isValidDateString(weekStart) || weekStartForDate(weekStart) !== weekStart) {
+    throw new Error("Invalid tracker week start.");
+  }
+
+  return addDays(weekStart, 6);
+}
+
+export function formatHalaqaSaturday(weekStart: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC"
+  }).format(new Date(`${halaqaSaturdayForWeek(weekStart)}T00:00:00.000Z`));
+}
+
+export function halaqaWeekStarts(today = todayDateString()) {
+  const current = weekStartForDate(today);
+
+  return {
+    previous: addDays(current, -7),
+    current,
+    next: addDays(current, 7)
+  };
+}
+
 export function friendlyDate(dateString: string) {
   return new Intl.DateTimeFormat("en-US", {
     weekday: "short",

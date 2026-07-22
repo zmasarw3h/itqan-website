@@ -126,7 +126,7 @@ export const ROTATION_STATUS_MESSAGES: Record<string, { text: string; className:
     className: "bg-red-50 text-red-700"
   },
   "generate-error": {
-    text: "Unable to generate rotation.",
+    text: "Unable to publish teacher assignments.",
     className: "bg-red-50 text-red-700"
   }
 };
@@ -475,9 +475,9 @@ export async function loadRotationPageData(input: {
     loadPriorTeacherAssignments({ adminSupabase, groupIds, weekStart: selectedWeekStart })
   ]);
   const setupIssues = [
-    settings ? null : "Set a target group count before generating.",
+    settings ? null : "Set a target group count before publishing assignments.",
     settings && groups.length > settings.target_group_count
-      ? "Active group count is above the saved target. Increase the target or manually review groups before generating."
+      ? "Active group count is above the saved target. Increase the target or manually review groups before publishing assignments."
       : null,
     settings && groups.length < settings.target_group_count
       ? "Apply the student rebalance to create the missing target groups before publishing assignments."

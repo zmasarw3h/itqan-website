@@ -49,11 +49,11 @@ export default function RotationScopeSelector({
   }
 
   return (
-    <form className="flex flex-wrap items-end gap-3">
-      <label className="block">
-        <span className="text-sm font-medium text-ink">Masjid</span>
+    <form className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+      <label className="block min-w-0">
+        <span className="text-xs font-semibold uppercase text-stone-500">Masjid</span>
         <select
-          className="mt-1 min-w-48 rounded-md border border-stone-300 bg-white px-3 py-2"
+          className="mt-1 w-full rounded-md border border-stone-300 bg-white px-3 py-2.5 text-sm"
           name="masjid"
           onChange={(event) => selectMasjid(event.target.value)}
           value={masjidId}
@@ -65,10 +65,10 @@ export default function RotationScopeSelector({
           ))}
         </select>
       </label>
-      <label className="block">
-        <span className="text-sm font-medium text-ink">Cohort</span>
+      <label className="block min-w-0">
+        <span className="text-xs font-semibold uppercase text-stone-500">Cohort</span>
         <select
-          className="mt-1 min-w-44 rounded-md border border-stone-300 bg-white px-3 py-2"
+          className="mt-1 w-full rounded-md border border-stone-300 bg-white px-3 py-2.5 text-sm"
           name="cohort"
           onChange={(event) => setCohortId(event.target.value)}
           value={cohortId}
@@ -80,18 +80,9 @@ export default function RotationScopeSelector({
           ))}
         </select>
       </label>
-      <label className="block">
-        <span className="text-sm font-medium text-ink">Target week</span>
-        <input
-          className="mt-1 rounded-md border border-stone-300 px-3 py-2"
-          defaultValue={selectedWeekStart}
-          name="week"
-          required
-          type="date"
-        />
-      </label>
-      <button className="rounded-md bg-ink px-4 py-2.5 text-sm font-medium text-white">
-        View
+      <input name="week" type="hidden" value={selectedWeekStart} />
+      <button className="h-10 rounded-md bg-ink px-4 text-sm font-medium text-white hover:bg-moss">
+        Apply
       </button>
     </form>
   );

@@ -70,7 +70,9 @@ Super admins can:
 
 The rotation UI supports explicit masjid/cohort selection for brothers and sisters cohorts. Student
 group balancing is an explicit confirmed operation, separate from weekly teacher assignment
-publishing. Publishing assignments must never change student group memberships.
+publishing. The admin page presents Saturday-based week navigation, readiness, group setup, teacher
+availability, and assignment publishing as one ordered workflow. Publishing assignments must never
+change student group memberships.
 
 ## Preserved Features
 

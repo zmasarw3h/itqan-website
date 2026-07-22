@@ -244,12 +244,14 @@ Admin workflow in the app:
 1. Sign in as an admin.
 2. Open `Admin Dashboard -> Rotation`.
 3. Select a masjid and one of its active brothers or sisters cohorts.
-4. Choose the target Sunday tracker week. The page defaults to next week.
+4. Choose the target halaqa Saturday with the previous, current, and next controls. The page displays
+   the Saturday date while preserving the canonical Sunday tracker week in the URL and database.
 5. Set the selected cohort's target group count.
-6. Review the group setup preview. When the group count or membership balance needs to change, confirm
-   the displayed move count and use `Apply student rebalance`.
-7. Check the teachers who are available for that cohort and week and save availability.
-8. Review the proposed teacher assignments and warnings.
+6. Review readiness and the group setup preview. When the group count or membership balance needs to
+   change, confirm the displayed new-group and student-move counts and use `Apply student rebalance`.
+7. Check the teachers who are available for that cohort and week. `Select all` and `Clear all` update
+   the visible selection; use `Save availability` to persist it.
+8. Review assignment coverage, student counts, current teachers, proposed teachers, and warnings.
 9. Use `Publish assignments` to save the weekly teacher assignments.
 
 Target group count cannot be saved below the current number of active groups. The app does not
