@@ -9,10 +9,12 @@ import {
   loadPriorTeacherAssignments,
   loadRotationSettings,
   loadRotationStudents,
-  resolveAdminBrothersRotationContext,
   rotationRedirectPath,
+  type RotationContext,
   validRotationWeekStart
 } from "@/app/admin/rotation/data";
+import { assertAdminCanManageCohort } from "@/lib/admin-scope";
+import { rotationPath } from "@/lib/rotation-scope";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import {
@@ -26,13 +28,60 @@ function positiveInteger(value: FormDataEntryValue | null) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-async function requireRotationContext() {
-  const { supabase, profile } = await requireProfile(["admin"]);
-  const context = await resolveAdminBrothersRotationContext(supabase);
+function selectedContextIds(formData: FormData) {
+  return {
+    masjidId: String(formData.get("masjid_id") ?? ""),
+    cohortId: String(formData.get("cohort_id") ?? "")
+  };
+}
 
-  if (!context) {
-    redirect(rotationRedirectPath(validRotationWeekStart(undefined), "unauthorized"));
+async function requireRotationContext(formData: FormData, weekStart: string) {
+  const { profile } = await requireProfile(["admin"]);
+  const selection = selectedContextIds(formData);
+  const adminSupabase = createSupabaseAdminClient();
+  let cohort: Awaited<ReturnType<typeof assertAdminCanManageCohort>>;
+
+  try {
+    cohort = await assertAdminCanManageCohort({
+      adminSupabase,
+      admin: profile,
+      cohortId: selection.cohortId || null
+    });
+  } catch {
+    redirect(
+      rotationPath({
+        masjidId: selection.masjidId,
+        cohortId: selection.cohortId,
+        weekStart,
+        status: "unauthorized"
+      })
+    );
   }
+
+  if (!selection.masjidId || cohort.masjid_id !== selection.masjidId) {
+    redirect(
+      rotationPath({
+        masjidId: selection.masjidId,
+        cohortId: selection.cohortId,
+        weekStart,
+        status: "unauthorized"
+      })
+    );
+  }
+
+  const context: RotationContext = {
+    masjid: {
+      id: cohort.masjid.id,
+      name: cohort.masjid.name,
+      slug: cohort.masjid.slug
+    },
+    cohort: {
+      id: cohort.id,
+      name: cohort.name,
+      kind: cohort.kind,
+      masjid_id: cohort.masjid_id
+    }
+  };
 
   return { profile, context };
 }
@@ -40,17 +89,17 @@ async function requireRotationContext() {
 export async function saveRotationSettings(formData: FormData) {
   const weekStart = validRotationWeekStart(String(formData.get("week_start") ?? ""));
   const targetGroupCount = positiveInteger(formData.get("target_group_count"));
+  const { profile, context } = await requireRotationContext(formData, weekStart);
 
   if (!targetGroupCount) {
-    redirect(rotationRedirectPath(weekStart, "invalid"));
+    redirect(rotationRedirectPath(context, weekStart, "invalid"));
   }
 
-  const { profile, context } = await requireRotationContext();
   const adminSupabase = createSupabaseAdminClient();
   const activeGroups = await loadActiveRotationGroups(adminSupabase, context.cohort.id);
 
   if (targetGroupCount < activeGroups.length) {
-    redirect(rotationRedirectPath(weekStart, "target-below-active-groups"));
+    redirect(rotationRedirectPath(context, weekStart, "target-below-active-groups"));
   }
 
   const existingSettings = await loadRotationSettings(adminSupabase, context);
@@ -70,21 +119,21 @@ export async function saveRotationSettings(formData: FormData) {
       });
 
   if (result.error) {
-    redirect(rotationRedirectPath(weekStart, "save-error"));
+    redirect(rotationRedirectPath(context, weekStart, "save-error"));
   }
 
   revalidatePath("/admin/rotation");
-  redirect(rotationRedirectPath(weekStart, "settings-saved"));
+  redirect(rotationRedirectPath(context, weekStart, "settings-saved"));
 }
 
 export async function saveTeacherAvailability(formData: FormData) {
   const weekStart = validRotationWeekStart(String(formData.get("week_start") ?? ""));
-  const { profile, context } = await requireRotationContext();
+  const { profile, context } = await requireRotationContext(formData, weekStart);
   const adminSupabase = createSupabaseAdminClient();
   const teachers = await loadActiveRotationTeachers({ adminSupabase, context, weekStart });
 
   if (teachers.length === 0) {
-    redirect(rotationRedirectPath(weekStart, "setup-incomplete"));
+    redirect(rotationRedirectPath(context, weekStart, "setup-incomplete"));
   }
 
   const availableTeacherIds = new Set(
@@ -106,11 +155,11 @@ export async function saveTeacherAvailability(formData: FormData) {
   });
 
   if (error) {
-    redirect(rotationRedirectPath(weekStart, "save-error"));
+    redirect(rotationRedirectPath(context, weekStart, "save-error"));
   }
 
   revalidatePath("/admin/rotation");
-  redirect(rotationRedirectPath(weekStart, "availability-saved"));
+  redirect(rotationRedirectPath(context, weekStart, "availability-saved"));
 }
 
 function throwIfRedirect(error: unknown) {
@@ -124,12 +173,12 @@ function throwIfRedirect(error: unknown) {
 
 export async function generateRotation(formData: FormData) {
   const weekStart = validRotationWeekStart(String(formData.get("week_start") ?? ""));
-  const { profile, context } = await requireRotationContext();
+  const { profile, context } = await requireRotationContext(formData, weekStart);
   const adminSupabase = createSupabaseAdminClient();
   const settings = await loadRotationSettings(adminSupabase, context);
 
   if (!settings) {
-    redirect(rotationRedirectPath(weekStart, "setup-incomplete"));
+    redirect(rotationRedirectPath(context, weekStart, "setup-incomplete"));
   }
 
   try {
@@ -142,7 +191,7 @@ export async function generateRotation(formData: FormData) {
     const teachers = await loadActiveRotationTeachers({ adminSupabase, context, weekStart });
 
     if (studentData.students.length === 0 || teachers.length === 0) {
-      redirect(rotationRedirectPath(weekStart, "setup-incomplete"));
+      redirect(rotationRedirectPath(context, weekStart, "setup-incomplete"));
     }
 
     const balancedGroups = balanceStudentsIntoGroups(studentData.students, groups);
@@ -181,12 +230,12 @@ export async function generateRotation(formData: FormData) {
     }
   } catch (error) {
     throwIfRedirect(error);
-    redirect(rotationRedirectPath(weekStart, "generate-error"));
+    redirect(rotationRedirectPath(context, weekStart, "generate-error"));
   }
 
   revalidatePath("/admin/rotation");
   revalidatePath("/admin");
   revalidatePath("/student/grades");
   revalidatePath("/student/weekly-plan");
-  redirect(rotationRedirectPath(weekStart, "generated"));
+  redirect(rotationRedirectPath(context, weekStart, "generated"));
 }

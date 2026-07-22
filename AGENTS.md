@@ -59,7 +59,7 @@ Admins can:
 - Enter Saturday halaqa grades.
 - View/download a student's current weekly plan.
 - Export CSV data.
-- Configure and generate the weekly teacher rotation for the currently supported cohort context.
+- Configure and generate the weekly teacher rotation for an explicitly selected scoped cohort.
 
 Super admins can:
 
@@ -68,8 +68,9 @@ Super admins can:
 - Create and maintain masajid, cohorts, and halaqa groups.
 - Grant scoped admin or admin-teacher access.
 
-The current rotation UI supports one resolved brothers cohort at a time. Explicit masjid/cohort
-selection and sisters-cohort rotation remain planned work.
+The rotation UI supports explicit masjid/cohort selection for brothers and sisters cohorts. Student
+group balancing and weekly teacher assignment generation are still combined in one action until the
+next rotation workflow phase separates them.
 
 ## Preserved Features
 

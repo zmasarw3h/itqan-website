@@ -243,10 +243,11 @@ Admin workflow in the app:
 
 1. Sign in as an admin.
 2. Open `Admin Dashboard -> Rotation`.
-3. Choose the target Sunday tracker week. The page defaults to next week.
-4. Set the cohort's target group count.
-5. Check the teachers who are available for that week and save availability.
-6. Use `Generate / rebalance` to balance active students across stable groups and assign available teachers.
+3. Select a masjid and one of its active brothers or sisters cohorts.
+4. Choose the target Sunday tracker week. The page defaults to next week.
+5. Set the selected cohort's target group count.
+6. Check the teachers who are available for that cohort and week and save availability.
+7. Use `Generate / rebalance` to balance active students across stable groups and assign available teachers.
 
 Target group count cannot be saved below the current number of active groups. The app does not
 deactivate or delete groups automatically in this release.
@@ -256,9 +257,12 @@ warning. If more teachers are available than groups, extra teachers remain unass
 surface a warning. Do not rebalance student groups based on weekly teacher availability; rebalance only
 when an admin intentionally runs the rotation action.
 
-Current limitation: the rotation page resolves one active brothers cohort from the signed-in admin's
-masjid memberships. It does not yet provide an explicit masjid/cohort selector and cannot operate a
-sisters cohort. Server-side checks still verify that the signed-in admin manages the resolved masjid.
+The page lists only active cohorts inside masajid the signed-in admin currently manages. Every mutation
+independently verifies the submitted cohort, its parent masjid, and the admin's active masjid access.
+Supplied invalid or cross-masjid context pairs are rejected without silently selecting another cohort.
+
+Current limitation: `Generate / rebalance` still combines intentional student group balancing with
+weekly teacher assignment generation. The next rotation workflow phase separates those operations.
 
 ## Teacher Dashboard
 

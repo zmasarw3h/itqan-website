@@ -1,7 +1,13 @@
 import "server-only";
 import { addDays, formatWeekRange, isValidDateString, todayDateString, weekStartForDate } from "@/lib/dates";
+import { loadAdminCreateUserScopeOptions } from "@/lib/admin-scope";
+import {
+  buildRotationContexts,
+  resolveRotationContext,
+  rotationPath,
+  type RotationContext
+} from "@/lib/rotation-scope";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import type { requireProfile } from "@/lib/supabase-server";
 import {
   buildTeacherRotationPersistencePlan,
   type CurrentStudentGroupMembership,
@@ -11,20 +17,18 @@ import {
   type RotationTeacher,
   type TeacherRotationPersistencePlan
 } from "@/lib/teacher-rotation";
-import type { Cohort, HalaqaGroup, Masjid, Profile } from "@/lib/types";
+import type { HalaqaGroup, Profile } from "@/lib/types";
 
-type SupabaseClient = Awaited<ReturnType<typeof requireProfile>>["supabase"];
 type AdminSupabaseClient = ReturnType<typeof createSupabaseAdminClient>;
 
 export type RotationSearchParams = {
+  masjid?: string;
+  cohort?: string;
   week?: string;
   status?: string;
 };
 
-export type RotationContext = {
-  masjid: Pick<Masjid, "id" | "name" | "slug">;
-  cohort: Pick<Cohort, "id" | "name" | "kind" | "masjid_id">;
-};
+export type { RotationContext } from "@/lib/rotation-scope";
 
 export type RotationSettings = {
   id: string;
@@ -59,6 +63,8 @@ export type RotationAssignmentRow = {
 
 export type RotationPageData = {
   context: RotationContext | null;
+  contexts: RotationContext[];
+  canonicalPath: string | null;
   selectedWeekStart: string;
   selectedWeekLabel: string;
   settings: RotationSettings | null;
@@ -71,13 +77,6 @@ export type RotationPageData = {
 };
 
 type TeacherProfile = Pick<Profile, "id" | "name" | "email" | "created_at">;
-type AdminMasjidMembershipRow = {
-  masjid_id: string;
-  starts_on: string;
-  created_at: string | null;
-  masajid: Pick<Masjid, "id" | "name" | "slug">;
-};
-
 export const ROTATION_STATUS_MESSAGES: Record<string, { text: string; className: string }> = {
   "settings-saved": {
     text: "Rotation settings saved.",
@@ -129,86 +128,13 @@ export function validRotationWeekStart(value: string | undefined, fallback = def
   return weekStartForDate(value) === value ? value : fallback;
 }
 
-export function rotationRedirectPath(weekStart: string, status: string) {
-  const params = new URLSearchParams({ week: weekStart, status });
-  return `/admin/rotation?${params.toString()}`;
-}
-
-async function assertAdminCanManageMasjid(supabase: SupabaseClient, masjidId: string) {
-  const { data, error } = await supabase.rpc("is_admin_for_masjid", {
-    input_masjid_id: masjidId
+export function rotationRedirectPath(context: RotationContext, weekStart: string, status: string) {
+  return rotationPath({
+    masjidId: context.masjid.id,
+    cohortId: context.cohort.id,
+    weekStart,
+    status
   });
-
-  return !error && data === true;
-}
-
-async function loadAdminRotationMasjids(supabase: SupabaseClient) {
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return [];
-  }
-
-  const today = todayDateString();
-  const { data, error } = await supabase
-    .from("masjid_staff_memberships")
-    .select("masjid_id,starts_on,created_at,masajid!inner(id,name,slug)")
-    .eq("profile_id", user.id)
-    .eq("staff_role", "admin")
-    .eq("active", true)
-    .lte("starts_on", today)
-    .or(`ends_on.is.null,ends_on.gte.${today}`)
-    .order("starts_on", { ascending: false })
-    .order("created_at", { ascending: false })
-    .returns<AdminMasjidMembershipRow[]>();
-
-  if (error || !data) {
-    return [];
-  }
-
-  const masjids: Array<Pick<Masjid, "id" | "name" | "slug">> = [];
-  const seenMasjidIds = new Set<string>();
-
-  for (const row of data) {
-    if (seenMasjidIds.has(row.masjid_id)) {
-      continue;
-    }
-
-    const canManageMasjid = await assertAdminCanManageMasjid(supabase, row.masjid_id);
-
-    if (canManageMasjid) {
-      seenMasjidIds.add(row.masjid_id);
-      masjids.push(row.masajid);
-    }
-  }
-
-  return masjids;
-}
-
-export async function resolveAdminBrothersRotationContext(
-  supabase: SupabaseClient
-): Promise<RotationContext | null> {
-  const masjids = await loadAdminRotationMasjids(supabase);
-
-  for (const masjid of masjids) {
-    const { data: cohort } = await supabase
-      .from("cohorts")
-      .select("id,name,kind,masjid_id")
-      .eq("masjid_id", masjid.id)
-      .eq("kind", "brothers")
-      .eq("active", true)
-      .order("sort_order", { ascending: true })
-      .limit(1)
-      .maybeSingle<Pick<Cohort, "id" | "name" | "kind" | "masjid_id">>();
-
-    if (cohort) {
-      return { masjid, cohort };
-    }
-  }
-
-  return null;
 }
 
 export async function loadRotationSettings(
@@ -507,15 +433,27 @@ function buildAssignmentRows(input: {
 }
 
 export async function loadRotationPageData(input: {
-  supabase: SupabaseClient;
+  profile: Pick<Profile, "id" | "role">;
   searchParams: RotationSearchParams;
 }): Promise<RotationPageData> {
   const selectedWeekStart = validRotationWeekStart(input.searchParams.week);
-  const context = await resolveAdminBrothersRotationContext(input.supabase);
+  const adminSupabase = createSupabaseAdminClient();
+  const scopeOptions = await loadAdminCreateUserScopeOptions({
+    adminSupabase,
+    admin: input.profile
+  });
+  const contexts = buildRotationContexts(scopeOptions);
+  const resolution = resolveRotationContext(contexts, {
+    masjidId: input.searchParams.masjid,
+    cohortId: input.searchParams.cohort
+  });
+  const context = resolution.context;
 
   if (!context) {
     return {
       context: null,
+      contexts,
+      canonicalPath: null,
       selectedWeekStart,
       selectedWeekLabel: formatWeekRange(selectedWeekStart),
       settings: null,
@@ -524,11 +462,23 @@ export async function loadRotationPageData(input: {
       teachers: [],
       assignments: [],
       persistencePlan: null,
-      setupIssues: ["No active brothers rotation cohort is available for this admin."]
+      setupIssues: [
+        resolution.error === "invalid-selection"
+          ? "The selected masjid and cohort are not available for this admin."
+          : "No active rotation cohort is available for this admin."
+      ]
     };
   }
 
-  const adminSupabase = createSupabaseAdminClient();
+  const canonicalPath =
+    resolution.usedDefault || input.searchParams.week !== selectedWeekStart
+      ? rotationPath({
+          masjidId: context.masjid.id,
+          cohortId: context.cohort.id,
+          weekStart: selectedWeekStart,
+          status: input.searchParams.status
+        })
+      : null;
   const [settings, groups, teachers] = await Promise.all([
     loadRotationSettings(adminSupabase, context),
     loadActiveRotationGroups(adminSupabase, context.cohort.id),
@@ -560,6 +510,8 @@ export async function loadRotationPageData(input: {
 
   return {
     context,
+    contexts,
+    canonicalPath,
     selectedWeekStart,
     selectedWeekLabel: formatWeekRange(selectedWeekStart),
     settings,

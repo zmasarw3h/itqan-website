@@ -1,4 +1,5 @@
 import AppNav from "@/app/nav";
+import RotationScopeSelector from "@/app/admin/rotation/scope-selector";
 import {
   ROTATION_STATUS_MESSAGES,
   loadRotationPageData,
@@ -11,6 +12,7 @@ import {
 } from "@/app/admin/rotation/actions";
 import { formatWeekRange } from "@/lib/dates";
 import { requireProfile } from "@/lib/supabase-server";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -32,8 +34,13 @@ export default async function AdminRotationPage({
   searchParams: Promise<RotationSearchParams>;
 }) {
   const resolvedSearchParams = await searchParams;
-  const { supabase, profile } = await requireProfile(["admin"]);
-  const data = await loadRotationPageData({ supabase, searchParams: resolvedSearchParams });
+  const { profile } = await requireProfile(["admin"]);
+  const data = await loadRotationPageData({ profile, searchParams: resolvedSearchParams });
+
+  if (data.canonicalPath) {
+    redirect(data.canonicalPath);
+  }
+
   const status = statusFor(resolvedSearchParams.status);
   const availableTeacherCount = data.teachers.filter((teacher) => teacher.available).length;
 
@@ -50,21 +57,12 @@ export default async function AdminRotationPage({
                 : data.selectedWeekLabel}
             </p>
           </div>
-          <form className="flex flex-wrap items-end gap-3">
-            <label className="block">
-              <span className="text-sm font-medium text-ink">Target week</span>
-              <input
-                className="mt-1 rounded-md border border-stone-300 px-3 py-2"
-                defaultValue={data.selectedWeekStart}
-                name="week"
-                required
-                type="date"
-              />
-            </label>
-            <button className="rounded-md bg-ink px-4 py-2.5 text-sm font-medium text-white">
-              View
-            </button>
-          </form>
+          <RotationScopeSelector
+            contexts={data.contexts}
+            selectedCohortId={resolvedSearchParams.cohort}
+            selectedMasjidId={resolvedSearchParams.masjid}
+            selectedWeekStart={data.selectedWeekStart}
+          />
         </div>
 
         {status ? (
@@ -114,6 +112,8 @@ export default async function AdminRotationPage({
                   <p className="mt-1 text-sm text-stone-600">{formatWeekRange(data.selectedWeekStart)}</p>
                 </div>
                 <form action={saveRotationSettings} className="flex flex-wrap items-end gap-2">
+                  <input name="masjid_id" type="hidden" value={data.context?.masjid.id ?? ""} />
+                  <input name="cohort_id" type="hidden" value={data.context?.cohort.id ?? ""} />
                   <input name="week_start" type="hidden" value={data.selectedWeekStart} />
                   <label className="block">
                     <span className="text-sm font-medium text-ink">Target group count</span>
@@ -126,13 +126,18 @@ export default async function AdminRotationPage({
                       type="number"
                     />
                   </label>
-                  <button className="rounded-md bg-ink px-4 py-2.5 text-sm font-medium text-white">
+                  <button
+                    className="rounded-md bg-ink px-4 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!data.context}
+                  >
                     Save
                   </button>
                 </form>
               </div>
 
               <form action={saveTeacherAvailability} className="mt-5">
+                <input name="masjid_id" type="hidden" value={data.context?.masjid.id ?? ""} />
+                <input name="cohort_id" type="hidden" value={data.context?.cohort.id ?? ""} />
                 <input name="week_start" type="hidden" value={data.selectedWeekStart} />
                 <div className="divide-y divide-stone-200 rounded-md border border-stone-200">
                   {data.teachers.length > 0 ? (
@@ -158,7 +163,10 @@ export default async function AdminRotationPage({
                     <p className="px-4 py-3 text-sm text-stone-600">No active teachers found.</p>
                   )}
                 </div>
-                <button className="mt-4 rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink">
+                <button
+                  className="mt-4 rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={!data.context}
+                >
                   Save availability
                 </button>
               </form>
@@ -171,10 +179,12 @@ export default async function AdminRotationPage({
                   <p className="mt-1 text-sm text-stone-600">One active teacher per group for the selected week.</p>
                 </div>
                 <form action={generateRotation}>
+                  <input name="masjid_id" type="hidden" value={data.context?.masjid.id ?? ""} />
+                  <input name="cohort_id" type="hidden" value={data.context?.cohort.id ?? ""} />
                   <input name="week_start" type="hidden" value={data.selectedWeekStart} />
                   <button
                     className="rounded-md bg-gold px-4 py-2.5 text-sm font-semibold text-ink hover:bg-moss hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={!data.settings}
+                    disabled={!data.context || !data.settings}
                   >
                     Generate / rebalance
                   </button>
