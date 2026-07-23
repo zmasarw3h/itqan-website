@@ -1,22 +1,15 @@
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { endStaffMembership, resetPersonPassword, savePersonAccess } from "@/app/super-admin/actions";
+import { endStaffMembership, resetPersonPassword } from "@/app/super-admin/actions";
 import {
   SUPER_ADMIN_PEOPLE_STATUS_MESSAGES,
   loadPersonDetailData,
-  type PersonDetailData,
   type StaffMembershipDetail,
   type StudentMembershipDetail,
   type TeacherAssignmentDetail
 } from "@/app/super-admin/data";
 import AppNav from "@/app/nav";
-import {
-  displayAccessPreset,
-  membershipIsActiveOn,
-  staffMembershipIsActiveOn,
-  type SuperAdminAccessPreset
-} from "@/lib/super-admin-access";
 import { formatDateTimeInAppTimeZone, formatWeekRange, todayDateString } from "@/lib/dates";
 import { reconcilePersonDetailWithAccessState } from "@/lib/person-access-state";
 import { requireSuperAdminAdminClient } from "@/lib/super-admin";
@@ -53,50 +46,6 @@ function membershipState(input: { starts_on: string; ends_on: string | null; act
 
 function dateRange(startsOn: string, endsOn: string | null) {
   return `${startsOn} to ${endsOn ?? "open"}`;
-}
-
-function defaultPreset(data: PersonDetailData): SuperAdminAccessPreset {
-  if (!data.profile.active) return "inactive";
-
-  const today = todayDateString();
-  const activeStaff = data.staffMemberships.filter((membership) => staffMembershipIsActiveOn(membership, today));
-  const staffByMasjid = new Map<string, { hasAdmin: boolean; hasTeacher: boolean }>();
-
-  for (const membership of activeStaff) {
-    const existing = staffByMasjid.get(membership.masjid_id) ?? { hasAdmin: false, hasTeacher: false };
-
-    if (membership.staff_role === "admin") {
-      existing.hasAdmin = true;
-    } else {
-      existing.hasTeacher = true;
-    }
-
-    staffByMasjid.set(membership.masjid_id, existing);
-  }
-
-  if ([...staffByMasjid.values()].some((access) => access.hasAdmin && access.hasTeacher)) return "admin_teacher";
-  const hasAdmin = [...staffByMasjid.values()].some((access) => access.hasAdmin);
-  const hasTeacher = [...staffByMasjid.values()].some((access) => access.hasTeacher);
-  if (hasAdmin) return "admin";
-  if (hasTeacher) return "teacher";
-  if (data.profile.role === "student") return "student";
-  if (data.profile.role === "teacher") return "teacher";
-  return "admin";
-}
-
-function defaultMasjidId(data: PersonDetailData) {
-  const today = todayDateString();
-  const activeStaff = data.staffMemberships.find((membership) => staffMembershipIsActiveOn(membership, today));
-  const activeStudent = data.studentMemberships.find((membership) => membershipIsActiveOn(membership, today));
-
-  return activeStaff?.masjid_id ?? activeStudent?.masjid_id ?? data.options.masjids[0]?.id ?? "";
-}
-
-function defaultGroupId(data: PersonDetailData) {
-  const today = todayDateString();
-  const activeStudent = data.studentMemberships.find((membership) => membershipIsActiveOn(membership, today));
-
-  return activeStudent?.group_id ?? data.options.groups[0]?.id ?? "";
 }
 
 function IdentityPanel({ profile, authEmail }: { profile: Profile; authEmail: string | null }) {
@@ -153,112 +102,6 @@ function WarningsPanel({ warnings }: { warnings: string[] }) {
           <li key={warning}>{warning}</li>
         ))}
       </ul>
-    </section>
-  );
-}
-
-function AccessEditor({ data, expectedState }: { data: PersonDetailData; expectedState: PersonAccessState }) {
-  const preset = defaultPreset(data);
-
-  return (
-    <section className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-      <h2 className="text-lg font-semibold text-ink">Access Editor</h2>
-      <form action={savePersonAccess} className="mt-4 grid gap-4">
-        <input name="person_id" type="hidden" value={data.profile.id} />
-        <input name="request_id" type="hidden" value={randomUUID()} />
-        <input name="expected_state" type="hidden" value={JSON.stringify(expectedState)} />
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="block">
-            <span className="text-sm font-medium text-ink">Access preset</span>
-            <select
-              className="mt-1 w-full rounded-md border border-stone-300 bg-white px-3 py-2"
-              defaultValue={preset}
-              name="access_preset"
-              required
-            >
-              <option value="student">{displayAccessPreset("student")}</option>
-              <option value="teacher">{displayAccessPreset("teacher")}</option>
-              <option value="admin">{displayAccessPreset("admin")}</option>
-              <option value="admin_teacher">{displayAccessPreset("admin_teacher")}</option>
-              <option value="inactive">{displayAccessPreset("inactive")}</option>
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-sm font-medium text-ink">Effective date</span>
-            <input
-              className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
-              defaultValue={todayDateString()}
-              name="starts_on"
-              required
-              type="date"
-            />
-          </label>
-          <label className="block">
-            <span className="text-sm font-medium text-ink">Masjid</span>
-            <select
-              className="mt-1 w-full rounded-md border border-stone-300 bg-white px-3 py-2"
-              defaultValue={defaultMasjidId(data)}
-              name="masjid_id"
-            >
-              <option value="">Choose masjid</option>
-              {data.options.masjids.map((masjid) => (
-                <option key={masjid.id} value={masjid.id}>
-                  {masjid.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-sm font-medium text-ink">Student group</span>
-            <select
-              className="mt-1 w-full rounded-md border border-stone-300 bg-white px-3 py-2"
-              defaultValue={defaultGroupId(data)}
-              name="group_id"
-            >
-              <option value="">Choose group</option>
-              {data.options.groups.map((group) => (
-                <option key={group.id} value={group.id}>
-                  {group.masjid_name} / {group.cohort_name} / {group.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        {data.options.masjids.length === 0 || data.options.groups.length === 0 ? (
-          <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            Active masjid, cohort, and group setup is incomplete.
-          </p>
-        ) : null}
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="block">
-            <span className="text-sm font-medium text-ink">Confirm person name</span>
-            <input
-              autoComplete="off"
-              className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
-              name="confirmation_name"
-              placeholder={data.profile.name}
-              required
-            />
-          </label>
-          <label className="block">
-            <span className="text-sm font-medium text-ink">Confirm admin masjid name</span>
-            <input
-              autoComplete="off"
-              className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
-              name="confirmation_masjid"
-              placeholder="Exact name, or comma-separated names"
-            />
-            <span className="mt-1 block text-xs text-stone-500">
-              Required when granting or removing admin access.
-            </span>
-          </label>
-        </div>
-        <div>
-          <button className="rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink">
-            Save access changes
-          </button>
-        </div>
-      </form>
     </section>
   );
 }
@@ -497,6 +340,24 @@ function PasswordResetPanel({ profile }: { profile: Profile }) {
   );
 }
 
+function GuidedChangeEntry({ profile }: { profile: Profile }) {
+  return (
+    <section className="rounded-xl border border-green-200 bg-green-50 p-5 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-green-700">Guided Change</p>
+      <h2 className="mt-2 text-lg font-semibold text-ink">Change access safely</h2>
+      <p className="mt-2 text-sm leading-6 text-stone-700">
+        Choose one operation, its exact scope and date, then review every access row that will change or remain unchanged.
+      </p>
+      <Link
+        className="mt-4 inline-flex min-h-11 items-center justify-center rounded-lg bg-moss px-4 py-2.5 text-sm font-semibold text-white hover:bg-ink"
+        href={`/super-admin/people/${profile.id}/access`}
+      >
+        Start Guided Change
+      </Link>
+    </section>
+  );
+}
+
 export default async function SuperAdminPersonPage({
   params,
   searchParams
@@ -545,7 +406,7 @@ export default async function SuperAdminPersonPage({
             <TeacherAssignments assignments={canonicalData.teacherAssignments} />
           </div>
           <aside className="space-y-6">
-            <AccessEditor data={canonicalData} expectedState={canonicalState} />
+            <GuidedChangeEntry profile={canonicalData.profile} />
             <PasswordResetPanel profile={canonicalData.profile} />
           </aside>
         </section>

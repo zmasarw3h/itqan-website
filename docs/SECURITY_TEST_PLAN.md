@@ -308,7 +308,8 @@ Run these checks through the app using staging users:
 - Direct navigation to `/admin`, `/admin/export`, `/admin/students/new`, and `/admin/students/[id]` as a student redirects away or returns not found.
 - Admin login lands on `/admin`.
 - Admin dashboard, filters, correction form, student/teacher creation, halaqa grade form, and CSV export expose only the admin's effective masjid scope.
-- A super admin can open `/super-admin`, `/super-admin/people`, and `/super-admin/masajid`; all other roles are rejected server-side.
+- A super admin can open `/super-admin`, `/super-admin/people`, `/super-admin/people/new`,
+  `/super-admin/masajid`, `/super-admin/repairs`, and `/super-admin/audit`; all other roles are rejected server-side.
 - Teacher dashboard and group-detail routes expose only exact-week assignments and effective rosters; manual group/week URL changes are denied.
 - Assigned teachers cannot select student `profiles` rows or contact columns; the roster RPC returns only its documented safe fields and exact-week scoring aggregates.
 - Teacher weekly-plan links are short-lived and fail for unassigned students or weeks. Teacher grade writes fail outside the exact assignment.
@@ -370,6 +371,9 @@ Phase 1 is not mergeable until a local disposable Supabase harness:
   open-ended terminal handoff, serializes concurrent end/grant operations, and does not apply to inactive masajid.
 - Proves masjid updates and their audit events are atomic, inactive masjid edits remain available, and
   reactivation is stale-safe, replay-safe, browser-denied, and serialized against admin-membership closure.
+- Proves masjid draft provisioning and hierarchy changes are service-role-only, actor-guarded,
+  idempotent, stale-safe, and atomic with their audit events; group deactivation is blocked while
+  current/future student memberships or teacher assignments depend on it.
 - Runs through a documented opt-in command with disposable credentials only. It must never target production.
 
 Keep `npm run check` deterministic. The Docker-backed RLS integration command runs as a separate GitHub

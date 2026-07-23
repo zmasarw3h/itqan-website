@@ -16,6 +16,7 @@ server guards, and local RLS integration suite must agree with it.
 | Staff memberships | Own history | Own history | Scoped teacher insert and deliberate deactivation/closure; identity/history rewrites, reactivation, admin grants, and deletion are denied | Global read; writes only through guarded service-role workflows |
 | Teacher assignments/rotation | None | Own effective assignment/availability rows | Scoped assignment insert/deactivation and rotation inputs; rotation runs are read only and generation uses the guarded service-role RPC | Global access |
 | Super-admin audit | None | None | None | Read only through signed sessions; guarded service-role workflows may insert but cannot update, delete, or truncate |
+| Guided Change review intents | None | None | None | No direct signed-session access; short-lived rows are created and read only by guarded server actions using the service role |
 | Cohort leaderboard | Sanitized projection only: name, rank, score summary, change/status, and own-row marker | None | Separate admin scoring surface | Global operational access |
 
 Effective dates use `public.current_effective_date()` and Sunday tracker weeks. A teacher assignment is
@@ -48,12 +49,13 @@ policy was already super-admin-only and remains unchanged):
 | `weekly_incentive_runs` | Masjid-scoped admin/super-admin select/insert/update |
 | `accountability_obligations` | Student own select and constrained attestation; masjid-scoped admin/super-admin select/insert/update |
 | `badge_awards` | Student own select; masjid-scoped admin/super-admin select/insert/update |
-| `masajid`, `cohorts`, `halaqa_groups` | Active caller-connected hierarchy select for ordinary roles; foundation mutation and inactive-entity reads are super-admin-only |
+| `masajid`, `cohorts`, `halaqa_groups` | Active caller-connected hierarchy select for ordinary roles; super admins can read all hierarchy, while mutations use guarded service-only workflows |
 | `student_group_memberships` | Student own history; effective assigned-teacher read; subject-, attribution-, and masjid-scoped normal-admin insert and open-row closure; signed super-admin direct writes and all direct deletes denied |
 | `masjid_staff_memberships` | Own history; teacher-only, attribution-checked normal-admin insert and deactivation/closure; signed super-admin direct writes and all direct deletes denied |
 | `group_teacher_assignments` | Effective teacher own reads; eligible-teacher, attribution-, and masjid-scoped admin insert and active-to-inactive transition; immutable teacher/group/week/creator history; delete is super-admin-only |
 | Rotation tables | Effective teacher own availability read; masjid-scoped admin/super-admin management for availability and settings; signed-session run access is scoped `SELECT` only and guarded generation is service-role-only |
 | `super_admin_audit_events` | `Active super admins can read audit events`; no signed-role insert/update/delete policy; table ACL grants service role only `SELECT` and `INSERT` |
+| `super_admin_guided_change_reviews` | RLS enabled with no signed-role policies; table ACL revokes `anon` and `authenticated`; the service role alone may create/read/delete a short-lived review intent that binds operation, scope, effective date, target, actor, and expected canonical access state |
 | `storage.objects` weekly-plan policies | Student-owned select and masjid-scoped admin select via `can_admin_read_weekly_plan_path(text)`; bucket-scoped restrictive policies deny authenticated insert/update/delete regardless of any differently named permissive policy because guarded server actions own that workflow |
 
 The additive migration explicitly replaces affected legacy table policies. Storage direct-write denial
@@ -98,7 +100,8 @@ inside the transaction. The Phase 1A functions `apply_scoped_user_setup(...)`,
 `get_scoped_user_setup_request_result(...)`, `get_scoped_user_setup_auth_recovery(...)`,
 `get_person_access_state(uuid,uuid)`, `apply_super_admin_access_change(...)`,
 `prepare_super_admin_masjid_staff_grant(...)`, `apply_super_admin_masjid_staff_grant(...)`,
-`apply_super_admin_staff_membership_end(...)`, and `apply_super_admin_masjid_update(...)` are also
+`apply_super_admin_staff_membership_end(...)`, `apply_super_admin_masjid_update(...)`,
+`apply_super_admin_masjid_provision(...)`, and `apply_super_admin_hierarchy_change(...)` are also
 service-role-only. They independently validate the passed actor, use explicit current-state or hierarchy
 checks, and keep membership/profile changes plus audit insertion inside one transaction. Trigger functions (`enforce_student_accountability_attestation()`,
 `enforce_student_checkin_integrity()`, `enforce_student_checkin_item_integrity()`,

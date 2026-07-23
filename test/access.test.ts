@@ -109,4 +109,15 @@ describe("access rules", () => {
     expect(navigationLinksForRole("admin", true).some((link) => link.href === "/teacher")).toBe(true);
     expect(navigationLinksForRole("teacher").map((link) => link.href)).toContain("/teacher");
   });
+
+  it("exposes the complete super-admin console navigation", () => {
+    expect(navigationLinksForRole("super_admin").map((link) => link.href)).toEqual([
+      "/super-admin",
+      "/super-admin/people",
+      "/super-admin/masajid",
+      "/super-admin/repairs",
+      "/super-admin/audit",
+      "/account/change-password"
+    ]);
+  });
 });

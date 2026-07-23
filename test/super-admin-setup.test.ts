@@ -24,12 +24,13 @@ describe("super-admin setup helpers", () => {
     expect(parseCohortKind("parents")).toBeNull();
     expect(parseStaffAccessGrant("admin")).toBe("admin");
     expect(parseStaffAccessGrant("admin_teacher")).toBe("admin_teacher");
-    expect(parseStaffAccessGrant("teacher")).toBeNull();
+    expect(parseStaffAccessGrant("teacher")).toBe("teacher");
   });
 
   it("maps first-admin grants to staff roles", () => {
     expect(staffRolesForGrant("admin")).toEqual(["admin"]);
     expect(staffRolesForGrant("admin_teacher")).toEqual(["admin", "teacher"]);
+    expect(staffRolesForGrant("teacher")).toEqual(["teacher"]);
   });
 
   it("falls back on invalid sort orders", () => {

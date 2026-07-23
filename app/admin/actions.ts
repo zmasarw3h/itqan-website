@@ -50,6 +50,9 @@ function formString(value: FormDataEntryValue | null) {
 
 export async function createUser(formData: FormData) {
   const { adminSupabase, profile } = await requireScopedAdmin();
+  const createUserPath = profile.role === "super_admin" && formString(formData.get("return_to")) === "super_admin"
+    ? "/super-admin/people/new"
+    : "/admin/students/new";
 
   let input: ReturnType<typeof buildAdminUserCreateInput>;
 
@@ -60,7 +63,7 @@ export async function createUser(formData: FormData) {
       role: formData.get("role")
     });
   } catch {
-    redirect("/admin/students/new?status=invalid");
+    redirect(`${createUserPath}?status=invalid`);
   }
 
   const today = todayDateString();
@@ -109,15 +112,15 @@ export async function createUser(formData: FormData) {
     }
   } catch (error) {
     const params = new URLSearchParams({ status: adminScopeStatusForError(error), role: input.role });
-    redirect(`/admin/students/new?${params.toString()}`);
+    redirect(`${createUserPath}?${params.toString()}`);
   }
 
   if (input.role !== "student" && input.role !== "teacher") {
-    redirect("/admin/students/new?status=invalid");
+    redirect(`${createUserPath}?status=invalid`);
   }
 
   if (!setupMasjidId || (input.role === "student" && !studentGroupId)) {
-    redirect(`/admin/students/new?status=missing-scope&role=${input.role}`);
+    redirect(`${createUserPath}?status=missing-scope&role=${input.role}`);
   }
 
   const requestIdValue = formString(formData.get("request_id"));
@@ -248,18 +251,20 @@ export async function createUser(formData: FormData) {
       studentGroupId: selectedStudentGroupId,
       teacherMasjidId: selectedTeacherMasjidId
     });
-    redirect(`/admin/students/new?${params.toString()}`);
+    redirect(`${createUserPath}?${params.toString()}`);
   }
 
   revalidatePath("/admin");
   revalidatePath("/admin/rotation");
+  revalidatePath("/super-admin");
+  revalidatePath("/super-admin/people");
   const params = new URLSearchParams({ status: "created", role: input.role });
 
   if (input.role === "student") {
     params.set("student", outcome.profileId);
   }
 
-  redirect(`/admin/students/new?${params.toString()}`);
+  redirect(`${createUserPath}?${params.toString()}`);
 }
 
 export async function correctCheckIn(formData: FormData) {

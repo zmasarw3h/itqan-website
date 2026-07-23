@@ -6,10 +6,10 @@ export type MasjidSetupCounts = {
   activeAdminCount: number;
 };
 
-export type StaffAccessGrant = "admin" | "admin_teacher";
+export type StaffAccessGrant = "admin" | "teacher" | "admin_teacher";
 
 const COHORT_KINDS = new Set<CohortKind>(["brothers", "sisters"]);
-const STAFF_ACCESS_GRANTS = new Set<StaffAccessGrant>(["admin", "admin_teacher"]);
+const STAFF_ACCESS_GRANTS = new Set<StaffAccessGrant>(["admin", "teacher", "admin_teacher"]);
 const MASJID_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export function normalizeMasjidSlug(value: string) {
@@ -36,7 +36,8 @@ export function parseStaffAccessGrant(value: FormDataEntryValue | string | null)
 }
 
 export function staffRolesForGrant(grant: StaffAccessGrant): StaffRole[] {
-  return grant === "admin_teacher" ? ["admin", "teacher"] : ["admin"];
+  if (grant === "admin_teacher") return ["admin", "teacher"];
+  return [grant];
 }
 
 export function parsePositiveInteger(value: string, fallback: number) {
