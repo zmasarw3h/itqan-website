@@ -61,9 +61,10 @@ export default async function NewSuperAdminPersonPage({
     ? params.teacher_masjid_id!
     : fallbackTeacherMasjidId;
   const message = statusMessage(params.status, createdRole);
+  const currentScoreWeekStart = weekStartForDate(todayDateString());
   const defaultScoreStartsOn = preservedRequestId && params.score_starts_on
     ? params.score_starts_on
-    : addDays(weekStartForDate(todayDateString()), 7);
+    : addDays(currentScoreWeekStart, 7);
 
   return (
     <>
@@ -91,6 +92,7 @@ export default async function NewSuperAdminPersonPage({
           initialStudentScope={studentScope}
           initialTeacherMasjidId={teacherMasjidId}
           initialScoreStartsOn={defaultScoreStartsOn}
+          currentScoreWeekStart={currentScoreWeekStart}
           requestId={preservedRequestId ?? randomUUID()}
           returnTo="super_admin"
           scopeOptions={scopeOptions}

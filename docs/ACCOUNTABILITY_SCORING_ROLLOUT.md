@@ -10,7 +10,8 @@ eligible completed weeks below 70%.
 2. Back up production and apply these migrations in filename order:
    `20260724020959_contain_accountability_scope.sql`,
    `20260724021627_add_student_score_start.sql`, then
-   `20260724022500_reconcile_score_start_security_definers.sql`.
+   `20260724022500_reconcile_score_start_security_definers.sql`, then
+   `20260724130111_add_scoped_official_scoring_workflow.sql`.
 3. Verify the new column, constraints, function grants, empty function search
    paths, and existing RLS policies before deploying application code.
 4. Run only the read-only phases of
@@ -34,7 +35,16 @@ eligible completed weeks below 70%.
 - The student can choose “Yes, I paid”; the obligation persists as
   `attested_paid` through the existing student RLS policy.
 - Rotation and group transfer operations do not alter `profiles.score_starts_on`.
-- Review the audit event for every super-admin correction and repair.
+- Student creation offers this Sunday, recommended next Sunday, or a custom
+  canonical Sunday while granting immediate orientation access.
+- Scoped admins can activate or move scoring forward only when all affected
+  history belongs to masajid they currently administer.
+- Super admins can also backdate. Both roles review affected activity and
+  obligations, enter a reason, and confirm the exact student name.
+- Forward changes waive pending pre-boundary obligations atomically, preserving
+  each row and explicitly recording that it was not paid. Idempotent retries do
+  not duplicate waivers or audit events.
+- Review the audit event for every scoring-boundary change and repair.
 
 ## Rollback posture
 

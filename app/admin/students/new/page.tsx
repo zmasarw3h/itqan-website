@@ -119,9 +119,10 @@ export default async function NewStudentPage({
     ? resolvedSearchParams.teacher_masjid_id!
     : fallbackTeacherMasjidId;
   const message = statusMessage(resolvedSearchParams.status, createdRole);
+  const currentScoreWeekStart = weekStartForDate(todayDateString());
   const defaultScoreStartsOn = preservedRequestId && resolvedSearchParams.score_starts_on
     ? resolvedSearchParams.score_starts_on
-    : addDays(weekStartForDate(todayDateString()), 7);
+    : addDays(currentScoreWeekStart, 7);
 
   return (
     <>
@@ -164,6 +165,7 @@ export default async function NewStudentPage({
           initialStudentScope={studentDefault}
           initialTeacherMasjidId={teacherMasjidId}
           initialScoreStartsOn={defaultScoreStartsOn}
+          currentScoreWeekStart={currentScoreWeekStart}
           requestId={preservedRequestId ?? randomUUID()}
           scopeOptions={scopeOptions}
         />

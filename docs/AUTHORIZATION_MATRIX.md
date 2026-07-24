@@ -10,7 +10,7 @@ server guards, and local RLS integration suite must agree with it.
 | Weekly plans | Own metadata and own storage path only | Read only assigned group/week metadata; signed links require the same server-side scope check | Read only metadata and signed links for students in a currently administered masjid | Global operational access |
 | Partner recitation | Own rows; current round writes require an effective, matching group snapshot | Read only assigned group/week rows | Scoped read/write for administered masajid | Global operational access |
 | Halaqa grades | Own read only | Read/write only the exact assigned group/week | Scoped read/write for administered masajid | Global operational access |
-| Incentives/accountability | Own eligible post-`score_starts_on` obligations and badges; only the existing self-attestation update is allowed | No direct access | Scoped to the row's masjid | Global operational access; audited scoring-boundary correction is server guarded |
+| Incentives/accountability | Own eligible post-`score_starts_on` obligations and badges; only the existing self-attestation update is allowed | No direct access | Scoped rows; guarded scoring-boundary activation/forward moves require authority over all affected history | Global operational access; guarded scoring-boundary changes may also move backward |
 | Masajid/cohorts/groups | Active hierarchy connected to a current effective membership | Active hierarchy connected to a current-week effective assignment/staff membership | Active currently administered masajid and active descendants | Global setup access, including inactive entities |
 | Student memberships | Own history | Rows whose membership window overlaps an effective assignment week | Scoped insert and deliberate open-row closure; identity/history rewrites and deletion are denied | Global read; signed direct insert/update/delete denied |
 | Staff memberships | Own history | Own history | Scoped teacher insert and deliberate deactivation/closure; identity/history rewrites, reactivation, admin grants, and deletion are denied | Global read; writes only through guarded service-role workflows |
@@ -103,7 +103,11 @@ inside the transaction. The Phase 1A functions `apply_scoped_user_setup(...)`,
 `apply_super_admin_staff_membership_end(...)`, `apply_super_admin_masjid_update(...)`,
 `apply_super_admin_masjid_provision(...)`, and `apply_super_admin_hierarchy_change(...)` are also
 service-role-only. They independently validate the passed actor, use explicit current-state or hierarchy
-checks, and keep membership/profile changes plus audit insertion inside one transaction. Trigger functions (`enforce_student_accountability_attestation()`,
+checks, and keep membership/profile changes plus audit insertion inside one transaction.
+`preview_official_scoring_start_change(...)` and `apply_official_scoring_start_change(...)` are likewise
+service-role-only: the former previews affected weeks and obligations, while the latter uses a stable
+request ID to change the boundary, waive pending pre-boundary obligations without payment attestation,
+and write the corresponding audits atomically. Trigger functions (`enforce_student_accountability_attestation()`,
 `enforce_student_checkin_integrity()`, `enforce_student_checkin_item_integrity()`,
 `recalculate_student_checkin_score()`, `set_student_scope_snapshot()`, `teacher_rotation_row_scope_matches()`, and
 `protect_foundation_row_identity()`) and the superseded broad
