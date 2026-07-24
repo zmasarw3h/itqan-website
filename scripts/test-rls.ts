@@ -243,8 +243,8 @@ async function seed(): Promise<SeedIds> {
   const masajid = await requireData<Array<{ id: string; slug: string }>>(
     "insert masajid",
     admin.from("masajid").insert([
-      { name: "RLS Masjid A", slug: "rls-masjid-a", active: true },
-      { name: "RLS Masjid B", slug: "rls-masjid-b", active: true },
+      { name: "RLS Masjid A", slug: "rls-masjid-a", active: false },
+      { name: "RLS Masjid B", slug: "rls-masjid-b", active: false },
       { name: "RLS Inactive Masjid", slug: "rls-inactive-masjid", active: false }
     ]).select("id,slug")
   );
@@ -401,6 +401,11 @@ async function seed(): Promise<SeedIds> {
   );
   const staffMembershipA = staffMemberships.find((row) => row.profile_id === users.adminA)!.id;
   const staffMembershipB = staffMemberships.find((row) => row.profile_id === users.adminB)!.id;
+
+  await requireData(
+    "activate seeded masajid after hierarchy and admin setup",
+    admin.from("masajid").update({ active: true }).in("id", [masjidA, masjidB]).select("id")
+  );
 
   const assignments = await requireData<Array<{ id: string; group_id: string; teacher_id: string }>>(
     "insert teacher assignments",
@@ -2582,10 +2587,31 @@ async function runAssertions(ids: SeedIds) {
 
   const { data: concurrencyMasjid, error: concurrencyMasjidError } = await service
     .from("masajid")
-    .insert({ name: "RLS Concurrency Masjid", slug: "rls-concurrency-masjid", active: true })
+    .insert({ name: "RLS Concurrency Masjid", slug: "rls-concurrency-masjid", active: false })
     .select("id")
     .single<{ id: string }>();
   assert.equal(concurrencyMasjidError, null, concurrencyMasjidError?.message);
+  const { data: concurrencyCohort, error: concurrencyCohortError } = await service
+    .from("cohorts")
+    .insert({
+      masjid_id: concurrencyMasjid!.id,
+      kind: "brothers",
+      name: "Concurrency Brothers",
+      active: true,
+      sort_order: 10
+    })
+    .select("id")
+    .single<{ id: string }>();
+  assert.equal(concurrencyCohortError, null, concurrencyCohortError?.message);
+  const { error: concurrencyGroupError } = await service
+    .from("halaqa_groups")
+    .insert({
+      cohort_id: concurrencyCohort!.id,
+      name: "Concurrency Group",
+      active: true,
+      sort_order: 10
+    });
+  assert.equal(concurrencyGroupError, null, concurrencyGroupError?.message);
   const { data: concurrencyAdminMembership, error: concurrencyAdminMembershipError } = await service
     .from("masjid_staff_memberships")
     .insert({
@@ -2599,6 +2625,11 @@ async function runAssertions(ids: SeedIds) {
     .select("id")
     .single<{ id: string }>();
   assert.equal(concurrencyAdminMembershipError, null, concurrencyAdminMembershipError?.message);
+  const { error: concurrencyActivationError } = await service
+    .from("masajid")
+    .update({ active: true })
+    .eq("id", concurrencyMasjid!.id);
+  assert.equal(concurrencyActivationError, null, concurrencyActivationError?.message);
   const concurrentEndState = await service.rpc("get_person_access_state", {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminB
@@ -2778,6 +2809,33 @@ async function runAssertions(ids: SeedIds) {
       .select("id,name,slug,active,updated_at")
       .single()
   );
+  const validCoverageCohort = await requireData<{ id: string }>(
+    "create valid reactivation cohort",
+    service
+      .from("cohorts")
+      .insert({
+        masjid_id: validCoverageMasjid.id,
+        kind: "brothers",
+        name: "Valid Reactivation Brothers",
+        active: true,
+        sort_order: 10
+      })
+      .select("id")
+      .single()
+  );
+  await requireData<{ id: string }>(
+    "create valid reactivation group",
+    service
+      .from("halaqa_groups")
+      .insert({
+        cohort_id: validCoverageCohort.id,
+        name: "Valid Reactivation Group",
+        active: true,
+        sort_order: 10
+      })
+      .select("id")
+      .single()
+  );
   await requireData<{ id: string }>(
     "create valid reactivation coverage",
     service
@@ -2819,6 +2877,33 @@ async function runAssertions(ids: SeedIds) {
       .from("masajid")
       .insert({ name: "RLS Reactivation Concurrency", slug: "rls-reactivation-concurrency", active: false })
       .select("id,name,slug,active,updated_at")
+      .single()
+  );
+  const concurrencyClosureCohort = await requireData<{ id: string }>(
+    "create reactivation concurrency cohort",
+    service
+      .from("cohorts")
+      .insert({
+        masjid_id: concurrencyMasjidClosure.id,
+        kind: "brothers",
+        name: "Reactivation Concurrency Brothers",
+        active: true,
+        sort_order: 10
+      })
+      .select("id")
+      .single()
+  );
+  await requireData<{ id: string }>(
+    "create reactivation concurrency group",
+    service
+      .from("halaqa_groups")
+      .insert({
+        cohort_id: concurrencyClosureCohort.id,
+        name: "Reactivation Concurrency Group",
+        active: true,
+        sort_order: 10
+      })
+      .select("id")
       .single()
   );
   const concurrencyCoverageMembership = await requireData<{ id: string }>(
