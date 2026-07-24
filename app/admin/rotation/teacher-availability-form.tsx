@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import { saveTeacherAvailability } from "@/app/admin/rotation/actions";
+import { useRotationAvailability } from "@/app/admin/rotation/availability-state";
 import type { RotationTeacherRow } from "@/app/admin/rotation/data";
 
 type TeacherAvailabilityFormProps = {
@@ -17,9 +17,7 @@ export default function TeacherAvailabilityForm({
   teachers,
   weekStart
 }: TeacherAvailabilityFormProps) {
-  const [availableTeacherIds, setAvailableTeacherIds] = useState(
-    () => new Set(teachers.filter((teacher) => teacher.available).map((teacher) => teacher.id))
-  );
+  const { availableTeacherIds, isDirty, setAvailableTeacherIds } = useRotationAvailability();
 
   function setTeacherAvailable(teacherId: string, available: boolean) {
     setAvailableTeacherIds((current) => {
@@ -84,7 +82,16 @@ export default function TeacherAvailabilityForm({
             ))}
           </div>
 
-          <button className="mt-4 rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink">
+          {isDirty ? (
+            <p className="mt-4 text-sm font-medium text-amber-800" role="status">
+              Unsaved availability changes. Save to refresh the assignment preview.
+            </p>
+          ) : null}
+
+          <button
+            className="mt-4 rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!isDirty}
+          >
             Save availability
           </button>
         </>
