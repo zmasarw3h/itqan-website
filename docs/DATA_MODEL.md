@@ -70,7 +70,11 @@ Service-only transactional functions added for Phase 1A and used by the Phase 1B
 - `prepare_super_admin_masjid_staff_grant(...)`: captures or replays the original canonical access snapshot for one stable staff-grant request before the mutation RPC runs.
 - `apply_super_admin_staff_membership_end(...)`: closes one open staff membership and writes its audit event in the same transaction after checking the canonical snapshot, date, target relationship, and continuous future admin-coverage invariant.
 - `apply_super_admin_masjid_update(...)`: atomically updates masjid fields and active state, writes the audit event, rejects stale state, and prevents activation without continuous admin coverage.
-- `apply_super_admin_score_start_correction(...)`: lets the guarded super-admin server path correct a student's canonical scoring boundary with stale-state protection, access-date validation, and an atomic audit event.
+- `preview_official_scoring_start_change(...)`: returns the direction, affected activity weeks, and pending pre-boundary obligations only after revalidating the active admin actor and the complete affected masjid scope.
+- `apply_official_scoring_start_change(...)`: atomically changes the student-wide boundary, waives pending pre-boundary obligations without marking them paid, writes profile and per-obligation audit events, and records an idempotent request result. Scoped admins may activate or move forward only when all affected history is inside their current masjid authority; super admins may also move backward.
+
+The former `apply_super_admin_score_start_correction(...)` remains only for schema compatibility and has
+no service-role execute grant.
 
 All transactional functions are denied to `PUBLIC`, `anon`, and `authenticated` and granted only to
 `service_role`. Their passed actor IDs are treated as untrusted input and revalidated from current

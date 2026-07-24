@@ -146,6 +146,7 @@ begin
     select signature
     from (values
       ('apply_cohort_group_rebalance(uuid,date,uuid,integer)'),
+      ('apply_official_scoring_start_change(uuid,uuid,uuid,date,date,text)'),
       ('apply_scoped_user_setup(uuid,uuid,uuid,text,text,text,text,date,date,uuid,uuid)'),
       ('apply_super_admin_access_change(uuid,uuid,uuid,text,date,uuid,uuid,jsonb)'),
       ('apply_super_admin_hierarchy_change(uuid,uuid,text,uuid,uuid,uuid,text,text,integer,boolean,jsonb)'),
@@ -153,10 +154,10 @@ begin
       ('apply_super_admin_masjid_update(uuid,uuid,uuid,text,text,boolean,jsonb)'),
       ('apply_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date,jsonb)'),
       ('apply_super_admin_staff_membership_end(uuid,uuid,uuid,uuid,date,jsonb)'),
-      ('apply_super_admin_score_start_correction(uuid,uuid,date,date)'),
       ('apply_teacher_rotation_generation(uuid,date,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,integer,integer,integer,integer)'),
       ('get_person_access_state(uuid,uuid)'),
       ('prepare_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date)'),
+      ('preview_official_scoring_start_change(uuid,uuid,date)'),
       ('get_scoped_user_setup_auth_recovery(uuid,uuid,text,text,text,text,date,date,uuid,uuid)'),
       ('get_scoped_user_setup_request_result(uuid,uuid,text,text,text,text,date,date,uuid,uuid)')
     ) expected_service(signature)
@@ -213,7 +214,11 @@ begin
     'EXECUTE'
   ) or not has_function_privilege(
     'service_role',
-    'public.apply_super_admin_score_start_correction(uuid,uuid,date,date)',
+    'public.apply_official_scoring_start_change(uuid,uuid,uuid,date,date,text)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.preview_official_scoring_start_change(uuid,uuid,date)',
     'EXECUTE'
   ) or not has_function_privilege(
     'service_role',

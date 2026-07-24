@@ -130,8 +130,8 @@ export const SUPER_ADMIN_PEOPLE_STATUS_MESSAGES: Record<string, { text: string; 
     text: "Membership ended without deleting history.",
     className: "bg-green-50 text-green-800"
   },
-  "score-start-corrected": {
-    text: "First scored week corrected and recorded in the audit history.",
+  "score-start-changed": {
+    text: "Official scoring start updated. Pending pre-boundary obligations were waived with an audit note, not marked paid.",
     className: "bg-green-50 text-green-800"
   },
   "score-start-stale": {

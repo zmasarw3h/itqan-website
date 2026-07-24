@@ -7,6 +7,7 @@ import {
   type AdminCreateUserScopeOptions,
   type StudentScopeSelection
 } from "@/lib/admin-user-scope";
+import { addDays } from "@/lib/dates";
 
 type CreateUserRole = "student" | "teacher";
 
@@ -18,6 +19,7 @@ type AddUserFormProps = {
   initialStudentScope: StudentScopeSelection;
   initialTeacherMasjidId: string;
   initialScoreStartsOn: string;
+  currentScoreWeekStart: string;
   returnTo?: "super_admin";
 };
 
@@ -35,11 +37,13 @@ export default function AddUserForm({
   initialStudentScope,
   initialTeacherMasjidId,
   initialScoreStartsOn,
+  currentScoreWeekStart,
   returnTo
 }: AddUserFormProps) {
   const [role, setRole] = useState<CreateUserRole>(initialRole);
   const [studentSelection, setStudentSelection] = useState<StudentScopeSelection>(initialStudentScope);
   const [teacherSelection, setTeacherSelection] = useState(initialTeacherMasjidId);
+  const [scoreStartsOn, setScoreStartsOn] = useState(initialScoreStartsOn);
   const studentScope = resolveStudentScope(scopeOptions, studentSelection);
   const teacherMasjidId = resolveTeacherMasjidId(scopeOptions, teacherSelection);
   const hasStudentScope = Boolean(studentScope.masjidId && studentScope.cohortId && studentScope.groupId);
@@ -94,19 +98,40 @@ export default function AddUserForm({
       </label>
 
       {role === "student" ? (
-        <label className="block">
-          <span className="text-sm font-medium text-ink">First scored week</span>
-          <input
-            className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
-            defaultValue={initialScoreStartsOn}
-            name="score_starts_on"
-            required
-            type="date"
-          />
-          <span className="mt-1 block text-xs leading-5 text-stone-600">
-            Choose the Sunday when this student officially starts scoring. They can use orientation features before then.
-          </span>
-        </label>
+        <fieldset className="rounded-md border border-stone-200 p-4">
+          <legend className="px-1 text-sm font-medium text-ink">Official scoring begins</legend>
+          <p className="text-xs leading-5 text-stone-600">
+            The student can use orientation features immediately. Scores, streaks, rewards, and accountability
+            begin on the selected Sunday.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              className="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-ink hover:border-moss"
+              onClick={() => setScoreStartsOn(currentScoreWeekStart)}
+              type="button"
+            >
+              This Sunday
+            </button>
+            <button
+              className="rounded-md bg-moss px-3 py-2 text-sm font-medium text-white hover:bg-ink"
+              onClick={() => setScoreStartsOn(addDays(currentScoreWeekStart, 7))}
+              type="button"
+            >
+              Next Sunday (recommended)
+            </button>
+          </div>
+          <label className="mt-3 block">
+            <span className="text-xs font-medium text-stone-700">Selected Sunday</span>
+            <input
+              className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
+              name="score_starts_on"
+              onChange={(event) => setScoreStartsOn(event.target.value)}
+              required
+              type="date"
+              value={scoreStartsOn}
+            />
+          </label>
+        </fieldset>
       ) : null}
 
       {showStudentScope ? (
