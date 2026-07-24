@@ -1281,6 +1281,19 @@ async function runAssertions(ids: SeedIds) {
     input_score_starts_on: ids.weekStart,
     input_expected_score_starts_on: ids.startsOn
   });
+  await assertRpcDenied(adminA, "preview_official_scoring_start_change", {
+    input_actor_id: ids.users.adminA,
+    input_student_id: ids.users.studentA,
+    input_score_starts_on: ids.weekStart
+  });
+  await assertRpcDenied(adminA, "apply_official_scoring_start_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_student_id: ids.users.studentA,
+    input_score_starts_on: ids.weekStart,
+    input_expected_score_starts_on: ids.startsOn,
+    input_reason: "Signed clients may not call this service workflow."
+  });
   await assertRpcDenied(superAdmin, "apply_super_admin_masjid_update", {
     input_request_id: randomUUID(),
     input_actor_id: ids.users.superAdmin,
@@ -1386,27 +1399,43 @@ async function runAssertions(ids: SeedIds) {
   assert.equal(setupStudentAuditError, null, setupStudentAuditError?.message);
   assert.equal(setupStudentAuditCount, 1, "setup retry duplicated audit semantics");
 
-  const scoreCorrection = await service.rpc("apply_super_admin_score_start_correction", {
+  const scoreCorrectionRequestId = randomUUID();
+  const scoreCorrectionArgs = {
+    input_request_id: scoreCorrectionRequestId,
     input_actor_id: ids.users.superAdmin,
     input_student_id: ids.users.studentA,
     input_score_starts_on: ids.weekStart,
-    input_expected_score_starts_on: ids.startsOn
-  });
+    input_expected_score_starts_on: ids.startsOn,
+    input_reason: "Align fixture with the first current scored week."
+  };
+  const scoreCorrection = await service.rpc("apply_official_scoring_start_change", scoreCorrectionArgs);
   assert.equal(scoreCorrection.error, null, scoreCorrection.error?.message);
-  const staleScoreCorrection = await service.rpc("apply_super_admin_score_start_correction", {
+  const scoreCorrectionRetry = await service.rpc("apply_official_scoring_start_change", scoreCorrectionArgs);
+  assert.equal(scoreCorrectionRetry.error, null, scoreCorrectionRetry.error?.message);
+  assert.deepEqual(scoreCorrectionRetry.data, scoreCorrection.data, "score-start retry changed the result");
+  const staleScoreCorrection = await service.rpc("apply_official_scoring_start_change", {
+    input_request_id: randomUUID(),
     input_actor_id: ids.users.superAdmin,
     input_student_id: ids.users.studentA,
     input_score_starts_on: ids.weekStart,
-    input_expected_score_starts_on: ids.startsOn
+    input_expected_score_starts_on: ids.startsOn,
+    input_reason: "This stale request must be rejected."
   });
   assert.equal(staleScoreCorrection.error?.code, "P0001", "stale score-start correction was accepted");
   const { count: scoreCorrectionAuditCount, error: scoreCorrectionAuditError } = await service
     .from("super_admin_audit_events")
     .select("id", { count: "exact", head: true })
     .eq("target_id", ids.users.studentA)
-    .eq("action", "student_score_start_corrected");
+    .eq("action", "official_scoring_start_changed");
   assert.equal(scoreCorrectionAuditError, null, scoreCorrectionAuditError?.message);
-  assert.equal(scoreCorrectionAuditCount, 1, "score-start correction audit was not atomic");
+  assert.equal(scoreCorrectionAuditCount, 1, "score-start workflow retry duplicated audit semantics");
+  const retiredScoreCorrection = await service.rpc("apply_super_admin_score_start_correction", {
+    input_actor_id: ids.users.superAdmin,
+    input_student_id: ids.users.studentA,
+    input_score_starts_on: ids.weekStart,
+    input_expected_score_starts_on: ids.weekStart
+  });
+  assert.equal(retiredScoreCorrection.error?.code, "42501", "retired score-start RPC remained service-callable");
 
   const setupStudentLookupArgs = {
     input_request_id: setupStudentRequestId,
@@ -2412,6 +2441,107 @@ async function runAssertions(ids: SeedIds) {
   const currentLeaderboardRow = (leaderboard ?? []).find((row) => row.is_current_student);
   assert.ok(Number(currentLeaderboardRow?.score_percentage) <= 100, "leaderboard score exceeded 100%");
   assert.equal(currentLeaderboardRow?.previous_rank, null, "inactive prior week fabricated a previous rank");
+  const setupObligation = await requireData<Array<{ id: string }>>(
+    "insert setup-student pending obligation",
+    service.from("accountability_obligations").insert({
+      student_id: ids.users.setupStudent,
+      week_start: ids.weekStart,
+      weekly_percentage: 50,
+      amount_cents: 1250
+    }).select("id")
+  );
+  const setupObligationId = setupObligation[0].id;
+  const setupNextWeek = addDays(ids.weekStart, 7);
+  const setupPreview = await service.rpc("preview_official_scoring_start_change", {
+    input_actor_id: ids.users.adminA,
+    input_student_id: ids.users.setupStudent,
+    input_score_starts_on: setupNextWeek
+  });
+  assert.equal(setupPreview.error, null, setupPreview.error?.message);
+  assert.equal(setupPreview.data?.direction, "forward");
+  assert.equal(setupPreview.data?.pending_obligation_count, 1);
+  assert.equal(setupPreview.data?.pending_amount_cents, 1250);
+  const setupScoringRequestId = randomUUID();
+  const setupScoringArgs = {
+    input_request_id: setupScoringRequestId,
+    input_actor_id: ids.users.adminA,
+    input_student_id: ids.users.setupStudent,
+    input_score_starts_on: setupNextWeek,
+    input_expected_score_starts_on: ids.weekStart,
+    input_reason: "Stakeholder confirmed orientation should last one week."
+  };
+  const setupScoringChange = await service.rpc("apply_official_scoring_start_change", setupScoringArgs);
+  assert.equal(setupScoringChange.error, null, setupScoringChange.error?.message);
+  assert.equal(setupScoringChange.data?.waived_obligation_count, 1);
+  const setupScoringRetry = await service.rpc("apply_official_scoring_start_change", setupScoringArgs);
+  assert.equal(setupScoringRetry.error, null, setupScoringRetry.error?.message);
+  assert.deepEqual(setupScoringRetry.data, setupScoringChange.data, "official scoring retry changed the result");
+  const { data: setupStudentAfterScoring, error: setupStudentAfterScoringError } = await service
+    .from("profiles")
+    .select("score_starts_on")
+    .eq("id", ids.users.setupStudent)
+    .single<{ score_starts_on: string | null }>();
+  assert.equal(setupStudentAfterScoringError, null, setupStudentAfterScoringError?.message);
+  assert.equal(setupStudentAfterScoring?.score_starts_on, setupNextWeek);
+  const { data: waivedSetupObligation, error: waivedSetupObligationError } = await service
+    .from("accountability_obligations")
+    .select("status,attested_paid_at,waived_by,admin_note")
+    .eq("id", setupObligationId)
+    .single<{
+      status: string;
+      attested_paid_at: string | null;
+      waived_by: string | null;
+      admin_note: string | null;
+    }>();
+  assert.equal(waivedSetupObligationError, null, waivedSetupObligationError?.message);
+  assert.equal(waivedSetupObligation?.status, "waived");
+  assert.equal(waivedSetupObligation?.attested_paid_at, null, "workflow marked a waived obligation paid");
+  assert.equal(waivedSetupObligation?.waived_by, ids.users.adminA);
+  assert.match(waivedSetupObligation?.admin_note ?? "", /not paid/i);
+  const { count: setupScoringAuditCount, error: setupScoringAuditError } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.users.setupStudent)
+    .eq("action", "official_scoring_start_changed");
+  assert.equal(setupScoringAuditError, null, setupScoringAuditError?.message);
+  assert.equal(setupScoringAuditCount, 1, "official scoring retry duplicated the profile audit");
+  const { count: setupWaiverAuditCount, error: setupWaiverAuditError } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", setupObligationId)
+    .eq("action", "pre_score_start_obligation_waived");
+  assert.equal(setupWaiverAuditError, null, setupWaiverAuditError?.message);
+  assert.equal(setupWaiverAuditCount, 1, "official scoring retry duplicated the obligation audit");
+  const adminBackward = await service.rpc("apply_official_scoring_start_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_student_id: ids.users.setupStudent,
+    input_score_starts_on: ids.weekStart,
+    input_expected_score_starts_on: setupNextWeek,
+    input_reason: "Scoped admins must not backdate official scoring."
+  });
+  assert.equal(adminBackward.error?.code, "42501", "scoped admin backdated official scoring");
+  const adminCrossMasjidPreview = await service.rpc("preview_official_scoring_start_change", {
+    input_actor_id: ids.users.adminA,
+    input_student_id: ids.users.studentB,
+    input_score_starts_on: addDays(ids.weekStart, 7)
+  });
+  assert.equal(adminCrossMasjidPreview.error?.code, "42501", "scoped admin previewed another masjid");
+  const superAdminBackward = await service.rpc("apply_official_scoring_start_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_student_id: ids.users.setupStudent,
+    input_score_starts_on: ids.weekStart,
+    input_expected_score_starts_on: setupNextWeek,
+    input_reason: "Super admin correction restores the confirmed original week."
+  });
+  assert.equal(superAdminBackward.error, null, superAdminBackward.error?.message);
+  const { data: stillWaivedSetupObligation } = await service
+    .from("accountability_obligations")
+    .select("status")
+    .eq("id", setupObligationId)
+    .single<{ status: string }>();
+  assert.equal(stillWaivedSetupObligation?.status, "waived", "backdating reopened a waived obligation");
   const orientationBoundaryUpdate = await service
     .from("profiles")
     .update({ score_starts_on: addDays(ids.weekStart, 7) })
