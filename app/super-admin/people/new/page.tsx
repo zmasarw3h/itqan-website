@@ -6,6 +6,7 @@ import AppNav from "@/app/nav";
 import { loadAdminCreateUserScopeOptions } from "@/lib/admin-scope";
 import { resolveStudentScope, resolveTeacherMasjidId } from "@/lib/admin-user-scope";
 import { preservedScopedUserSetupRequestId } from "@/lib/admin-users";
+import { addDays, todayDateString, weekStartForDate } from "@/lib/dates";
 import { requireSuperAdminAdminClient } from "@/lib/super-admin";
 import type { Role } from "@/lib/types";
 
@@ -20,12 +21,14 @@ type NewPersonSearchParams = {
   student_cohort_id?: string;
   student_group_id?: string;
   teacher_masjid_id?: string;
+  score_starts_on?: string;
 };
 
 function statusMessage(status: string | undefined, role: Role | undefined) {
   if (status === "created") return { tone: "success", text: `${role === "teacher" ? "Teacher" : "Student"} account created with its initial scoped access.` };
   if (status === "exists") return { tone: "error", text: "A person with that phone number already exists. Find the existing person and change their access instead." };
   if (status === "invalid") return { tone: "error", text: "Enter a valid name, phone number, and account type." };
+  if (status === "invalid-score-start") return { tone: "error", text: "Choose a Sunday first-scored week that is not before the student's access begins." };
   if (status === "missing-scope") return { tone: "error", text: "Choose a complete active scope for this account." };
   if (status === "invalid-scope") return { tone: "error", text: "That masjid, cohort, or group is no longer a valid active scope." };
   if (status === "setup-uncertain" || status === "auth-uncertain") return { tone: "error", text: "Completion could not be confirmed. Keep the same values and submit once to safely verify the original request." };
@@ -58,6 +61,9 @@ export default async function NewSuperAdminPersonPage({
     ? params.teacher_masjid_id!
     : fallbackTeacherMasjidId;
   const message = statusMessage(params.status, createdRole);
+  const defaultScoreStartsOn = preservedRequestId && params.score_starts_on
+    ? params.score_starts_on
+    : addDays(weekStartForDate(todayDateString()), 7);
 
   return (
     <>
@@ -84,6 +90,7 @@ export default async function NewSuperAdminPersonPage({
           initialRole={createdRole ?? "student"}
           initialStudentScope={studentScope}
           initialTeacherMasjidId={teacherMasjidId}
+          initialScoreStartsOn={defaultScoreStartsOn}
           requestId={preservedRequestId ?? randomUUID()}
           returnTo="super_admin"
           scopeOptions={scopeOptions}

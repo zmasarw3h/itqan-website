@@ -166,6 +166,11 @@ Preferred order:
 3. Apply the same migrations to production.
 4. Deploy the app version that expects the migrated schema.
 
+For the scoring-boundary/accountability rollout, follow
+`docs/ACCOUNTABILITY_SCORING_ROLLOUT.md`. Its additive migrations and reviewed
+repair must be applied before the matching app deployment; the repair script is
+manual and must never be run against production without explicit approval.
+
 Supported application methods are the ones documented in `README.md`:
 
 ```bash

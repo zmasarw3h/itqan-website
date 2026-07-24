@@ -6,6 +6,7 @@ import AddUserForm from "@/app/admin/students/new/add-user-form";
 import { loadAdminCreateUserScopeOptions, requireScopedAdmin } from "@/lib/admin-scope";
 import { resolveStudentScope, resolveTeacherMasjidId } from "@/lib/admin-user-scope";
 import { preservedScopedUserSetupRequestId } from "@/lib/admin-users";
+import { addDays, todayDateString, weekStartForDate } from "@/lib/dates";
 import type { Role } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,7 @@ type NewStudentSearchParams = {
   student_cohort_id?: string;
   student_group_id?: string;
   teacher_masjid_id?: string;
+  score_starts_on?: string;
 };
 
 function statusMessage(status: string | undefined, role: Role | undefined) {
@@ -34,6 +36,8 @@ function statusMessage(status: string | undefined, role: Role | undefined) {
       return { tone: "error", text: "A user with that phone number already exists." };
     case "invalid":
       return { tone: "error", text: "Enter a valid user name, phone number, and role." };
+    case "invalid-score-start":
+      return { tone: "error", text: "Choose a Sunday first-scored week that is not before the student's access begins." };
     case "missing-scope":
       return { tone: "error", text: "Choose an active masjid, cohort, and group for students or an active masjid for teachers." };
     case "invalid-scope":
@@ -115,6 +119,9 @@ export default async function NewStudentPage({
     ? resolvedSearchParams.teacher_masjid_id!
     : fallbackTeacherMasjidId;
   const message = statusMessage(resolvedSearchParams.status, createdRole);
+  const defaultScoreStartsOn = preservedRequestId && resolvedSearchParams.score_starts_on
+    ? resolvedSearchParams.score_starts_on
+    : addDays(weekStartForDate(todayDateString()), 7);
 
   return (
     <>
@@ -156,6 +163,7 @@ export default async function NewStudentPage({
           initialRole={createdRole ?? "student"}
           initialStudentScope={studentDefault}
           initialTeacherMasjidId={teacherMasjidId}
+          initialScoreStartsOn={defaultScoreStartsOn}
           requestId={preservedRequestId ?? randomUUID()}
           scopeOptions={scopeOptions}
         />

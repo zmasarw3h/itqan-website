@@ -94,6 +94,93 @@ describe("weekly incentive reports", () => {
     expect(rows.map((scoreRow) => scoreRow.weekStart)).toEqual(["2026-07-05"]);
   });
 
+  it("treats a missing score baseline as not eligible instead of scoring all history", () => {
+    const rows = buildWeeklyIncentiveRows({
+      students: [
+        {
+          id: "student-a",
+          name: "Student A",
+          email: "student-a@itqan.local",
+          phone: null,
+          score_starts_on: null
+        }
+      ],
+      weekStarts: ["2026-05-31", "2026-06-07", "2026-07-12"],
+      checkins: [],
+      partnerRecitations: [],
+      halaqaGrades: []
+    });
+
+    expect(rows).toEqual([]);
+  });
+
+  it("does not score completed weeks for a student onboarding in the current week", () => {
+    const rows = buildWeeklyIncentiveRows({
+      students: [
+        {
+          id: "student-a",
+          name: "Student A",
+          email: "student-a@itqan.local",
+          phone: null,
+          score_starts_on: "2026-07-19"
+        }
+      ],
+      weekStarts: ["2026-07-05", "2026-07-12"],
+      checkins: [],
+      partnerRecitations: [],
+      halaqaGrades: []
+    });
+
+    expect(rows).toEqual([]);
+  });
+
+  it("does not score a student whose first eligible week is in the future", () => {
+    const rows = buildWeeklyIncentiveRows({
+      students: [
+        {
+          id: "student-a",
+          name: "Student A",
+          email: "student-a@itqan.local",
+          phone: null,
+          score_starts_on: "2026-07-26"
+        }
+      ],
+      weekStarts: ["2026-07-12", "2026-07-19"],
+      checkins: [],
+      partnerRecitations: [],
+      halaqaGrades: []
+    });
+
+    expect(rows).toEqual([]);
+  });
+
+  it("keeps valid below-70 accountability rows after the score baseline", () => {
+    const rows = buildWeeklyIncentiveRows({
+      students: [
+        {
+          id: "student-a",
+          name: "Student A",
+          email: "student-a@itqan.local",
+          phone: null,
+          score_starts_on: "2026-07-12"
+        }
+      ],
+      weekStarts: ["2026-07-12"],
+      checkins: [],
+      partnerRecitations: [],
+      halaqaGrades: []
+    });
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        studentId: "student-a",
+        weekStart: "2026-07-12",
+        weeklyPercentage: 0,
+        accountabilityAmountCents: 3500
+      })
+    ]);
+  });
+
   it("identifies students below 70 for two completed weeks straight", () => {
     const report = buildWeeklyIncentiveReport({
       selectedWeekStart: "2026-06-07",

@@ -124,7 +124,7 @@ export async function loadLeaderboardData(
   const students = adminScopedStudents.map(adminScopedStudentToProfile);
   const studentIds = students.map((student) => student.id);
   const minimumWeekStartByStudent = new Map(
-    adminScopedStudents.map((student) => [student.student_id, student.membership_starts_on])
+    adminScopedStudents.map((student) => [student.student_id, student.score_starts_on])
   );
 
   const [{ data: checkinDates }, { data: partnerWeeks }, { data: halaqaWeeks }] = studentIds.length

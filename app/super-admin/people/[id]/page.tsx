@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { endStaffMembership, resetPersonPassword } from "@/app/super-admin/actions";
+import { correctStudentScoreStart, endStaffMembership, resetPersonPassword } from "@/app/super-admin/actions";
 import {
   SUPER_ADMIN_PEOPLE_STATUS_MESSAGES,
   loadPersonDetailData,
@@ -358,6 +358,59 @@ function GuidedChangeEntry({ profile }: { profile: Profile }) {
   );
 }
 
+function ScoreStartCorrectionPanel({ profile }: { profile: Profile }) {
+  if (profile.role !== "student") return null;
+
+  return (
+    <section className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+      <h2 className="text-lg font-semibold text-ink">First scored week</h2>
+      <p className="mt-1 text-sm leading-6 text-stone-600">
+        Access and orientation activity remain intact. This Sunday controls which weeks count toward scores,
+        streaks, rewards, and Sadaqa obligations.
+      </p>
+      <p className="mt-3 text-sm text-stone-700">
+        Current value: <span className="font-semibold text-ink">{profile.score_starts_on ?? "Not scorable yet"}</span>
+      </p>
+      <details className="mt-4">
+        <summary className="cursor-pointer text-sm font-semibold text-moss hover:text-ink">Correct first scored week</summary>
+        <form action={correctStudentScoreStart} className="mt-3 grid gap-3 rounded-md bg-amber-50 p-4">
+          <input name="person_id" type="hidden" value={profile.id} />
+          <input name="expected_score_starts_on" type="hidden" value={profile.score_starts_on ?? ""} />
+          <p className="text-sm leading-6 text-amber-950">
+            Review the stakeholder-confirmed official start. Moving this boundary can change historical reporting
+            and requires a separate reviewed obligation repair.
+          </p>
+          <label className="block">
+            <span className="text-sm font-medium text-ink">Confirmed Sunday</span>
+            <input
+              className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
+              defaultValue={profile.score_starts_on ?? ""}
+              name="score_starts_on"
+              required
+              type="date"
+            />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-ink">Confirm person name</span>
+            <input
+              autoComplete="off"
+              className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
+              name="confirmation_name"
+              placeholder={profile.name}
+              required
+            />
+          </label>
+          <div>
+            <button className="rounded-md bg-moss px-4 py-2.5 text-sm font-semibold text-white hover:bg-ink">
+              Save audited correction
+            </button>
+          </div>
+        </form>
+      </details>
+    </section>
+  );
+}
+
 export default async function SuperAdminPersonPage({
   params,
   searchParams
@@ -407,6 +460,7 @@ export default async function SuperAdminPersonPage({
           </div>
           <aside className="space-y-6">
             <GuidedChangeEntry profile={canonicalData.profile} />
+            <ScoreStartCorrectionPanel profile={canonicalData.profile} />
             <PasswordResetPanel profile={canonicalData.profile} />
           </aside>
         </section>

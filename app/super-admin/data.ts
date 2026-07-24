@@ -130,6 +130,14 @@ export const SUPER_ADMIN_PEOPLE_STATUS_MESSAGES: Record<string, { text: string; 
     text: "Membership ended without deleting history.",
     className: "bg-green-50 text-green-800"
   },
+  "score-start-corrected": {
+    text: "First scored week corrected and recorded in the audit history.",
+    className: "bg-green-50 text-green-800"
+  },
+  "score-start-stale": {
+    text: "The first scored week changed while this form was open. Review the current value and submit again.",
+    className: "bg-amber-50 text-amber-900"
+  },
   "password-reset": {
     text: "Temporary password set. Share it directly and ask them to change it after signing in.",
     className: "bg-green-50 text-green-800"
@@ -615,7 +623,7 @@ export async function loadActiveGroupScope(
 export async function loadProfileById(adminSupabase: AdminSupabaseClient, profileId: string) {
   const { data, error } = await adminSupabase
     .from("profiles")
-    .select("id,name,email,phone,role,active,created_at")
+    .select("id,name,email,phone,role,active,created_at,score_starts_on")
     .eq("id", profileId)
     .maybeSingle<Profile>();
 
