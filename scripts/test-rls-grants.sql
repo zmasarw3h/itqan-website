@@ -145,6 +145,7 @@ begin
     except
     select signature
     from (values
+      ('apply_cohort_group_rebalance(uuid,date,uuid,integer)'),
       ('apply_scoped_user_setup(uuid,uuid,uuid,text,text,text,text,date,uuid,uuid)'),
       ('apply_super_admin_access_change(uuid,uuid,uuid,text,date,uuid,uuid,jsonb)'),
       ('apply_super_admin_masjid_update(uuid,uuid,uuid,text,text,boolean,jsonb)'),
@@ -181,10 +182,14 @@ begin
   end if;
   if not has_function_privilege(
     'service_role',
+    'public.apply_cohort_group_rebalance(uuid,date,uuid,integer)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
     'public.apply_teacher_rotation_generation(uuid,date,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,integer,integer,integer,integer)',
     'EXECUTE'
   ) then
-    raise exception 'service_role lacks guarded rotation generation EXECUTE';
+    raise exception 'service_role lacks guarded rotation workflow EXECUTE';
   end if;
 
   if not has_function_privilege(

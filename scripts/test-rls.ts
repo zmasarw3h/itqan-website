@@ -1154,6 +1154,12 @@ async function runAssertions(ids: SeedIds) {
     input_week_start: ids.weekStart,
     input_generated_by: ids.users.adminA
   });
+  await assertRpcDenied(adminA, "apply_cohort_group_rebalance", {
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_rebalanced_by: ids.users.adminA,
+    input_target_group_count: 1
+  });
 
   // Signed admins can read rotation runs but cannot write them directly.
   await assertInsertBlocked(adminA, "teacher_rotation_runs", {
@@ -1839,6 +1845,49 @@ async function runAssertions(ids: SeedIds) {
   assert.ok(selfDeactivate.error, "super admin self-deactivation unexpectedly succeeded");
   assert.equal(selfDeactivate.error?.code, "42501");
 
+  const deniedCrossMasjidRebalance = await service.rpc("apply_cohort_group_rebalance", {
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: ids.weekStart,
+    input_rebalanced_by: ids.users.adminB,
+    input_target_group_count: 2
+  });
+  assert.equal(deniedCrossMasjidRebalance.error?.code, "42501");
+
+  const { data: rebalanceResult, error: rebalanceError } = await service.rpc(
+    "apply_cohort_group_rebalance",
+    {
+      input_cohort_id: ids.cohortWriter,
+      input_week_start: ids.weekStart,
+      input_rebalanced_by: ids.users.adminA,
+      input_target_group_count: 2
+    }
+  );
+  assert.equal(rebalanceError, null, `guarded cohort rebalance failed: ${rebalanceError?.message}`);
+  assert.deepEqual(rebalanceResult, {
+    group_count: 2,
+    student_count: 1,
+    moved_student_count: 0
+  });
+  const { count: writerGroupCount, error: writerGroupCountError } = await service
+    .from("halaqa_groups")
+    .select("id", { count: "exact", head: true })
+    .eq("cohort_id", ids.cohortWriter)
+    .eq("active", true);
+  assert.equal(writerGroupCountError, null, writerGroupCountError?.message);
+  assert.equal(writerGroupCount, 2, "cohort rebalance did not create the missing target group");
+  const { data: writerMembershipAfterRebalance } = await service
+    .from("student_group_memberships")
+    .select("group_id")
+    .eq("student_id", ids.users.studentWriter)
+    .lte("starts_on", ids.weekStart)
+    .or(`ends_on.is.null,ends_on.gte.${ids.weekStart}`)
+    .single();
+  assert.equal(
+    writerMembershipAfterRebalance?.group_id,
+    ids.groupWriter,
+    "balanced student moved away from the deterministic first group"
+  );
+
   const { data: generatedRunId, error: generatedRunError } = await service.rpc(
     "apply_teacher_rotation_generation",
     {
@@ -1855,7 +1904,7 @@ async function runAssertions(ids: SeedIds) {
       }],
       assignment_deactivations: [],
       available_teacher_count: 1,
-      group_count: 1,
+      group_count: 2,
       assigned_count: 1,
       warning_count: 0
     }

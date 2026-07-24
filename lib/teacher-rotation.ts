@@ -94,6 +94,18 @@ export type TeacherRotationPersistencePlan = {
   };
 };
 
+export type CohortGroupRebalancePreview = {
+  groups: Array<{
+    id: string;
+    name: string;
+    current_student_count: number;
+    proposed_student_count: number;
+    is_new: boolean;
+  }>;
+  moved_student_ids: string[];
+  target_group_count: number;
+};
+
 function compareNullableNumber(a: number | null | undefined, b: number | null | undefined) {
   if (a === b) {
     return 0;
@@ -223,6 +235,72 @@ export function balanceStudentsIntoGroups(
       student_ids: groupStudents.map((student) => student.id)
     };
   });
+}
+
+export function buildCohortGroupRebalancePreview(params: {
+  students: readonly (RotationStudent & { group_id: string })[];
+  groups: readonly RotationGroup[];
+  targetGroupCount: number;
+}): CohortGroupRebalancePreview | null {
+  if (
+    !Number.isInteger(params.targetGroupCount) ||
+    params.targetGroupCount <= 0 ||
+    params.targetGroupCount < params.groups.length
+  ) {
+    return null;
+  }
+
+  const virtualGroups: RotationGroup[] = [...params.groups];
+  const usedGroupNames = new Set(
+    params.groups.map((group) => group.name?.toLocaleLowerCase()).filter((name): name is string => Boolean(name))
+  );
+  let nextGroupNumber = params.groups.length + 1;
+
+  while (virtualGroups.length < params.targetGroupCount) {
+    while (usedGroupNames.has(`group ${nextGroupNumber}`)) {
+      nextGroupNumber += 1;
+    }
+
+    const groupName = `Group ${nextGroupNumber}`;
+    virtualGroups.push({
+      id: `new-group-${nextGroupNumber}`,
+      name: groupName,
+      sort_order: nextGroupNumber * 10
+    });
+    usedGroupNames.add(groupName.toLocaleLowerCase());
+    nextGroupNumber += 1;
+  }
+
+  const orderedGroups = sortOrdered(virtualGroups);
+  const balancedGroups = balanceStudentsIntoGroups(params.students, orderedGroups);
+  const proposedGroupByStudentId = new Map<string, string>();
+  const currentCountByGroupId = new Map<string, number>();
+
+  for (const student of params.students) {
+    currentCountByGroupId.set(student.group_id, (currentCountByGroupId.get(student.group_id) ?? 0) + 1);
+  }
+
+  for (const group of balancedGroups) {
+    for (const studentId of group.student_ids) {
+      proposedGroupByStudentId.set(studentId, group.group_id);
+    }
+  }
+
+  return {
+    groups: orderedGroups.map((group) => ({
+      id: group.id,
+      name: group.name ?? "Unnamed group",
+      current_student_count: currentCountByGroupId.get(group.id) ?? 0,
+      proposed_student_count:
+        balancedGroups.find((balancedGroup) => balancedGroup.group_id === group.id)?.student_ids.length ?? 0,
+      is_new: group.id.startsWith("new-group-")
+    })),
+    moved_student_ids: params.students
+      .filter((student) => proposedGroupByStudentId.get(student.id) !== student.group_id)
+      .map((student) => student.id)
+      .sort((left, right) => left.localeCompare(right)),
+    target_group_count: params.targetGroupCount
+  };
 }
 
 export function planBalancedMembershipChanges(params: {

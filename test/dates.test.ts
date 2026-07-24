@@ -3,7 +3,10 @@ import {
   currentWeekDates,
   formatDateInAppTimeZone,
   formatDateTimeInAppTimeZone,
+  formatHalaqaSaturday,
   formatWeekRange,
+  halaqaSaturdayForWeek,
+  halaqaWeekStarts,
   isValidDateString,
   todayDateString,
   weekDatesFromStart,
@@ -73,6 +76,23 @@ describe("check-in date reset", () => {
   it("formats week ranges", () => {
     expect(formatWeekRange("2026-05-10")).toBe("May 10–16, 2026");
     expect(formatWeekRange("2026-05-31")).toBe("May 31–Jun 6, 2026");
+  });
+
+  it("shows the Saturday halaqa date for a canonical Sunday tracker week", () => {
+    expect(halaqaSaturdayForWeek("2026-07-19")).toBe("2026-07-25");
+    expect(formatHalaqaSaturday("2026-07-19")).toBe("Saturday, July 25, 2026");
+  });
+
+  it("rejects non-Sunday halaqa week values", () => {
+    expect(() => halaqaSaturdayForWeek("2026-07-25")).toThrow("Invalid tracker week start.");
+  });
+
+  it("builds stable previous, current, and next halaqa week choices", () => {
+    expect(halaqaWeekStarts("2026-07-22")).toEqual({
+      previous: "2026-07-12",
+      current: "2026-07-19",
+      next: "2026-07-26"
+    });
   });
 
   it("validates date strings", () => {

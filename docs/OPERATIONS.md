@@ -243,22 +243,32 @@ Admin workflow in the app:
 
 1. Sign in as an admin.
 2. Open `Admin Dashboard -> Rotation`.
-3. Choose the target Sunday tracker week. The page defaults to next week.
-4. Set the cohort's target group count.
-5. Check the teachers who are available for that week and save availability.
-6. Use `Generate / rebalance` to balance active students across stable groups and assign available teachers.
+3. Select a masjid and one of its active brothers or sisters cohorts.
+4. Choose the target halaqa Saturday with the previous, current, and next controls. The page displays
+   the Saturday date while preserving the canonical Sunday tracker week in the URL and database.
+5. Set the selected cohort's target group count.
+6. Review readiness and the group setup preview. When the group count or membership balance needs to
+   change, confirm the displayed new-group and student-move counts and use `Apply student rebalance`.
+7. Check the teachers who are available for that cohort and week. `Select all` and `Clear all` update
+   the visible selection; use `Save availability` to persist it.
+8. Review assignment coverage, student counts, current teachers, proposed teachers, and warnings.
+9. Use `Publish assignments` to save the weekly teacher assignments.
 
 Target group count cannot be saved below the current number of active groups. The app does not
 deactivate or delete groups automatically in this release.
 
 If fewer teachers are available than groups, some groups remain unassigned and the run should surface a
 warning. If more teachers are available than groups, extra teachers remain unassigned and the run should
-surface a warning. Do not rebalance student groups based on weekly teacher availability; rebalance only
-when an admin intentionally runs the rotation action.
+surface a warning. Publishing assignments never changes student memberships. Rebalance only when an
+admin explicitly confirms the separate group setup action.
 
-Current limitation: the rotation page resolves one active brothers cohort from the signed-in admin's
-masjid memberships. It does not yet provide an explicit masjid/cohort selector and cannot operate a
-sisters cohort. Server-side checks still verify that the signed-in admin manages the resolved masjid.
+The page lists only active cohorts inside masajid the signed-in admin currently manages. Every mutation
+independently verifies the submitted cohort, its parent masjid, and the admin's active masjid access.
+Supplied invalid or cross-masjid context pairs are rejected without silently selecting another cohort.
+
+The `apply_cohort_group_rebalance` RPC performs group creation and effective-dated student membership
+changes in one transaction. Apply migration
+`20260722161859_cohort_group_rebalance.sql` before deploying the app code that calls it.
 
 ## Teacher Dashboard
 

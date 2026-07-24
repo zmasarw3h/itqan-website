@@ -86,6 +86,14 @@ Rotation tables:
 - `cohort_rotation_settings`: stores one active rotation setting row per cohort. `target_group_count` must be positive.
 - `teacher_rotation_runs`: stores generation counts for audit: available teachers, groups, assignments, and warnings.
 
+Rotation mutations are intentionally separate:
+
+- `apply_cohort_group_rebalance`: creates missing active groups and applies effective-dated balanced
+  student memberships for one cohort/week in a single transaction. It is service-role-only and verifies
+  the supplied actor's scoped admin access.
+- `apply_teacher_rotation_generation`: publishes weekly teacher assignments and rotation-run audit data.
+  The rotation page supplies no membership changes, so assignment publishing cannot rebalance students.
+
 RLS is conservative: active admins for the scoped masjid manage rotation data. Teachers may read only
 their own availability rows.
 

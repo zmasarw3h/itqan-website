@@ -2,7 +2,10 @@
 
 > Status: core multi-masjid architecture implemented. The database hierarchy, scoped memberships,
 > transactional account workflows, hardened RLS, super-admin console, and assigned-group teacher
-> dashboard now exist. Explicit multi-masjid/cohort rotation selection and sisters rotation remain open.
+> dashboard now exist. Explicit scoped multi-masjid/cohort rotation selection supports brothers and
+> sisters. Intentional student rebalancing is separate from weekly assignment publishing, and the
+> rotation page now provides the Saturday-based operational workflow. Production sisters-cohort setup
+> and smoke testing remain rollout work.
 
 ## Purpose
 

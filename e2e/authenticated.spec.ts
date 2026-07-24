@@ -212,5 +212,17 @@ test.describe("authenticated pure-admin flow", () => {
     await expect(page.getByRole("link", { name: "Teaching" })).toHaveCount(0);
     await page.goto("/teacher");
     await expect(page).toHaveURL(/\/admin(?:\/|\?|$)/);
+
+    await page.goto("/admin/rotation");
+    await expect(page.getByRole("heading", { name: "Weekly Rotation" })).toBeVisible();
+    await expect(page.getByText(/^Saturday, /).first()).toBeVisible();
+    await expect(page.getByLabel("Masjid")).toHaveCount(0);
+    await expect(page.getByLabel("Cohort")).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Halaqa week" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Rotation readiness" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Group setup" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Teacher availability" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Assignment preview" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 });
