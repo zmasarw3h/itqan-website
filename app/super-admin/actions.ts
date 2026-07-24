@@ -11,7 +11,7 @@ import {
   loadStaffMembershipsForPerson,
   loadStudentMembershipsForPerson
 } from "@/app/super-admin/data";
-import { isValidDateString, todayDateString } from "@/lib/dates";
+import { isValidDateString, todayDateString, weekStartForDate } from "@/lib/dates";
 import { reconcilePersonDetailWithAccessState } from "@/lib/person-access-state";
 import { validateNewPassword } from "@/lib/password";
 import {
@@ -641,4 +641,47 @@ export async function resetPersonPassword(formData: FormData) {
 
   revalidatePath(`/super-admin/people/${personId}`);
   redirect(personPath(personId, "password-reset"));
+}
+
+export async function correctStudentScoreStart(formData: FormData) {
+  const personId = formString(formData, "person_id");
+  const scoreStartsOn = formString(formData, "score_starts_on");
+  const expectedValue = formData.get("expected_score_starts_on");
+  const expectedScoreStartsOn = typeof expectedValue === "string" && expectedValue ? expectedValue : null;
+
+  if (
+    !requireUuid(personId)
+    || !scoreStartsOn
+    || !isValidDateString(scoreStartsOn)
+    || weekStartForDate(scoreStartsOn) !== scoreStartsOn
+  ) {
+    redirect(personId && requireUuid(personId) ? personPath(personId, "invalid") : invalidPeoplePath());
+  }
+
+  const { profile: actor, adminSupabase } = await requireSuperAdminAdminClient();
+  const target = await loadProfileById(adminSupabase, personId);
+
+  if (!target || target.role !== "student") {
+    redirect(invalidPeoplePath());
+  }
+
+  if (formString(formData, "confirmation_name") !== target.name) {
+    redirect(personPath(target.id, "confirmation-mismatch"));
+  }
+
+  const { error } = await adminSupabase.rpc("apply_super_admin_score_start_correction", {
+    input_actor_id: actor.id,
+    input_student_id: target.id,
+    input_score_starts_on: scoreStartsOn,
+    input_expected_score_starts_on: expectedScoreStartsOn
+  });
+
+  if (error) {
+    redirect(personPath(target.id, error.code === "P0001" ? "score-start-stale" : "save-error"));
+  }
+
+  revalidatePath(`/super-admin/people/${target.id}`);
+  revalidatePath("/admin");
+  revalidatePath("/admin/leaderboard");
+  redirect(personPath(target.id, "score-start-corrected"));
 }

@@ -47,7 +47,8 @@ describe("admin user creation", () => {
       role: "student",
       studentMasjidId,
       studentCohortId,
-      studentGroupId
+      studentGroupId,
+      scoreStartsOn: "2026-07-26"
     });
 
     expect(preservedScopedUserSetupRequestId(params.get("status") ?? undefined, params.get("request_id") ?? undefined))
@@ -58,7 +59,8 @@ describe("admin user creation", () => {
       role: "student",
       student_masjid_id: studentMasjidId,
       student_cohort_id: studentCohortId,
-      student_group_id: studentGroupId
+      student_group_id: studentGroupId,
+      score_starts_on: "2026-07-26"
     });
 
     const resubmitted = new FormData();

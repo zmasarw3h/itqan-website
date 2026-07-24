@@ -38,6 +38,7 @@ const setupInput: ScopedUserSetupInput = {
   phone: "+15550101000",
   role: "student",
   startsOn: "2026-07-19",
+  scoreStartsOn: "2026-07-26",
   masjidId: "33333333-3333-4333-8333-333333333333",
   groupId: "44444444-4444-4444-8444-444444444444"
 };
@@ -47,7 +48,8 @@ const setupResult = {
   membership_id: "66666666-6666-4666-8666-666666666666",
   role: "student" as const,
   masjid_id: setupInput.masjidId,
-  group_id: setupInput.groupId
+  group_id: setupInput.groupId,
+  score_starts_on: setupInput.scoreStartsOn
 };
 
 const accessInput: SuperAdminAccessChangeInput = {
@@ -169,6 +171,7 @@ describe("transactional RPC payloads", () => {
       input_phone: setupInput.phone,
       input_role: setupInput.role,
       input_starts_on: setupInput.startsOn,
+      input_score_starts_on: setupInput.scoreStartsOn,
       input_masjid_id: setupInput.masjidId,
       input_group_id: setupInput.groupId
     });
@@ -180,6 +183,7 @@ describe("transactional RPC payloads", () => {
       input_phone: setupInput.phone,
       input_role: setupInput.role,
       input_starts_on: setupInput.startsOn,
+      input_score_starts_on: setupInput.scoreStartsOn,
       input_masjid_id: setupInput.masjidId,
       input_group_id: setupInput.groupId
     });

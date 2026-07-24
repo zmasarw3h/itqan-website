@@ -55,6 +55,7 @@ describe("student grades", () => {
       buildStudentBelow70Streak({
         studentId: "student-1",
         completedWeekStartsDescending: ["2026-06-14", "2026-06-07", "2026-05-31"],
+        minimumWeekStart: "2026-05-31",
         checkins: [
           { date: "2026-06-14", daily_score: 100 },
           { date: "2026-06-15", daily_score: 100 },
@@ -84,6 +85,19 @@ describe("student grades", () => {
         halaqaGrades: [{ week_start: "2026-05-31", attendance_points: 100, recitation_points: 50 }]
       })
     ).toBe(2);
+  });
+
+  it("treats an absent score boundary as not scorable", () => {
+    expect(
+      buildStudentBelow70Streak({
+        studentId: "student-1",
+        completedWeekStartsDescending: ["2026-06-28"],
+        minimumWeekStart: null,
+        checkins: [],
+        partnerRecitations: [],
+        halaqaGrades: []
+      })
+    ).toBe(0);
   });
 
   it("does not build a below-70 streak before the student's score baseline", () => {

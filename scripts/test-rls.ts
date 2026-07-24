@@ -63,6 +63,7 @@ type SeedIds = {
   groupWriter: string;
   today: string;
   weekStart: string;
+  startsOn: string;
   previousWeekStart: string;
   checkinA: string;
   checkinA2: string;
@@ -351,6 +352,14 @@ async function seed(): Promise<SeedIds> {
   const futureStudentMembership = studentMemberships.find(
     (row) => row.student_id === users.futureMembershipStudent
   )!.id;
+  const scoredStudentIds = profileRows
+    .filter((row) => row.role === "student")
+    .map((row) => row.id);
+  const scoredStudentUpdate = await admin
+    .from("profiles")
+    .update({ score_starts_on: startsOn })
+    .in("id", scoredStudentIds);
+  assert.equal(scoredStudentUpdate.error, null, scoredStudentUpdate.error?.message);
 
   const staffMemberships = await requireData<Array<{ id: string; profile_id: string }>>(
     "insert staff memberships",
@@ -600,6 +609,18 @@ async function seed(): Promise<SeedIds> {
   );
   const obligationA = obligations.find((row) => row.student_id === users.studentA)!.id;
   const obligationB = obligations.find((row) => row.student_id === users.studentB)!.id;
+  const { error: malformedObligationError } = await admin
+    .from("accountability_obligations")
+    .insert({
+      student_id: users.futureMembershipStudent,
+      week_start: weekStart,
+      weekly_percentage: 0,
+      amount_cents: 3500
+    });
+  assert.ok(
+    malformedObligationError,
+    "service role created a pending obligation without a membership effective for its week"
+  );
 
   const badges = await requireData<Array<{ id: string; student_id: string }>>(
     "insert badges",
@@ -698,6 +719,7 @@ async function seed(): Promise<SeedIds> {
     groupWriter,
     today,
     weekStart,
+    startsOn,
     previousWeekStart,
     checkinA,
     checkinA2,
@@ -1191,6 +1213,7 @@ async function runAssertions(ids: SeedIds) {
     input_phone: "+15550001001",
     input_role: "student",
     input_starts_on: ids.weekStart,
+    input_score_starts_on: ids.weekStart,
     input_masjid_id: ids.masjidA,
     input_group_id: ids.groupA
   };
@@ -1222,6 +1245,7 @@ async function runAssertions(ids: SeedIds) {
     input_phone: "+15550001001",
     input_role: "student",
     input_starts_on: ids.weekStart,
+    input_score_starts_on: ids.weekStart,
     input_masjid_id: ids.masjidA,
     input_group_id: ids.groupA
   });
@@ -1233,6 +1257,7 @@ async function runAssertions(ids: SeedIds) {
     input_phone: "+15550001001",
     input_role: "student",
     input_starts_on: ids.weekStart,
+    input_score_starts_on: ids.weekStart,
     input_masjid_id: ids.masjidA,
     input_group_id: ids.groupA
   });
@@ -1249,6 +1274,12 @@ async function runAssertions(ids: SeedIds) {
     input_selected_masjid_id: ids.masjidA,
     input_selected_group_id: null,
     input_expected_state: {}
+  });
+  await assertRpcDenied(superAdmin, "apply_super_admin_score_start_correction", {
+    input_actor_id: ids.users.superAdmin,
+    input_student_id: ids.users.studentA,
+    input_score_starts_on: ids.weekStart,
+    input_expected_score_starts_on: ids.startsOn
   });
   await assertRpcDenied(superAdmin, "apply_super_admin_masjid_update", {
     input_request_id: randomUUID(),
@@ -1293,6 +1324,7 @@ async function runAssertions(ids: SeedIds) {
     input_phone: "+15550001001",
     input_role: "student",
     input_starts_on: ids.weekStart,
+    input_score_starts_on: ids.weekStart,
     input_masjid_id: ids.masjidA,
     input_group_id: ids.groupA
   });
@@ -1306,6 +1338,7 @@ async function runAssertions(ids: SeedIds) {
     input_phone: "+15550001001",
     input_role: "student",
     input_starts_on: ids.weekStart,
+    input_score_starts_on: ids.weekStart,
     input_masjid_id: ids.masjidA,
     input_group_id: ids.groupA
   });
@@ -1319,6 +1352,7 @@ async function runAssertions(ids: SeedIds) {
     input_phone: "+15550001001",
     input_role: "student",
     input_starts_on: ids.weekStart,
+    input_score_starts_on: ids.weekStart,
     input_masjid_id: ids.masjidA,
     input_group_id: ids.groupA
   });
@@ -1352,6 +1386,28 @@ async function runAssertions(ids: SeedIds) {
   assert.equal(setupStudentAuditError, null, setupStudentAuditError?.message);
   assert.equal(setupStudentAuditCount, 1, "setup retry duplicated audit semantics");
 
+  const scoreCorrection = await service.rpc("apply_super_admin_score_start_correction", {
+    input_actor_id: ids.users.superAdmin,
+    input_student_id: ids.users.studentA,
+    input_score_starts_on: ids.weekStart,
+    input_expected_score_starts_on: ids.startsOn
+  });
+  assert.equal(scoreCorrection.error, null, scoreCorrection.error?.message);
+  const staleScoreCorrection = await service.rpc("apply_super_admin_score_start_correction", {
+    input_actor_id: ids.users.superAdmin,
+    input_student_id: ids.users.studentA,
+    input_score_starts_on: ids.weekStart,
+    input_expected_score_starts_on: ids.startsOn
+  });
+  assert.equal(staleScoreCorrection.error?.code, "P0001", "stale score-start correction was accepted");
+  const { count: scoreCorrectionAuditCount, error: scoreCorrectionAuditError } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.users.studentA)
+    .eq("action", "student_score_start_corrected");
+  assert.equal(scoreCorrectionAuditError, null, scoreCorrectionAuditError?.message);
+  assert.equal(scoreCorrectionAuditCount, 1, "score-start correction audit was not atomic");
+
   const setupStudentLookupArgs = {
     input_request_id: setupStudentRequestId,
     input_actor_id: ids.users.adminA,
@@ -1360,6 +1416,7 @@ async function runAssertions(ids: SeedIds) {
     input_phone: "+15550001001",
     input_role: "student",
     input_starts_on: ids.weekStart,
+    input_score_starts_on: ids.weekStart,
     input_masjid_id: ids.masjidA,
     input_group_id: ids.groupA
   };
@@ -1548,6 +1605,7 @@ async function runAssertions(ids: SeedIds) {
     input_phone: "+15550001002",
     input_role: "teacher",
     input_starts_on: ids.weekStart,
+    input_score_starts_on: null,
     input_masjid_id: ids.masjidA,
     input_group_id: null
   };
@@ -1596,6 +1654,7 @@ async function runAssertions(ids: SeedIds) {
     input_phone: "+15550001003",
     input_role: "student",
     input_starts_on: ids.weekStart,
+    input_score_starts_on: ids.weekStart,
     input_masjid_id: ids.masjidB,
     input_group_id: ids.groupB
   });
@@ -2182,6 +2241,19 @@ async function runAssertions(ids: SeedIds) {
   }
   await assertVisible(studentA, "accountability_obligations", ids.obligationA);
   await assertHidden(studentA, "accountability_obligations", ids.obligationB);
+  const { data: attestedObligation, error: attestedObligationError } = await studentA
+    .from("accountability_obligations")
+    .update({
+      status: "attested_paid",
+      attested_paid_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", ids.obligationA)
+    .eq("status", "pending")
+    .select("id,status");
+  assert.equal(attestedObligationError, null, attestedObligationError?.message);
+  assert.equal(attestedObligation?.length, 1, "student self-attestation did not update its valid obligation");
+  assert.equal(attestedObligation?.[0]?.status, "attested_paid");
   await assertVisible(studentA, "badge_awards", ids.badgeA);
   await assertHidden(studentA, "badge_awards", ids.badgeB);
   await assertHidden(studentA, "profiles", ids.users.studentA2);
@@ -2340,6 +2412,22 @@ async function runAssertions(ids: SeedIds) {
   const currentLeaderboardRow = (leaderboard ?? []).find((row) => row.is_current_student);
   assert.ok(Number(currentLeaderboardRow?.score_percentage) <= 100, "leaderboard score exceeded 100%");
   assert.equal(currentLeaderboardRow?.previous_rank, null, "inactive prior week fabricated a previous rank");
+  const orientationBoundaryUpdate = await service
+    .from("profiles")
+    .update({ score_starts_on: addDays(ids.weekStart, 7) })
+    .eq("id", ids.users.studentA2);
+  assert.equal(orientationBoundaryUpdate.error, null, orientationBoundaryUpdate.error?.message);
+  const orientationLeaderboard = await studentA.rpc("student_cohort_leaderboard_for_week", {
+    input_week_start: ids.weekStart
+  });
+  assert.equal(orientationLeaderboard.error, null, orientationLeaderboard.error?.message);
+  assert.ok(
+    !(orientationLeaderboard.data ?? []).some((row: { student_name?: string }) => row.student_name === "studentA2"),
+    "orientation student appeared in a pre-start leaderboard"
+  );
+  const orientationWeeks = await studentA2.rpc("student_leaderboard_available_weeks");
+  assert.equal(orientationWeeks.error, null, orientationWeeks.error?.message);
+  assert.deepEqual(orientationWeeks.data, [], "orientation student received pre-start leaderboard weeks");
   const midweek = addDays(ids.weekStart, 2);
   await assertRpcDenied(studentA, "student_cohort_leaderboard_for_week", { input_week_start: midweek });
   await assertRpcDenied(studentA, "student_weekly_teacher_name", { input_week_start: midweek });

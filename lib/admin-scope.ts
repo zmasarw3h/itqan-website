@@ -42,6 +42,7 @@ export type AdminStudentForWeek = {
   student_phone: string | null;
   student_created_at: string | null;
   membership_starts_on: string | null;
+  score_starts_on: string | null;
   masjid_id: string;
   cohort_id: string;
   cohort_kind: CohortKind;
@@ -50,7 +51,7 @@ export type AdminStudentForWeek = {
   group_name: string;
 };
 
-export function adminScopedStudentToProfile(student: AdminStudentForWeek): Profile & { score_starts_on: string | null } {
+export function adminScopedStudentToProfile(student: AdminStudentForWeek): Profile {
   return {
     id: student.student_id,
     name: student.student_name,
@@ -59,7 +60,7 @@ export function adminScopedStudentToProfile(student: AdminStudentForWeek): Profi
     role: "student",
     active: true,
     created_at: student.student_created_at ?? undefined,
-    score_starts_on: student.membership_starts_on
+    score_starts_on: student.score_starts_on
   };
 }
 
@@ -320,24 +321,34 @@ export async function loadAdminStudentsForWeek(supabase: SupabaseClient, weekSta
     throw new Error("Unable to load admin student scope.");
   }
 
-  const students = Array.isArray(data) ? (data as Array<Omit<AdminStudentForWeek, "membership_starts_on">>) : [];
+  const students = Array.isArray(data)
+    ? (data as Array<Omit<AdminStudentForWeek, "membership_starts_on" | "score_starts_on">>)
+    : [];
   const studentIds = [...new Set(students.map((student) => student.student_id))];
 
   if (!studentIds.length) {
     return [];
   }
 
-  const { data: memberships, error: membershipsError } = await supabase
-    .from("student_group_memberships")
-    .select("student_id,group_id,starts_on")
-    .in("student_id", studentIds)
-    .lte("starts_on", weekStart)
-    .or(`ends_on.is.null,ends_on.gte.${weekStart}`)
-    .order("starts_on", { ascending: false })
-    .returns<Array<{ student_id: string; group_id: string; starts_on: string }>>();
+  const [{ data: memberships, error: membershipsError }, { data: profiles, error: profilesError }] =
+    await Promise.all([
+      supabase
+        .from("student_group_memberships")
+        .select("student_id,group_id,starts_on")
+        .in("student_id", studentIds)
+        .lte("starts_on", weekStart)
+        .or(`ends_on.is.null,ends_on.gte.${weekStart}`)
+        .order("starts_on", { ascending: false })
+        .returns<Array<{ student_id: string; group_id: string; starts_on: string }>>(),
+      supabase
+        .from("profiles")
+        .select("id,score_starts_on")
+        .in("id", studentIds)
+        .returns<Array<{ id: string; score_starts_on: string | null }>>()
+    ]);
 
-  if (membershipsError) {
-    throw new Error("Unable to load admin student membership starts.");
+  if (membershipsError || profilesError) {
+    throw new Error("Unable to load admin student scoring scope.");
   }
 
   const membershipStartByStudentGroup = new Map<string, string>();
@@ -350,9 +361,15 @@ export async function loadAdminStudentsForWeek(supabase: SupabaseClient, weekSta
     }
   }
 
+  const scoreStartByStudent = new Map(
+    (profiles ?? []).map((profile) => [profile.id, profile.score_starts_on])
+  );
+
   return students.map((student) => ({
     ...student,
-    membership_starts_on: membershipStartByStudentGroup.get(studentGroupKey(student.student_id, student.group_id)) ?? null
+    membership_starts_on:
+      membershipStartByStudentGroup.get(studentGroupKey(student.student_id, student.group_id)) ?? null,
+    score_starts_on: scoreStartByStudent.get(student.student_id) ?? null
   }));
 }
 

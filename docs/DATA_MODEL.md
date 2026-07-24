@@ -8,6 +8,7 @@
 - `phone`: optional display-only phone.
 - `role`: `student | teacher | admin | super_admin`
 - `active`
+- `score_starts_on`: nullable first canonical Sunday included in student scoring. `null` means the student is not scorable yet; it never means score all history.
 - `created_at`
 
 `profiles.role` is a routing/default-experience hint. Scoped authorization comes from membership and assignment tables plus Supabase RLS.
@@ -60,7 +61,7 @@ compatibility but have no browser-role execute grant.
 
 Service-only transactional functions added for Phase 1A and used by the Phase 1B server actions:
 
-- `apply_scoped_user_setup(...)`: validates the Auth user, actor, active hierarchy, and masjid scope before creating the profile, one student/teacher membership, and one audit event atomically.
+- `apply_scoped_user_setup(...)`: validates the Auth user, actor, active hierarchy, masjid scope, and independent student scoring boundary before creating the profile, one student/teacher membership, and one audit event atomically.
 - `get_scoped_user_setup_request_result(...)`: validates the current actor and exact original setup payload before returning a completed request result. This lets an identical form retry finish without creating a second Auth user.
 - `get_scoped_user_setup_auth_recovery(...)`: resolves an Auth-only identity only when its trusted Auth metadata exactly matches the setup request UUID, actor, normalized email, and complete canonical setup payload. It never exposes Auth identity lookup to browser roles.
 - `get_person_access_state(actor_id, target_profile_id)`: returns a canonical profile/membership snapshot only after verifying that the passed actor is currently an active super admin.
@@ -69,6 +70,7 @@ Service-only transactional functions added for Phase 1A and used by the Phase 1B
 - `prepare_super_admin_masjid_staff_grant(...)`: captures or replays the original canonical access snapshot for one stable staff-grant request before the mutation RPC runs.
 - `apply_super_admin_staff_membership_end(...)`: closes one open staff membership and writes its audit event in the same transaction after checking the canonical snapshot, date, target relationship, and continuous future admin-coverage invariant.
 - `apply_super_admin_masjid_update(...)`: atomically updates masjid fields and active state, writes the audit event, rejects stale state, and prevents activation without continuous admin coverage.
+- `apply_super_admin_score_start_correction(...)`: lets the guarded super-admin server path correct a student's canonical scoring boundary with stale-state protection, access-date validation, and an atomic audit event.
 
 All transactional functions are denied to `PUBLIC`, `anon`, and `authenticated` and granted only to
 `service_role`. Their passed actor IDs are treated as untrusted input and revalidated from current

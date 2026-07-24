@@ -17,6 +17,7 @@ type AddUserFormProps = {
   scopeOptions: AdminCreateUserScopeOptions;
   initialStudentScope: StudentScopeSelection;
   initialTeacherMasjidId: string;
+  initialScoreStartsOn: string;
   returnTo?: "super_admin";
 };
 
@@ -33,6 +34,7 @@ export default function AddUserForm({
   scopeOptions,
   initialStudentScope,
   initialTeacherMasjidId,
+  initialScoreStartsOn,
   returnTo
 }: AddUserFormProps) {
   const [role, setRole] = useState<CreateUserRole>(initialRole);
@@ -90,6 +92,22 @@ export default function AddUserForm({
           <option value="teacher">Teacher</option>
         </select>
       </label>
+
+      {role === "student" ? (
+        <label className="block">
+          <span className="text-sm font-medium text-ink">First scored week</span>
+          <input
+            className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
+            defaultValue={initialScoreStartsOn}
+            name="score_starts_on"
+            required
+            type="date"
+          />
+          <span className="mt-1 block text-xs leading-5 text-stone-600">
+            Choose the Sunday when this student officially starts scoring. They can use orientation features before then.
+          </span>
+        </label>
+      ) : null}
 
       {showStudentScope ? (
         <fieldset className="grid gap-3 rounded-md border border-stone-200 p-4">

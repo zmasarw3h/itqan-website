@@ -1,6 +1,6 @@
 import AppNav from "@/app/nav";
 import { StudentSetupIncomplete, StudentWeekContextPanel } from "@/app/student/student-week-context";
-import { formatWeekRange, isValidDateString, todayDateString, weekDatesFromStart, weekStartForDate } from "@/lib/dates";
+import { addDays, formatWeekRange, isValidDateString, todayDateString, weekDatesFromStart, weekStartForDate } from "@/lib/dates";
 import {
   buildHalaqaFeedbackDisplay,
   buildStudentBelow70Streak,
@@ -38,6 +38,8 @@ export default async function StudentGradesPage({
   const currentWeekStart = weekStartForDate(today);
   const selectedWeekStart = validWeekStart(resolvedSearchParams.week, currentWeekStart);
   const selectedWeekDates = weekDatesFromStart(selectedWeekStart);
+  const scoreStartsOn = profile.score_starts_on ?? null;
+  const selectedWeekIsScorable = Boolean(scoreStartsOn && selectedWeekStart >= scoreStartsOn);
   const scope = studentGradesScope(profile.id, selectedWeekStart, selectedWeekDates);
   const studentContext = await loadStudentWeekContext(supabase, profile.id, selectedWeekStart);
 
@@ -119,14 +121,14 @@ export default async function StudentGradesPage({
     : { data: [] };
   const weeklyScore = buildWeeklyGradeBreakdown({
     weekDates: scope.weekDates,
-    checkins: checkins ?? [],
-    partnerRecitations: partnerRecitations ?? [],
-    halaqaGrade: halaqaGrade ?? null
+    checkins: selectedWeekIsScorable ? (checkins ?? []) : [],
+    partnerRecitations: selectedWeekIsScorable ? (partnerRecitations ?? []) : [],
+    halaqaGrade: selectedWeekIsScorable ? (halaqaGrade ?? null) : null
   });
   const below70Streak = buildStudentBelow70Streak({
     studentId: scope.studentId,
     completedWeekStartsDescending,
-    minimumWeekStart: studentContext.scope.startsOn,
+    minimumWeekStart: scoreStartsOn,
     checkins: streakCheckins ?? [],
     partnerRecitations: streakPartnerRecitations ?? [],
     halaqaGrades: streakHalaqaGrades ?? []
@@ -142,8 +144,8 @@ export default async function StudentGradesPage({
   const dailyScoreByDate = new Map((checkins ?? []).map((checkin) => [checkin.date, checkin.daily_score]));
   const dailyProgress = calculateDailyScoreProgress({
     weekDates: scope.weekDates,
-    dailyScoresByDate: dailyScoreByDate,
-    today
+    dailyScoresByDate: selectedWeekIsScorable ? dailyScoreByDate : new Map(),
+    today: selectedWeekIsScorable ? today : addDays(scope.weekStart, -1)
   });
   const halaqaDisplay = buildHalaqaFeedbackDisplay(halaqaGrade ?? null);
 
@@ -178,6 +180,12 @@ export default async function StudentGradesPage({
             </form>
           </div>
           <StudentWeekContextPanel scope={studentContext.scope} teacher={studentContext.teacher} />
+
+          {!selectedWeekIsScorable ? (
+            <p className="mt-6 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-900">
+              This orientation week is not included in scores, rewards, streaks, or sadaqa accountability.
+            </p>
+          ) : null}
 
           <div className="mt-6 grid gap-4 md:grid-cols-3">
             <div className="rounded-lg bg-stone-50 p-5">

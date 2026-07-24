@@ -59,10 +59,14 @@ export function calculateBelow70Streak(input: {
     Pick<HalaqaGrade, "student_id" | "attendance_points" | "recitation_points"> | null
   >;
 }) {
+  if (!input.minimumWeekStart) {
+    return 0;
+  }
+
   let streak = 0;
 
   for (const weekStart of input.completedWeekStartsDescending) {
-    if (input.minimumWeekStart && weekStart < input.minimumWeekStart) {
+    if (weekStart < input.minimumWeekStart) {
       break;
     }
 
@@ -116,7 +120,13 @@ export function buildLeaderboardRows(input: {
   minimumWeekStartByStudent?: ReadonlyMap<string, string | null | undefined>;
 }) {
   const selectedWeekComplete = weekIsComplete(input.selectedWeekStart, input.today);
-  const rows = input.students.map<LeaderboardRow>((student) => {
+  const rows = input.students.flatMap<LeaderboardRow>((student) => {
+    const minimumWeekStart = input.minimumWeekStartByStudent?.get(student.id) ?? null;
+
+    if (!minimumWeekStart || input.selectedWeekStart < minimumWeekStart) {
+      return [];
+    }
+
     const score = calculateWeekScoreForStudent({
       weekStart: input.selectedWeekStart,
       checkins: input.selectedWeekCheckinsByStudent.get(student.id) ?? [],
@@ -133,7 +143,7 @@ export function buildLeaderboardRows(input: {
       : 0;
     const belowThreshold = score.percentage < PASSING_PERCENTAGE;
 
-    return {
+    return [{
       rank: 0,
       studentId: student.id,
       studentName: student.name,
@@ -148,7 +158,7 @@ export function buildLeaderboardRows(input: {
           ? "below_70_so_far"
           : "in_progress",
       below70Streak
-    };
+    }];
   });
   const visibleRows = input.below70Only ? rows.filter((row) => row.score.percentage < PASSING_PERCENTAGE) : rows;
 

@@ -10,7 +10,7 @@ server guards, and local RLS integration suite must agree with it.
 | Weekly plans | Own metadata and own storage path only | Read only assigned group/week metadata; signed links require the same server-side scope check | Read only metadata and signed links for students in a currently administered masjid | Global operational access |
 | Partner recitation | Own rows; current round writes require an effective, matching group snapshot | Read only assigned group/week rows | Scoped read/write for administered masajid | Global operational access |
 | Halaqa grades | Own read only | Read/write only the exact assigned group/week | Scoped read/write for administered masajid | Global operational access |
-| Incentives/accountability | Own obligations and badges; only the existing self-attestation update is allowed | No direct access | Scoped to the row's masjid | Global operational access |
+| Incentives/accountability | Own eligible post-`score_starts_on` obligations and badges; only the existing self-attestation update is allowed | No direct access | Scoped to the row's masjid | Global operational access; audited scoring-boundary correction is server guarded |
 | Masajid/cohorts/groups | Active hierarchy connected to a current effective membership | Active hierarchy connected to a current-week effective assignment/staff membership | Active currently administered masajid and active descendants | Global setup access, including inactive entities |
 | Student memberships | Own history | Rows whose membership window overlaps an effective assignment week | Scoped insert and deliberate open-row closure; identity/history rewrites and deletion are denied | Global read; signed direct insert/update/delete denied |
 | Staff memberships | Own history | Own history | Scoped teacher insert and deliberate deactivation/closure; identity/history rewrites, reactivation, admin grants, and deletion are denied | Global read; writes only through guarded service-role workflows |
@@ -47,7 +47,7 @@ policy was already super-admin-only and remains unchanged):
 | `partner_recitations` | Student own select and current-round insert; scoped admin or assigned-teacher select; scoped admin insert/update/delete |
 | `halaqa_grades` | Student own select; scoped admin or assigned-teacher select; scoped admin or exact assigned-teacher insert/update |
 | `weekly_incentive_runs` | Masjid-scoped admin/super-admin select/insert/update |
-| `accountability_obligations` | Student own select and constrained attestation; masjid-scoped admin/super-admin select/insert/update |
+| `accountability_obligations` | Student own select and constrained attestation; masjid-scoped admin/super-admin select/insert/update; pending rows require a valid week-specific masjid/cohort/group scope |
 | `badge_awards` | Student own select; masjid-scoped admin/super-admin select/insert/update |
 | `masajid`, `cohorts`, `halaqa_groups` | Active caller-connected hierarchy select for ordinary roles; super admins can read all hierarchy, while mutations use guarded service-only workflows |
 | `student_group_memberships` | Student own history; effective assigned-teacher read; subject-, attribution-, and masjid-scoped normal-admin insert and open-row closure; signed super-admin direct writes and all direct deletes denied |
