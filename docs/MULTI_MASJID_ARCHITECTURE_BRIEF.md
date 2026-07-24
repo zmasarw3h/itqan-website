@@ -153,13 +153,14 @@ Admins cannot:
 ### Platform Owner / Super Admin
 
 The super-admin console is implemented at `/super-admin`, with people/access management at
-`/super-admin/people` and hierarchy management at `/super-admin/masajid`. Active super admins can create
-masajid, create/deactivate brothers or sisters cohorts and groups, and grant scoped admin or admin-teacher
-access. These operations use guarded server-side workflows; they do not replace normal masjid-scoped
-admin checks.
+`/super-admin/people`, hierarchy management at `/super-admin/masajid`, platform consistency checks at
+`/super-admin/repairs`, and sensitive change history at `/super-admin/audit`. Active super admins can
+create student/teacher accounts, create inactive masjid drafts with starter hierarchy, maintain cohorts
+and groups, and grant teacher, admin, or combined staff capability. These operations use guarded,
+idempotent server-side workflows; they do not replace normal masjid-scoped admin checks.
 
-Still deferred are the audit-event browser, repair console, and broader bulk setup operations. Normal
-admins remain unable to create or manage hierarchy outside masajid they actively administer.
+Bulk setup operations remain deferred. Normal admins remain unable to create or manage hierarchy
+outside masajid they actively administer.
 
 ## Role And Visibility Matrix
 

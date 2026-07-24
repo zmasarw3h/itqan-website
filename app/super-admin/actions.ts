@@ -6,11 +6,13 @@ import { redirect } from "next/navigation";
 import {
   loadActiveGroupScope,
   loadActiveMasjidScope,
+  loadPersonDetailData,
   loadProfileById,
   loadStaffMembershipsForPerson,
   loadStudentMembershipsForPerson
 } from "@/app/super-admin/data";
 import { isValidDateString, todayDateString } from "@/lib/dates";
+import { reconcilePersonDetailWithAccessState } from "@/lib/person-access-state";
 import { validateNewPassword } from "@/lib/password";
 import {
   adminMasjidConfirmationNamesForPlan,
@@ -19,6 +21,12 @@ import {
   parseSuperAdminAccessPreset,
   SuperAdminAccessPlanError
 } from "@/lib/super-admin-access";
+import {
+  buildGuidedChangeReview,
+  parseGuidedAccessOperation,
+  type GuidedAccessSnapshot,
+  type GuidedChangeReview
+} from "@/lib/super-admin-guided-change";
 import {
   insertSuperAdminAuditEvent,
   loadActiveSuperAdminCount,
@@ -48,6 +56,10 @@ class ConfirmationMismatchError extends Error {
 
 function personPath(personId: string, status: string) {
   return `/super-admin/people/${personId}?${new URLSearchParams({ status }).toString()}`;
+}
+
+function personAccessPath(personId: string, status: string) {
+  return `/super-admin/people/${personId}/access?${new URLSearchParams({ status }).toString()}`;
 }
 
 function invalidPeoplePath(status = "invalid") {
@@ -84,18 +96,141 @@ function statusForError(error: unknown) {
   return "save-error";
 }
 
+export type GuidedChangePreparation = {
+  status: "ready" | "blocked" | "error";
+  message: string | null;
+  requestId: string | null;
+  expiresAt: string | null;
+  review: GuidedChangeReview | null;
+  snapshot: GuidedAccessSnapshot | null;
+  expectedState: PersonAccessState | null;
+};
+
+export async function prepareGuidedPersonAccessChange(formData: FormData): Promise<GuidedChangePreparation> {
+  const personId = formString(formData, "person_id");
+  const operation = parseGuidedAccessOperation(formData.get("access_operation"));
+  const startsOn = formString(formData, "starts_on");
+  const masjidId = optionalFormString(formData, "masjid_id");
+  const groupId = optionalFormString(formData, "group_id");
+
+  if (!requireUuid(personId) || !operation || !isValidDateString(startsOn)) {
+    return {
+      status: "error",
+      message: "Choose a valid operation, scope, and effective date.",
+      requestId: null,
+      expiresAt: null,
+      review: null,
+      snapshot: null,
+      expectedState: null
+    };
+  }
+
+  const { profile: actor, adminSupabase } = await requireSuperAdminAdminClient();
+  const [detail, expectedStateResult] = await Promise.all([
+    loadPersonDetailData(adminSupabase, personId),
+    adminSupabase.rpc("get_person_access_state", {
+      input_actor_id: actor.id,
+      input_target_profile_id: personId
+    })
+  ]);
+
+  if (!detail || expectedStateResult.error || !expectedStateResult.data) {
+    return {
+      status: "error",
+      message: "The current access state could not be loaded safely.",
+      requestId: null,
+      expiresAt: null,
+      review: null,
+      snapshot: null,
+      expectedState: null
+    };
+  }
+
+  const expectedState = expectedStateResult.data as PersonAccessState;
+  const canonicalDetail = reconcilePersonDetailWithAccessState(detail, expectedState);
+  const snapshot: GuidedAccessSnapshot = {
+    profile: canonicalDetail.profile,
+    studentMemberships: canonicalDetail.studentMemberships,
+    staffMemberships: canonicalDetail.staffMemberships,
+    teacherAssignments: canonicalDetail.teacherAssignments,
+    masjids: canonicalDetail.options.masjids,
+    groups: canonicalDetail.options.groups
+  };
+  const review = buildGuidedChangeReview({
+    snapshot,
+    draft: { operation, startsOn, masjidId, groupId },
+    today: todayDateString()
+  });
+
+  if (review.blockers.length > 0 || !review.plan || !review.preset) {
+    return {
+      status: "blocked",
+      message: review.blockers[0] ?? "This change cannot be applied.",
+      requestId: null,
+      expiresAt: null,
+      review,
+      snapshot,
+      expectedState
+    };
+  }
+
+  const requestId = randomUUID();
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  const { error } = await adminSupabase.from("super_admin_guided_change_reviews").insert({
+    request_id: requestId,
+    actor_id: actor.id,
+    target_profile_id: personId,
+    operation,
+    starts_on: startsOn,
+    masjid_id: masjidId,
+    group_id: groupId,
+    expected_state: expectedState,
+    review_payload: review,
+    expires_at: expiresAt
+  });
+
+  if (error) {
+    console.error("Unable to persist the Guided Change review intent.", {
+      actorId: actor.id,
+      targetProfileId: personId,
+      errorCode: error.code ?? null
+    });
+    return {
+      status: "error",
+      message: "The reviewed change could not be secured for submission. Review it again.",
+      requestId: null,
+      expiresAt: null,
+      review,
+      snapshot,
+      expectedState
+    };
+  }
+
+  return {
+    status: "ready",
+    message: null,
+    requestId,
+    expiresAt,
+    review,
+    snapshot,
+    expectedState
+  };
+}
+
 export async function savePersonAccess(formData: FormData) {
   const personId = formString(formData, "person_id");
+  const isGuidedChange = formString(formData, "guided_change") === "true";
 
   if (!requireUuid(personId)) {
     redirect(invalidPeoplePath());
   }
 
-  const preset = parseSuperAdminAccessPreset(formData.get("access_preset"));
-  const startsOn = formString(formData, "starts_on");
+  let guidedOperation = null;
+  let preset = isGuidedChange ? null : parseSuperAdminAccessPreset(formData.get("access_preset"));
+  let startsOn = isGuidedChange ? todayDateString() : formString(formData, "starts_on");
 
-  if (!preset || !isValidDateString(startsOn)) {
-    redirect(personPath(personId, "invalid"));
+  if ((!isGuidedChange && !preset) || (!isGuidedChange && !isValidDateString(startsOn))) {
+    redirect(isGuidedChange ? personAccessPath(personId, "invalid") : personPath(personId, "invalid"));
   }
 
   const { profile: actor, adminSupabase } = await requireSuperAdminAdminClient();
@@ -106,17 +241,70 @@ export async function savePersonAccess(formData: FormData) {
   }
 
   if (formString(formData, "confirmation_name") !== target.name) {
-    redirect(personPath(target.id, "confirmation-mismatch"));
+    redirect(
+      isGuidedChange
+        ? personAccessPath(target.id, "confirmation-mismatch")
+        : personPath(target.id, "confirmation-mismatch")
+    );
   }
 
-  const selectedMasjidId = optionalFormString(formData, "masjid_id");
-  const selectedGroupId = optionalFormString(formData, "group_id");
+  let selectedMasjidId = optionalFormString(formData, "masjid_id");
+  let selectedGroupId = optionalFormString(formData, "group_id");
+  const requestIdValue = optionalFormString(formData, "request_id");
+  let guidedExpectedState: PersonAccessState | null = null;
+
+  if (isGuidedChange) {
+    if (!requireUuid(requestIdValue)) {
+      redirect(personAccessPath(target.id, "review-expired"));
+    }
+
+    const { data: reviewedIntent, error: reviewedIntentError } = await adminSupabase
+      .from("super_admin_guided_change_reviews")
+      .select("request_id,actor_id,target_profile_id,operation,starts_on,masjid_id,group_id,expected_state,expires_at")
+      .eq("request_id", requestIdValue)
+      .eq("actor_id", actor.id)
+      .eq("target_profile_id", target.id)
+      .maybeSingle<{
+        request_id: string;
+        actor_id: string;
+        target_profile_id: string;
+        operation: string;
+        starts_on: string;
+        masjid_id: string | null;
+        group_id: string | null;
+        expected_state: PersonAccessState;
+        expires_at: string;
+      }>();
+
+    const reviewedOperation = parseGuidedAccessOperation(reviewedIntent?.operation ?? null);
+    guidedExpectedState = reviewedIntent
+      ? parsePersonAccessState(JSON.stringify(reviewedIntent.expected_state))
+      : null;
+
+    if (
+      reviewedIntentError ||
+      !reviewedIntent ||
+      !reviewedOperation ||
+      !guidedExpectedState ||
+      new Date(reviewedIntent.expires_at).getTime() <= Date.now()
+    ) {
+      redirect(personAccessPath(target.id, "review-expired"));
+    }
+
+    guidedOperation = reviewedOperation;
+    startsOn = reviewedIntent.starts_on;
+    selectedMasjidId = reviewedIntent.masjid_id;
+    selectedGroupId = reviewedIntent.group_id;
+  }
   let selectedMasjid: { id: string; name: string } | null = null;
   let selectedGroupMasjidId: string | null = null;
   let failureStatus: string | null = null;
 
   try {
-    if (preset === "student") {
+    const isStudentOperation = guidedOperation === "assign_student" || preset === "student";
+    const isInactiveOperation = guidedOperation === "deactivate_account" || preset === "inactive";
+
+    if (isStudentOperation) {
       if (!selectedGroupId || !requireUuid(selectedGroupId)) {
         throw new SuperAdminAccessPlanError("Choose an active group.");
       }
@@ -129,7 +317,7 @@ export async function savePersonAccess(formData: FormData) {
 
       selectedMasjid = { id: groupScope.masjid.id, name: groupScope.masjid.name };
       selectedGroupMasjidId = groupScope.masjid.id;
-    } else if (preset !== "inactive") {
+    } else if (!isInactiveOperation) {
       if (!selectedMasjidId || !requireUuid(selectedMasjidId)) {
         throw new SuperAdminAccessPlanError("Choose an active masjid.");
       }
@@ -143,21 +331,59 @@ export async function savePersonAccess(formData: FormData) {
       selectedMasjid = { id: masjid.id, name: masjid.name };
     }
 
-    const [studentMemberships, staffMemberships, activeSuperAdminCount] = await Promise.all([
+    const [studentMemberships, staffMemberships, activeSuperAdminCount, guidedDetail] = await Promise.all([
       loadStudentMembershipsForPerson(adminSupabase, target.id),
       loadStaffMembershipsForPerson(adminSupabase, target.id),
-      loadActiveSuperAdminCount(adminSupabase)
+      loadActiveSuperAdminCount(adminSupabase),
+      guidedOperation ? loadPersonDetailData(adminSupabase, target.id) : Promise.resolve(null)
     ]);
-    const plan = buildSuperAdminAccessChangePlan({
-      targetRole: target.role,
-      targetActive: target.active,
-      preset,
-      startsOn,
-      selectedMasjidId,
-      selectedGroupId,
-      studentMemberships,
-      staffMemberships
-    });
+    let guidedReview = null;
+
+    if (guidedOperation) {
+      if (!guidedDetail) {
+        throw new SuperAdminAccessPlanError("Unable to load the current person access state.");
+      }
+
+      const guidedSnapshot: GuidedAccessSnapshot = {
+        profile: guidedDetail.profile,
+        studentMemberships: guidedDetail.studentMemberships,
+        staffMemberships: guidedDetail.staffMemberships,
+        teacherAssignments: guidedDetail.teacherAssignments,
+        masjids: guidedDetail.options.masjids,
+        groups: guidedDetail.options.groups
+      };
+      guidedReview = buildGuidedChangeReview({
+        snapshot: guidedSnapshot,
+        draft: {
+          operation: guidedOperation,
+          startsOn,
+          masjidId: selectedMasjidId,
+          groupId: selectedGroupId
+        },
+        today: todayDateString()
+      });
+
+      if (guidedReview.blockers.length > 0 || !guidedReview.preset || !guidedReview.plan) {
+        throw new SuperAdminAccessPlanError(guidedReview.blockers[0] ?? "Unable to prepare this access change.");
+      }
+
+      preset = guidedReview.preset;
+    }
+
+    if (!preset) {
+      throw new SuperAdminAccessPlanError("Choose an access operation.");
+    }
+
+    const plan = guidedReview?.plan ?? buildSuperAdminAccessChangePlan({
+        targetRole: target.role,
+        targetActive: target.active,
+        preset,
+        startsOn,
+        selectedMasjidId,
+        selectedGroupId,
+        studentMemberships,
+        staffMemberships
+      });
 
     assertProfileRoleTransition({
       actorId: actor.id,
@@ -183,15 +409,23 @@ export async function savePersonAccess(formData: FormData) {
       throw new ConfirmationMismatchError();
     }
 
-    const requestIdValue = optionalFormString(formData, "request_id");
+    if (guidedOperation && !requireUuid(requestIdValue)) {
+      throw new SuperAdminAccessPlanError("The reviewed change reference is missing. Review the change again.");
+    }
     const requestId = requestIdValue && requireUuid(requestIdValue) ? requestIdValue : randomUUID();
     const submittedExpectedStateValue = formString(formData, "expected_state");
-    const submittedExpectedState = submittedExpectedStateValue
-      ? parsePersonAccessState(submittedExpectedStateValue)
-      : null;
+    const submittedExpectedState = guidedOperation
+      ? guidedExpectedState
+      : submittedExpectedStateValue
+        ? parsePersonAccessState(submittedExpectedStateValue)
+        : null;
 
     if (submittedExpectedStateValue && !submittedExpectedState) {
       throw new SuperAdminAccessPlanError("Invalid access state token.");
+    }
+
+    if (guidedOperation && !submittedExpectedState) {
+      throw new SuperAdminAccessPlanError("The reviewed access state is missing. Review the change again.");
     }
 
     const canonicalMasjidId = preset === "student"
@@ -247,14 +481,14 @@ export async function savePersonAccess(formData: FormData) {
   }
 
   if (failureStatus) {
-    redirect(personPath(personId, failureStatus));
+    redirect(isGuidedChange ? personAccessPath(personId, failureStatus) : personPath(personId, failureStatus));
   }
 
   revalidatePath("/super-admin/people");
   revalidatePath(`/super-admin/people/${personId}`);
   revalidatePath("/admin");
   revalidatePath("/admin/rotation");
-  redirect(personPath(personId, "access-updated"));
+  redirect(isGuidedChange ? personAccessPath(personId, "access-updated") : personPath(personId, "access-updated"));
 }
 
 export async function endStaffMembership(formData: FormData) {

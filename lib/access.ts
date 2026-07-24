@@ -49,10 +49,12 @@ export function navigationLinksForRole(role: Role, hasTeacherCapability = false)
 
   if (role === "super_admin") {
     return [
-      { href: "/super-admin", label: "Super Admin" },
+      { href: "/super-admin", label: "Overview" },
       { href: "/super-admin/people", label: "People" },
       { href: "/super-admin/masajid", label: "Masajid" },
-      { href: "/account/change-password", label: "Password" }
+      { href: "/super-admin/repairs", label: "Repairs" },
+      { href: "/super-admin/audit", label: "Audit" },
+      { href: "/account/change-password", label: "Account" }
     ];
   }
 

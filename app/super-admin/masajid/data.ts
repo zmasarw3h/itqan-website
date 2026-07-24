@@ -9,6 +9,9 @@ type AdminSupabaseClient = ReturnType<typeof createSupabaseAdminClient>;
 export type MasjidSetupSearchParams = {
   status?: string;
   request_id?: string;
+  q?: string;
+  state?: string;
+  attention?: string;
 };
 
 export type MasjidSetupStaffMember = Pick<
@@ -17,6 +20,8 @@ export type MasjidSetupStaffMember = Pick<
 > & {
   profile_name: string;
   profile_email: string;
+  profile_role: Profile["role"];
+  profile_active: boolean;
 };
 
 export type MasjidSetupListRow = Pick<Masjid, "id" | "name" | "slug" | "active" | "created_at" | "updated_at"> & {
@@ -73,6 +78,14 @@ export const SUPER_ADMIN_MASJID_STATUS_MESSAGES: Record<string, { text: string; 
     text: "Group updated.",
     className: "bg-green-50 text-green-800"
   },
+  "hierarchy-stale": {
+    text: "This cohort or group changed while the form was open. Review the current values and submit again.",
+    className: "bg-amber-50 text-amber-900"
+  },
+  "hierarchy-dependencies": {
+    text: "That hierarchy change is blocked by active child records or current/future student and teacher dependencies. Resolve the dependent access first, then try again.",
+    className: "bg-red-50 text-red-700"
+  },
   "staff-granted": {
     text: "Staff access granted.",
     className: "bg-green-50 text-green-800"
@@ -84,6 +97,10 @@ export const SUPER_ADMIN_MASJID_STATUS_MESSAGES: Record<string, { text: string; 
   "staff-grant-uncertain": {
     text: "The database did not confirm whether staff access was granted. Review current access before trying again.",
     className: "bg-amber-50 text-amber-900"
+  },
+  "slug-exists": {
+    text: "That masjid slug is already in use. Choose a different slug.",
+    className: "bg-red-50 text-red-700"
   },
   invalid: {
     text: "Check the submitted setup values and try again.",
@@ -119,14 +136,14 @@ async function loadProfilesById(adminSupabase: AdminSupabaseClient, profileIds: 
   const ids = uniq(profileIds).filter(Boolean);
 
   if (ids.length === 0) {
-    return new Map<string, Pick<Profile, "id" | "name" | "email">>();
+    return new Map<string, Pick<Profile, "id" | "name" | "email" | "role" | "active">>();
   }
 
   const { data, error } = await adminSupabase
     .from("profiles")
-    .select("id,name,email")
+    .select("id,name,email,role,active")
     .in("id", ids)
-    .returns<Array<Pick<Profile, "id" | "name" | "email">>>();
+    .returns<Array<Pick<Profile, "id" | "name" | "email" | "role" | "active">>>();
 
   if (error) {
     throw new Error("Unable to load staff profiles.");
@@ -168,13 +185,18 @@ async function loadCurrentStaffForMasjids(adminSupabase: AdminSupabaseClient, ma
     (data ?? []).map((membership) => membership.profile_id)
   );
 
-  return (data ?? []).filter((membership) => membershipIsCurrent(membership, today)).map((membership) => {
+  return (data ?? []).filter((membership) => {
+    const profile = profileById.get(membership.profile_id);
+    return membershipIsCurrent(membership, today) && profile?.active;
+  }).map((membership) => {
     const profile = profileById.get(membership.profile_id);
 
     return {
       ...membership,
       profile_name: profile?.name ?? "Missing profile",
-      profile_email: profile?.email ?? ""
+      profile_email: profile?.email ?? "",
+      profile_role: profile?.role ?? "student",
+      profile_active: profile?.active ?? false
     };
   });
 }
@@ -239,7 +261,7 @@ export async function loadMasjidSetupListData(adminSupabase: AdminSupabaseClient
   }
 
   for (const membership of staff) {
-    if (membership.staff_role === "admin") {
+    if (membership.staff_role === "admin" && membership.profile_role === "admin") {
       adminCountByMasjidId.set(membership.masjid_id, (adminCountByMasjidId.get(membership.masjid_id) ?? 0) + 1);
     }
   }
@@ -325,7 +347,7 @@ export async function loadMasjidSetupDetailData(
   const activeCohortIds = new Set((cohorts ?? []).filter((cohort) => cohort.active).map((cohort) => cohort.id));
   const activeCohortCount = (cohorts ?? []).filter((cohort) => cohort.active).length;
   const activeGroupCount = (groups ?? []).filter((group) => group.active && activeCohortIds.has(group.cohort_id)).length;
-  const activeAdminCount = staff.filter((membership) => membership.staff_role === "admin").length;
+  const activeAdminCount = staff.filter((membership) => membership.staff_role === "admin" && membership.profile_role === "admin").length;
 
   return {
     masjid,

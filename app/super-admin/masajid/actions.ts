@@ -14,11 +14,7 @@ import {
   parsePositiveInteger,
   parseStaffAccessGrant
 } from "@/lib/super-admin-setup";
-import {
-  insertSuperAdminAuditEvent,
-  requireSuperAdminAdminClient
-} from "@/lib/super-admin";
-import { type JsonValue } from "@/lib/super-admin-rules";
+import { requireSuperAdminAdminClient } from "@/lib/super-admin";
 import {
   grantMasjidStaffAccessTransactionally,
   masjidStaffGrantPreparationRpcArguments,
@@ -31,7 +27,6 @@ import {
   type MasjidStaffGrantResult,
   type PersonAccessState
 } from "@/lib/transactional-workflows";
-import type { Cohort, HalaqaGroup, Masjid, Profile } from "@/lib/types";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -66,63 +61,56 @@ function validateName(value: string, maxLength = 120) {
   return value.length >= 2 && value.length <= maxLength;
 }
 
-function masjidAuditData(masjid: Pick<Masjid, "name" | "slug" | "active">) {
-  return {
-    name: masjid.name,
-    slug: masjid.slug,
-    active: masjid.active
-  };
+type HierarchyOperation = "create_cohort" | "update_cohort" | "create_group" | "update_group";
+
+function parseHierarchyState(value: string, id: string) {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    return parsed.id === id ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
-function cohortAuditData(cohort: Pick<Cohort, "masjid_id" | "kind" | "name" | "active" | "sort_order">) {
-  return {
-    masjid_id: cohort.masjid_id,
-    kind: cohort.kind,
-    name: cohort.name,
-    active: cohort.active,
-    sort_order: cohort.sort_order
-  };
+function hierarchyFailureStatus(error: { code?: string | null } | null) {
+  if (error?.code === "40001") return "hierarchy-stale";
+  if (error?.code === "23514") return "hierarchy-dependencies";
+  return "save-error";
 }
 
-function groupAuditData(group: Pick<HalaqaGroup, "cohort_id" | "name" | "active" | "sort_order">) {
-  return {
-    cohort_id: group.cohort_id,
-    name: group.name,
-    active: group.active,
-    sort_order: group.sort_order
-  };
-}
-
-async function auditSetupEvent(input: {
-  actor: Profile;
+async function applyHierarchyChange(input: {
+  operation: HierarchyOperation;
+  requestId: string;
+  actorId: string;
+  masjidId: string;
+  cohortId: string | null;
+  groupId: string | null;
+  name: string;
+  kind: "brothers" | "sisters" | null;
+  sortOrder: number;
+  active: boolean;
+  expectedState: Record<string, unknown> | null;
   adminSupabase: Awaited<ReturnType<typeof requireSuperAdminAdminClient>>["adminSupabase"];
-  action: string;
-  targetTable: string;
-  targetId: string;
-  targetMasjidId?: string | null;
-  beforeData?: JsonValue;
-  afterData?: JsonValue;
-  metadata?: JsonValue;
 }) {
-  await insertSuperAdminAuditEvent({
-    actor: input.actor,
-    adminSupabase: input.adminSupabase,
-    event: {
-      action: input.action,
-      targetTable: input.targetTable,
-      targetId: input.targetId,
-      targetMasjidId: input.targetMasjidId ?? null,
-      beforeData: input.beforeData ?? undefined,
-      afterData: input.afterData ?? undefined,
-      metadata: input.metadata ?? undefined
-    }
+  return input.adminSupabase.rpc("apply_super_admin_hierarchy_change", {
+    input_request_id: input.requestId,
+    input_actor_id: input.actorId,
+    input_operation: input.operation,
+    input_masjid_id: input.masjidId,
+    input_cohort_id: input.cohortId,
+    input_group_id: input.groupId,
+    input_name: input.name,
+    input_kind: input.kind,
+    input_sort_order: input.sortOrder,
+    input_active: input.active,
+    input_expected_state: input.expectedState
   });
 }
 
 export async function createMasjidSetup(formData: FormData) {
+  const requestId = formString(formData, "request_id");
   const name = formString(formData, "name");
   const slug = normalizeMasjidSlug(formString(formData, "slug") || name);
-  const active = formBoolean(formData, "active");
   const cohortName = formString(formData, "cohort_name");
   const cohortKind = parseCohortKind(formData.get("cohort_kind")) ?? "brothers";
   const cohortSortOrder = parsePositiveInteger(formString(formData, "cohort_sort_order"), 1);
@@ -131,7 +119,7 @@ export async function createMasjidSetup(formData: FormData) {
   const groupSortOrder = parsePositiveInteger(formString(formData, "group_sort_order"), 1);
   const groupActive = formBoolean(formData, "group_active");
 
-  if (!validateName(name) || !isValidMasjidSlug(slug)) {
+  if (!requireUuid(requestId) || !validateName(name) || !isValidMasjidSlug(slug)) {
     redirect(masajidPath("invalid"));
   }
 
@@ -144,92 +132,30 @@ export async function createMasjidSetup(formData: FormData) {
   }
 
   const { profile: actor, adminSupabase } = await requireSuperAdminAdminClient();
-  let masjidId: string | null = null;
+  const { data, error } = await adminSupabase.rpc("apply_super_admin_masjid_provision", {
+    input_request_id: requestId,
+    input_actor_id: actor.id,
+    input_name: name,
+    input_slug: slug,
+    input_cohort_name: cohortName,
+    input_cohort_kind: cohortKind,
+    input_cohort_sort_order: cohortSortOrder,
+    input_cohort_active: cohortActive,
+    input_group_name: groupName,
+    input_group_sort_order: groupSortOrder,
+    input_group_active: groupActive
+  });
+  const result = data as { masjid_id?: unknown } | null;
+  const masjidId = typeof result?.masjid_id === "string" ? result.masjid_id : null;
 
-  try {
-    const { data: masjid, error: masjidError } = await adminSupabase
-      .from("masajid")
-      .insert({ name, slug, active })
-      .select("id,name,slug,active,created_at,updated_at")
-      .single<Masjid>();
-
-    if (masjidError || !masjid) {
-      throw new Error("Unable to create masjid.");
+  if (error || !masjidId || !requireUuid(masjidId)) {
+    if (error?.code === "23505") {
+      redirect(masajidPath("slug-exists"));
     }
-
-    masjidId = masjid.id;
-    await auditSetupEvent({
-      actor,
-      adminSupabase,
-      action: "masjid_created",
-      targetTable: "masajid",
-      targetId: masjid.id,
-      targetMasjidId: masjid.id,
-      afterData: masjidAuditData(masjid)
-    });
-
-    if (cohortName) {
-      const { data: cohort, error: cohortError } = await adminSupabase
-        .from("cohorts")
-        .insert({
-          masjid_id: masjid.id,
-          kind: cohortKind,
-          name: cohortName,
-          sort_order: cohortSortOrder,
-          active: cohortActive
-        })
-        .select("id,masjid_id,kind,name,active,sort_order,created_at,updated_at")
-        .single<Cohort>();
-
-      if (cohortError || !cohort) {
-        throw new Error("Unable to create cohort.");
-      }
-
-      await auditSetupEvent({
-        actor,
-        adminSupabase,
-        action: "cohort_created",
-        targetTable: "cohorts",
-        targetId: cohort.id,
-        targetMasjidId: masjid.id,
-        afterData: cohortAuditData(cohort)
-      });
-
-      if (groupName) {
-        const { data: group, error: groupError } = await adminSupabase
-          .from("halaqa_groups")
-          .insert({
-            cohort_id: cohort.id,
-            name: groupName,
-            sort_order: groupSortOrder,
-            active: groupActive
-          })
-          .select("id,cohort_id,name,active,sort_order,created_at,updated_at")
-          .single<HalaqaGroup>();
-
-        if (groupError || !group) {
-          throw new Error("Unable to create group.");
-        }
-
-        await auditSetupEvent({
-          actor,
-          adminSupabase,
-          action: "group_created",
-          targetTable: "halaqa_groups",
-          targetId: group.id,
-          targetMasjidId: masjid.id,
-          afterData: groupAuditData(group)
-        });
-      }
-    }
-  } catch {
     redirect(masajidPath("save-error"));
   }
 
-  if (!masjidId) {
-    redirect(masajidPath("save-error"));
-  }
-
+  revalidatePath("/super-admin");
   revalidatePath("/super-admin/masajid");
   redirect(masjidPath(masjidId, "created"));
 }
@@ -304,13 +230,14 @@ export async function updateMasjidSetup(formData: FormData) {
 }
 
 export async function createCohortSetup(formData: FormData) {
+  const requestId = formString(formData, "request_id");
   const masjidId = formString(formData, "masjid_id");
   const name = formString(formData, "name");
   const kind = parseCohortKind(formData.get("kind"));
   const sortOrder = parsePositiveInteger(formString(formData, "sort_order"), 1);
   const active = formBoolean(formData, "active");
 
-  if (!requireUuid(masjidId) || !validateName(name) || !kind) {
+  if (!requireUuid(requestId) || !requireUuid(masjidId) || !validateName(name) || !kind) {
     redirect(masajidPath("invalid"));
   }
 
@@ -321,40 +248,43 @@ export async function createCohortSetup(formData: FormData) {
     redirect(masajidPath("not-found"));
   }
 
-  const { data, error } = await adminSupabase
-    .from("cohorts")
-    .insert({ masjid_id: masjidId, name, kind, sort_order: sortOrder, active })
-    .select("id,masjid_id,kind,name,active,sort_order,created_at,updated_at")
-    .single<Cohort>();
-
-  if (error || !data) {
-    redirect(masjidPath(masjidId, "save-error"));
-  }
-
-  await auditSetupEvent({
-    actor,
-    adminSupabase,
-    action: "cohort_created",
-    targetTable: "cohorts",
-    targetId: data.id,
-    targetMasjidId: masjidId,
-    afterData: cohortAuditData(data)
+  const { error } = await applyHierarchyChange({
+    operation: "create_cohort",
+    requestId,
+    actorId: actor.id,
+    masjidId,
+    cohortId: null,
+    groupId: null,
+    name,
+    kind,
+    sortOrder,
+    active,
+    expectedState: null,
+    adminSupabase
   });
 
+  if (error) {
+    redirect(masjidPath(masjidId, hierarchyFailureStatus(error)));
+  }
+
+  revalidatePath("/super-admin");
   revalidatePath("/super-admin/masajid");
+  revalidatePath("/super-admin/repairs");
   revalidatePath(`/super-admin/masajid/${masjidId}`);
   redirect(masjidPath(masjidId, "cohort-created"));
 }
 
 export async function updateCohortSetup(formData: FormData) {
+  const requestId = formString(formData, "request_id");
   const masjidId = formString(formData, "masjid_id");
   const cohortId = formString(formData, "cohort_id");
   const name = formString(formData, "name");
   const kind = parseCohortKind(formData.get("kind"));
   const sortOrder = parsePositiveInteger(formString(formData, "sort_order"), 1);
   const active = formBoolean(formData, "active");
+  const expectedState = parseHierarchyState(formString(formData, "expected_state"), cohortId);
 
-  if (!requireUuid(masjidId) || !requireUuid(cohortId) || !validateName(name) || !kind) {
+  if (!requireUuid(requestId) || !requireUuid(masjidId) || !requireUuid(cohortId) || !validateName(name) || !kind || !expectedState) {
     redirect(masajidPath("invalid"));
   }
 
@@ -370,42 +300,41 @@ export async function updateCohortSetup(formData: FormData) {
     redirect(masjidPath(masjidId, "confirmation-mismatch"));
   }
 
-  const { data, error } = await adminSupabase
-    .from("cohorts")
-    .update({ name, kind, sort_order: sortOrder, active, updated_at: new Date().toISOString() })
-    .eq("id", cohortId)
-    .eq("masjid_id", masjidId)
-    .select("id,masjid_id,kind,name,active,sort_order,created_at,updated_at")
-    .single<Cohort>();
-
-  if (error || !data) {
-    redirect(masjidPath(masjidId, "save-error"));
-  }
-
-  await auditSetupEvent({
-    actor,
-    adminSupabase,
-    action: "cohort_updated",
-    targetTable: "cohorts",
-    targetId: cohortId,
-    targetMasjidId: masjidId,
-    beforeData: cohortAuditData(current),
-    afterData: cohortAuditData(data)
+  const { error } = await applyHierarchyChange({
+    operation: "update_cohort",
+    requestId,
+    actorId: actor.id,
+    masjidId,
+    cohortId,
+    groupId: null,
+    name,
+    kind,
+    sortOrder,
+    active,
+    expectedState,
+    adminSupabase
   });
 
+  if (error) {
+    redirect(masjidPath(masjidId, hierarchyFailureStatus(error)));
+  }
+
+  revalidatePath("/super-admin");
   revalidatePath("/super-admin/masajid");
+  revalidatePath("/super-admin/repairs");
   revalidatePath(`/super-admin/masajid/${masjidId}`);
   redirect(masjidPath(masjidId, "cohort-updated"));
 }
 
 export async function createGroupSetup(formData: FormData) {
+  const requestId = formString(formData, "request_id");
   const masjidId = formString(formData, "masjid_id");
   const cohortId = formString(formData, "cohort_id");
   const name = formString(formData, "name");
   const sortOrder = parsePositiveInteger(formString(formData, "sort_order"), 1);
   const active = formBoolean(formData, "active");
 
-  if (!requireUuid(masjidId) || !requireUuid(cohortId) || !validateName(name)) {
+  if (!requireUuid(requestId) || !requireUuid(masjidId) || !requireUuid(cohortId) || !validateName(name)) {
     redirect(masajidPath("invalid"));
   }
 
@@ -416,40 +345,43 @@ export async function createGroupSetup(formData: FormData) {
     redirect(masajidPath("not-found"));
   }
 
-  const { data, error } = await adminSupabase
-    .from("halaqa_groups")
-    .insert({ cohort_id: cohortId, name, sort_order: sortOrder, active })
-    .select("id,cohort_id,name,active,sort_order,created_at,updated_at")
-    .single<HalaqaGroup>();
-
-  if (error || !data) {
-    redirect(masjidPath(masjidId, "save-error"));
-  }
-
-  await auditSetupEvent({
-    actor,
-    adminSupabase,
-    action: "group_created",
-    targetTable: "halaqa_groups",
-    targetId: data.id,
-    targetMasjidId: masjidId,
-    afterData: groupAuditData(data)
+  const { error } = await applyHierarchyChange({
+    operation: "create_group",
+    requestId,
+    actorId: actor.id,
+    masjidId,
+    cohortId,
+    groupId: null,
+    name,
+    kind: null,
+    sortOrder,
+    active,
+    expectedState: null,
+    adminSupabase
   });
 
+  if (error) {
+    redirect(masjidPath(masjidId, hierarchyFailureStatus(error)));
+  }
+
+  revalidatePath("/super-admin");
   revalidatePath("/super-admin/masajid");
+  revalidatePath("/super-admin/repairs");
   revalidatePath(`/super-admin/masajid/${masjidId}`);
   redirect(masjidPath(masjidId, "group-created"));
 }
 
 export async function updateGroupSetup(formData: FormData) {
+  const requestId = formString(formData, "request_id");
   const masjidId = formString(formData, "masjid_id");
   const cohortId = formString(formData, "cohort_id");
   const groupId = formString(formData, "group_id");
   const name = formString(formData, "name");
   const sortOrder = parsePositiveInteger(formString(formData, "sort_order"), 1);
   const active = formBoolean(formData, "active");
+  const expectedState = parseHierarchyState(formString(formData, "expected_state"), groupId);
 
-  if (!requireUuid(masjidId) || !requireUuid(cohortId) || !requireUuid(groupId) || !validateName(name)) {
+  if (!requireUuid(requestId) || !requireUuid(masjidId) || !requireUuid(cohortId) || !requireUuid(groupId) || !validateName(name) || !expectedState) {
     redirect(masajidPath("invalid"));
   }
 
@@ -465,30 +397,28 @@ export async function updateGroupSetup(formData: FormData) {
     redirect(masjidPath(masjidId, "confirmation-mismatch"));
   }
 
-  const { data, error } = await adminSupabase
-    .from("halaqa_groups")
-    .update({ name, sort_order: sortOrder, active, updated_at: new Date().toISOString() })
-    .eq("id", groupId)
-    .eq("cohort_id", cohortId)
-    .select("id,cohort_id,name,active,sort_order,created_at,updated_at")
-    .single<HalaqaGroup>();
-
-  if (error || !data) {
-    redirect(masjidPath(masjidId, "save-error"));
-  }
-
-  await auditSetupEvent({
-    actor,
-    adminSupabase,
-    action: "group_updated",
-    targetTable: "halaqa_groups",
-    targetId: groupId,
-    targetMasjidId: masjidId,
-    beforeData: groupAuditData(current),
-    afterData: groupAuditData(data)
+  const { error } = await applyHierarchyChange({
+    operation: "update_group",
+    requestId,
+    actorId: actor.id,
+    masjidId,
+    cohortId,
+    groupId,
+    name,
+    kind: null,
+    sortOrder,
+    active,
+    expectedState,
+    adminSupabase
   });
 
+  if (error) {
+    redirect(masjidPath(masjidId, hierarchyFailureStatus(error)));
+  }
+
+  revalidatePath("/super-admin");
   revalidatePath("/super-admin/masajid");
+  revalidatePath("/super-admin/repairs");
   revalidatePath(`/super-admin/masajid/${masjidId}`);
   redirect(masjidPath(masjidId, "group-updated"));
 }

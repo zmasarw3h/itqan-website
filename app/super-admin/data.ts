@@ -22,6 +22,7 @@ export type PeopleSearchParams = {
   active?: string;
   role?: string;
   status?: string;
+  page?: string;
 };
 
 export type AccessOptionMasjid = Pick<Masjid, "id" | "name" | "slug">;
@@ -71,6 +72,9 @@ export type PeopleSearchData = {
   activeFilter: "active" | "inactive" | "all";
   roleFilter: Role | "all";
   results: PeopleSearchResult[];
+  page: number;
+  pageSize: number;
+  total: number;
 };
 
 export type StudentMembershipDetail = StudentGroupMembership & {
@@ -117,6 +121,10 @@ export const SUPER_ADMIN_PEOPLE_STATUS_MESSAGES: Record<string, { text: string; 
   "access-updated": {
     text: "Access changes saved.",
     className: "bg-green-50 text-green-800"
+  },
+  "review-expired": {
+    text: "That reviewed change expired or is no longer available. Prepare the review again before submitting.",
+    className: "bg-amber-50 text-amber-900"
   },
   "membership-ended": {
     text: "Membership ended without deleting history.",
@@ -180,22 +188,6 @@ function parseActiveFilter(value: string | undefined): PeopleSearchData["activeF
 
 function parseRoleFilter(value: string | undefined): PeopleSearchData["roleFilter"] {
   return value && ROLES.has(value as Role) ? (value as Role) : "all";
-}
-
-function profileMatchesQuery(profile: Profile, query: string) {
-  const normalizedQuery = normalizeSearchValue(query);
-  const queryDigits = digitsOnly(query);
-
-  if (!normalizedQuery && !queryDigits) {
-    return true;
-  }
-
-  const normalizedFields = [profile.name, profile.phone, profile.email].map(normalizeSearchValue);
-  const fieldMatches = normalizedFields.some((field) => field.includes(normalizedQuery));
-  const digitFields = [profile.phone, profile.email].map(digitsOnly);
-  const digitMatches = queryDigits ? digitFields.some((field) => field.includes(queryDigits)) : false;
-
-  return fieldMatches || digitMatches;
 }
 
 function uniq<T>(values: T[]) {
@@ -411,17 +403,15 @@ export async function loadPeopleSearchData(
   const query = String(searchParams.q ?? "").trim();
   const activeFilter = parseActiveFilter(searchParams.active);
   const roleFilter = parseRoleFilter(searchParams.role);
-  const searched = Boolean(query || activeFilter !== "active" || roleFilter !== "all");
-
-  if (!searched) {
-    return { searched, query, activeFilter, roleFilter, results: [] };
-  }
+  const searched = true;
+  const pageSize = 50;
+  const parsedPage = Number.parseInt(String(searchParams.page ?? "1"), 10);
+  const page = Number.isSafeInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1;
 
   let profileQuery = adminSupabase
     .from("profiles")
-    .select("id,name,email,phone,role,active,created_at")
-    .order("name", { ascending: true })
-    .limit(500);
+    .select("id,name,email,phone,role,active,created_at", { count: "exact" })
+    .order("name", { ascending: true });
 
   if (activeFilter !== "all") {
     profileQuery = profileQuery.eq("active", activeFilter === "active");
@@ -431,13 +421,26 @@ export async function loadPeopleSearchData(
     profileQuery = profileQuery.eq("role", roleFilter);
   }
 
-  const { data, error } = await profileQuery.returns<Profile[]>();
+  const normalizedQuery = normalizeSearchValue(query);
+  const queryDigits = digitsOnly(query);
+
+  if (normalizedQuery.includes("@")) {
+    profileQuery = profileQuery.ilike("email", `%${normalizedQuery}%`);
+  } else if (queryDigits) {
+    profileQuery = profileQuery.or(`phone.ilike.%${queryDigits}%,email.ilike.%${queryDigits}%`);
+  } else if (normalizedQuery) {
+    profileQuery = profileQuery.ilike("name", `%${normalizedQuery}%`);
+  }
+
+  profileQuery = profileQuery.range((page - 1) * pageSize, page * pageSize - 1);
+
+  const { data, error, count } = await profileQuery.returns<Profile[]>();
 
   if (error) {
     throw new Error("Unable to load people.");
   }
 
-  const profiles = (data ?? []).filter((profile) => profileMatchesQuery(profile, query)).slice(0, 50);
+  const profiles = data ?? [];
   const profileIds = profiles.map((profile) => profile.id);
   const today = todayDateString();
   const [studentAccessRows, staffAccessRows] = await Promise.all([
@@ -460,6 +463,9 @@ export async function loadPeopleSearchData(
     query,
     activeFilter,
     roleFilter,
+    page,
+    pageSize,
+    total: count ?? 0,
     results: profiles.map((profile) => {
       const studentAccess = studentAccessByProfileId.get(profile.id) ?? [];
       const staffAccessByMasjid = groupStaffAccessByMasjid(staffAccessByProfileId.get(profile.id) ?? []);

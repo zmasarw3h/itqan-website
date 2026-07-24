@@ -17,6 +17,7 @@ type AddUserFormProps = {
   scopeOptions: AdminCreateUserScopeOptions;
   initialStudentScope: StudentScopeSelection;
   initialTeacherMasjidId: string;
+  returnTo?: "super_admin";
 };
 
 function cohortLabel(kind: "brothers" | "sisters", name: string) {
@@ -31,7 +32,8 @@ export default function AddUserForm({
   requestId,
   scopeOptions,
   initialStudentScope,
-  initialTeacherMasjidId
+  initialTeacherMasjidId,
+  returnTo
 }: AddUserFormProps) {
   const [role, setRole] = useState<CreateUserRole>(initialRole);
   const [studentSelection, setStudentSelection] = useState<StudentScopeSelection>(initialStudentScope);
@@ -48,6 +50,7 @@ export default function AddUserForm({
   return (
     <form action={action} className="mt-6 grid gap-4 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
       <input name="request_id" type="hidden" value={requestId} />
+      {returnTo ? <input name="return_to" type="hidden" value={returnTo} /> : null}
       <input name="student_masjid_id" type="hidden" value={studentScope.masjidId} />
       <input name="student_cohort_id" type="hidden" value={studentScope.cohortId} />
       <input name="student_group_id" type="hidden" value={studentScope.groupId} />

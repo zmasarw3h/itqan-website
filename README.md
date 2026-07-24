@@ -73,7 +73,7 @@ SUPABASE_SERVICE_ROLE_KEY=
 
    Each profile `id` must equal the Auth user UUID. `profiles.email` stores the synthetic auth email. `profiles.phone` is optional display-only data shown to admins.
 
-   After an admin can log in, they can add students and teachers inside masajid they actively administer from `Admin Dashboard -> Add User`. Admin and super-admin access is granted from the guarded super-admin console. The app normalizes the phone number, creates a Supabase Auth user with the synthetic auth email and password `itqan2026`, confirms the email, creates the matching active profile, and assigns the selected scoped membership. The service-role key is used only in guarded server code.
+   After an admin can log in, they can add students and teachers inside masajid they actively administer from `Admin Dashboard -> Add User`. Super admins use `/super-admin/people/new` for the same recoverable global workflow, then add admin capability through the person's Guided Change flow. The app normalizes the phone number, creates a Supabase Auth user with the synthetic auth email and password `itqan2026`, confirms the email, creates the matching active profile, and assigns the selected scoped membership. The service-role key is used only in guarded server code.
 
    Example profile data is in `docs/SEED_DATA.md`:
 

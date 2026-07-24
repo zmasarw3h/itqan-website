@@ -148,6 +148,8 @@ begin
       ('apply_cohort_group_rebalance(uuid,date,uuid,integer)'),
       ('apply_scoped_user_setup(uuid,uuid,uuid,text,text,text,text,date,uuid,uuid)'),
       ('apply_super_admin_access_change(uuid,uuid,uuid,text,date,uuid,uuid,jsonb)'),
+      ('apply_super_admin_hierarchy_change(uuid,uuid,text,uuid,uuid,uuid,text,text,integer,boolean,jsonb)'),
+      ('apply_super_admin_masjid_provision(uuid,uuid,text,text,text,text,integer,boolean,text,integer,boolean)'),
       ('apply_super_admin_masjid_update(uuid,uuid,uuid,text,text,boolean,jsonb)'),
       ('apply_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date,jsonb)'),
       ('apply_super_admin_staff_membership_end(uuid,uuid,uuid,uuid,date,jsonb)'),
@@ -207,6 +209,14 @@ begin
   ) or not has_function_privilege(
     'service_role',
     'public.apply_super_admin_access_change(uuid,uuid,uuid,text,date,uuid,uuid,jsonb)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.apply_super_admin_hierarchy_change(uuid,uuid,text,uuid,uuid,uuid,text,text,integer,boolean,jsonb)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.apply_super_admin_masjid_provision(uuid,uuid,text,text,text,text,integer,boolean,text,integer,boolean)',
     'EXECUTE'
   ) or not has_function_privilege(
     'service_role',

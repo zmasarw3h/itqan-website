@@ -58,10 +58,10 @@ idempotency state, guarded triggers, and service-only functions without removing
 After applying the migration:
 
 1. Run the schema sanity query and `supabase migration list`.
-2. Confirm `service_role` alone can execute `apply_scoped_user_setup`, `get_scoped_user_setup_request_result`, `get_scoped_user_setup_auth_recovery`, `get_person_access_state`, `apply_super_admin_access_change`, `prepare_super_admin_masjid_staff_grant`, `apply_super_admin_masjid_staff_grant`, `apply_super_admin_staff_membership_end`, and `apply_super_admin_masjid_update`.
+2. Confirm `service_role` alone can execute `apply_scoped_user_setup`, `get_scoped_user_setup_request_result`, `get_scoped_user_setup_auth_recovery`, `get_person_access_state`, `apply_super_admin_access_change`, `prepare_super_admin_masjid_staff_grant`, `apply_super_admin_masjid_staff_grant`, `apply_super_admin_staff_membership_end`, `apply_super_admin_masjid_update`, `apply_super_admin_masjid_provision`, and `apply_super_admin_hierarchy_change`.
 3. Confirm `anon` and `authenticated` cannot execute those functions.
-4. Deploy the Phase 1B application wiring only after those checks pass. Do not deploy Phase 1B before
-   the migration because user creation, composite access changes, and standalone staff-membership closure now depend on these RPCs.
+4. Deploy the application wiring only after those checks pass. Do not deploy it before the migrations
+   because user creation, Guided Change, masjid provisioning, and hierarchy maintenance depend on these RPCs.
 
 Each rendered mutation form carries one request UUID through its server action. Retrying the exact same
 request UUID and payload returns the stored result. Reusing a request UUID with different input is
