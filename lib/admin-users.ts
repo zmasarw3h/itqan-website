@@ -15,6 +15,7 @@ export type ScopedUserSetupRetryContext = {
   studentCohortId?: string | null;
   studentGroupId?: string | null;
   teacherMasjidId?: string | null;
+  scoreStartsOn?: string | null;
 };
 
 export function preservedScopedUserSetupRequestId(status: string | undefined, requestId: string | undefined) {
@@ -31,6 +32,7 @@ export function scopedUserSetupFailureSearchParams(input: ScopedUserSetupRetryCo
   }
 
   params.set("request_id", input.requestId);
+  if (input.scoreStartsOn) params.set("score_starts_on", input.scoreStartsOn);
   const scopeValues = {
     student_masjid_id: input.studentMasjidId,
     student_cohort_id: input.studentCohortId,

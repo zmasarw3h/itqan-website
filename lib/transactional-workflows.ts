@@ -22,6 +22,7 @@ export type ScopedUserSetupResult = {
   role: "student" | "teacher";
   masjid_id: string;
   group_id: string | null;
+  score_starts_on: string | null;
 };
 
 export type ScopedUserSetupInput = {
@@ -32,6 +33,7 @@ export type ScopedUserSetupInput = {
   phone: string;
   role: "student" | "teacher";
   startsOn: string;
+  scoreStartsOn: string | null;
   masjidId: string;
   groupId: string | null;
 };
@@ -219,6 +221,7 @@ export function scopedUserSetupRpcArguments(profileId: string, input: ScopedUser
     input_phone: input.phone,
     input_role: input.role,
     input_starts_on: input.startsOn,
+    input_score_starts_on: input.scoreStartsOn,
     input_masjid_id: input.masjidId,
     input_group_id: input.groupId
   };
@@ -233,12 +236,16 @@ export function scopedUserSetupLookupRpcArguments(input: ScopedUserSetupInput) {
     input_phone: input.phone,
     input_role: input.role,
     input_starts_on: input.startsOn,
+    input_score_starts_on: input.scoreStartsOn,
     input_masjid_id: input.masjidId,
     input_group_id: input.groupId
   };
 }
 
 export function scopedUserSetupAuthMetadata(input: ScopedUserSetupInput) {
+  // The database wrapper persists scoreStartsOn atomically. Auth metadata
+  // deliberately retains the original payload contract used by the inner
+  // idempotent setup primitive.
   return {
     setup_request_id: input.requestId,
     setup_actor_id: input.actorId,

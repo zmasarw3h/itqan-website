@@ -11,6 +11,7 @@ import {
 } from "@/app/super-admin/data";
 import AppNav from "@/app/nav";
 import { formatDateTimeInAppTimeZone, formatWeekRange, todayDateString } from "@/lib/dates";
+import { officialScoringStatus } from "@/lib/official-scoring";
 import { reconcilePersonDetailWithAccessState } from "@/lib/person-access-state";
 import { requireSuperAdminAdminClient } from "@/lib/super-admin";
 import type { PersonAccessState } from "@/lib/transactional-workflows";
@@ -358,6 +359,31 @@ function GuidedChangeEntry({ profile }: { profile: Profile }) {
   );
 }
 
+function ScoreStartCorrectionPanel({ profile }: { profile: Profile }) {
+  if (profile.role !== "student") return null;
+  const status = officialScoringStatus(profile.score_starts_on, todayDateString());
+
+  return (
+    <section className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+      <h2 className="text-lg font-semibold text-ink">Official scoring</h2>
+      <p className="mt-1 text-sm leading-6 text-stone-600">
+        Access and orientation activity remain intact. This Sunday controls which weeks count toward scores,
+        streaks, rewards, and Sadaqa obligations.
+      </p>
+      <p className="mt-3 text-sm text-stone-700">
+        Current status: <span className="font-semibold text-ink">{status.label}</span>
+      </p>
+      <p className="mt-1 text-sm text-stone-600">{status.description}</p>
+      <Link
+        className="mt-4 inline-flex rounded-md bg-moss px-4 py-2.5 text-sm font-semibold text-white hover:bg-ink"
+        href={`/admin/students/${profile.id}/official-scoring?return_to=super_admin`}
+      >
+        Review or change
+      </Link>
+    </section>
+  );
+}
+
 export default async function SuperAdminPersonPage({
   params,
   searchParams
@@ -407,6 +433,7 @@ export default async function SuperAdminPersonPage({
           </div>
           <aside className="space-y-6">
             <GuidedChangeEntry profile={canonicalData.profile} />
+            <ScoreStartCorrectionPanel profile={canonicalData.profile} />
             <PasswordResetPanel profile={canonicalData.profile} />
           </aside>
         </section>

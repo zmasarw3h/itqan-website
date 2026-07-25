@@ -68,6 +68,7 @@ export async function createUser(formData: FormData) {
 
   const today = todayDateString();
   const startsOn = weekStartForDate(today);
+  const submittedScoreStartsOn = formString(formData.get("score_starts_on"));
   const selectedStudentMasjidId = formString(formData.get("student_masjid_id"));
   const selectedStudentCohortId = formString(formData.get("student_cohort_id"));
   const selectedStudentGroupId = formString(formData.get("student_group_id"));
@@ -123,6 +124,20 @@ export async function createUser(formData: FormData) {
     redirect(`${createUserPath}?status=missing-scope&role=${input.role}`);
   }
 
+  const scoreStartsOn = input.role === "student" ? submittedScoreStartsOn : null;
+  if (
+    input.role === "student"
+    && (
+      !scoreStartsOn
+      || !isValidDateString(scoreStartsOn)
+      || weekStartForDate(scoreStartsOn) !== scoreStartsOn
+      || scoreStartsOn < startsOn
+    )
+  ) {
+    const params = new URLSearchParams({ status: "invalid-score-start", role: input.role });
+    redirect(`${createUserPath}?${params.toString()}`);
+  }
+
   const requestIdValue = formString(formData.get("request_id"));
   const requestId = requestIdValue && UUID_PATTERN.test(requestIdValue) ? requestIdValue : randomUUID();
   const outcome = await createScopedUserTransactionally(
@@ -134,6 +149,7 @@ export async function createUser(formData: FormData) {
       phone: input.phone,
       role: input.role,
       startsOn,
+      scoreStartsOn,
       masjidId: setupMasjidId,
       groupId: studentGroupId
     },
@@ -177,6 +193,7 @@ export async function createUser(formData: FormData) {
             phone: input.phone,
             role: input.role as "student" | "teacher",
             startsOn,
+            scoreStartsOn,
             masjidId: setupMasjidId,
             groupId: studentGroupId
           })
@@ -249,7 +266,8 @@ export async function createUser(formData: FormData) {
       studentMasjidId: selectedStudentMasjidId,
       studentCohortId: selectedStudentCohortId,
       studentGroupId: selectedStudentGroupId,
-      teacherMasjidId: selectedTeacherMasjidId
+      teacherMasjidId: selectedTeacherMasjidId,
+      scoreStartsOn
     });
     redirect(`${createUserPath}?${params.toString()}`);
   }

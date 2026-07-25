@@ -166,6 +166,21 @@ Preferred order:
 3. Apply the same migrations to production.
 4. Deploy the app version that expects the migrated schema.
 
+For the scoring-boundary/accountability rollout, follow
+`docs/ACCOUNTABILITY_SCORING_ROLLOUT.md`. Its additive migrations and reviewed
+repair must be applied before the matching app deployment; the repair script is
+manual and must never be run against production without explicit approval.
+
+After `20260724130111_add_scoped_official_scoring_workflow.sql` is applied, admins
+use the student's **Official scoring** page to preview and activate or move the
+boundary forward. A normal admin is rejected if any affected membership or
+pending obligation crosses outside their currently administered masjid.
+Super admins use the same page and may also move the boundary backward. Every
+save requires a reason and exact student-name confirmation. Forward changes
+waive pending pre-boundary obligations atomically with explicit “not paid”
+audit notes; they never delete obligations or reopen the student gate for
+eligible post-boundary weeks.
+
 Supported application methods are the ones documented in `README.md`:
 
 ```bash

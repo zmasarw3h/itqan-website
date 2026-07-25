@@ -27,11 +27,24 @@ describe("leaderboard CSV export", () => {
     expect(
       calculateBelow70Streak({
         completedWeekStartsDescending: ["2026-05-31", "2026-05-24"],
+        minimumWeekStart: "2026-05-31",
         checkinsByWeek: new Map(),
         partnerRecitationsByWeek: new Map(),
         halaqaGradeByWeek: new Map()
       })
     ).toBe(1);
+  });
+
+  it("treats an absent score boundary as not scorable", () => {
+    expect(
+      calculateBelow70Streak({
+        completedWeekStartsDescending: ["2026-06-28"],
+        minimumWeekStart: null,
+        checkinsByWeek: new Map(),
+        partnerRecitationsByWeek: new Map(),
+        halaqaGradeByWeek: new Map()
+      })
+    ).toBe(0);
   });
 
   it("does not count below-70 streak weeks before the student score baseline", () => {

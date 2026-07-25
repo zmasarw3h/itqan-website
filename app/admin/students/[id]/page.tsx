@@ -19,6 +19,7 @@ import {
 } from "@/lib/dates";
 import { PASSING_PERCENTAGE } from "@/lib/leaderboard";
 import { PARTNER_RECITATION_ROUNDS } from "@/lib/partner-recitations";
+import { officialScoringStatus } from "@/lib/official-scoring";
 import { calculateDailyScoreProgress, calculateWeeklyScore, formatScore } from "@/lib/scoring";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
@@ -80,7 +81,15 @@ function dayStatusClass(status: DayStatus) {
   return "border-stone-200 bg-stone-50 text-stone-500";
 }
 
-function weeklyStatus(input: { percentage: number; complete: boolean }) {
+function weeklyStatus(input: { percentage: number; complete: boolean; scorable: boolean }) {
+  if (!input.scorable) {
+    return {
+      label: "Orientation",
+      scoreLabel: "Official score excluded",
+      className: "bg-blue-50 text-blue-700"
+    };
+  }
+
   if (!input.complete) {
     return {
       label: "In progress",
@@ -140,7 +149,7 @@ export default async function AdminStudentPage({
 
   const { data: student } = await supabase
     .from("profiles")
-    .select("id,name,email,phone,role,active,created_at")
+    .select("id,name,email,phone,role,active,score_starts_on,created_at")
     .eq("id", resolvedParams.id)
     .eq("role", "student")
     .single<Profile>();
@@ -241,12 +250,22 @@ export default async function AdminStudentPage({
           .createSignedUrl(weeklyPlan.file_path, 60 * 60, { download: weeklyPlan.file_name })
       ).data?.signedUrl
     : null;
+  const selectedWeekIsScorable = Boolean(
+    student.score_starts_on && selectedWeekStart >= student.score_starts_on
+  );
   const weeklyScore = calculateWeeklyScore({
-    dailyScores: selectedWeekDates.map((date) => selectedCheckinByDate.get(date)?.daily_score ?? 0),
-    partnerRecitations: partnerRecitations ?? [],
-    halaqaGrade: halaqaGrade ?? null
+    dailyScores: selectedWeekIsScorable
+      ? selectedWeekDates.map((date) => selectedCheckinByDate.get(date)?.daily_score ?? 0)
+      : [],
+    partnerRecitations: selectedWeekIsScorable ? partnerRecitations ?? [] : [],
+    halaqaGrade: selectedWeekIsScorable ? halaqaGrade ?? null : null
   });
-  const status = weeklyStatus({ percentage: weeklyScore.percentage, complete: selectedWeekComplete });
+  const status = weeklyStatus({
+    percentage: weeklyScore.percentage,
+    complete: selectedWeekComplete,
+    scorable: selectedWeekIsScorable
+  });
+  const scoringStatus = officialScoringStatus(student.score_starts_on, currentTrackerWeekStart);
   const partnerRecitationByRound = new Map<PartnerRecitation["round"], PartnerRecitation>();
 
   for (const recitation of partnerRecitations ?? []) {
@@ -303,6 +322,12 @@ export default async function AdminStudentPage({
             Unable to delete this student.
           </p>
         ) : null}
+        {resolvedSearchParams.status === "score-start-changed" ? (
+          <p className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
+            Official scoring start updated. Any pending pre-boundary obligations were waived with an audit note,
+            not marked paid.
+          </p>
+        ) : null}
 
         <section className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
@@ -318,6 +343,22 @@ export default async function AdminStudentPage({
               selectedWeekStart={selectedWeekStart}
               studentId={student.id}
             />
+          </div>
+        </section>
+
+        <section className="mt-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-ink">Official scoring</h2>
+              <p className="mt-1 text-sm text-stone-600">{scoringStatus.description}</p>
+              <p className="mt-2 text-sm font-medium text-ink">{scoringStatus.label}</p>
+            </div>
+            <Link
+              className="rounded-md bg-moss px-4 py-2.5 text-sm font-semibold text-white hover:bg-ink"
+              href={`/admin/students/${student.id}/official-scoring`}
+            >
+              Review or change
+            </Link>
           </div>
         </section>
 
@@ -348,6 +389,12 @@ export default async function AdminStudentPage({
               </div>
             </div>
           </div>
+          {!selectedWeekIsScorable ? (
+            <p className="mt-4 rounded-md bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-800">
+              Activity from this orientation week is preserved, but it is excluded from official scores, streaks,
+              rewards, and Sadaqa obligations.
+            </p>
+          ) : null}
           <div className="mt-5 rounded-md border border-stone-200 p-4 text-sm text-stone-700">
             <p>
               Daily check-ins:{" "}
