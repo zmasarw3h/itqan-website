@@ -1,4 +1,4 @@
-"use server";
+import "server-only";
 
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
@@ -6,7 +6,7 @@ import { defaultPathForRole } from "@/lib/access";
 import { resolveLoginIdentifierToAuthEmail } from "@/lib/login-identifier";
 import type { Profile } from "@/lib/types";
 
-type SignInResult = {
+export type SignInResult = {
   error?: string;
   redirectTo?: string;
 };
@@ -29,7 +29,10 @@ async function resolveAuthEmail(identifier: string) {
   });
 }
 
-export async function signInWithPhone(identifier: string, password: string): Promise<SignInResult> {
+export async function authenticateWithPhone(
+  identifier: string,
+  password: string
+): Promise<SignInResult> {
   let authEmail: string;
 
   try {

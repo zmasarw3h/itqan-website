@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { signInWithPhone } from "@/app/login/actions";
+import type { SignInResult } from "@/app/login/authenticate";
 
 export default function LoginForm() {
   const [identifier, setIdentifier] = useState("");
@@ -15,10 +15,22 @@ export default function LoginForm() {
     setIsLoading(true);
 
     try {
-      const result = await signInWithPhone(identifier, password);
+      const response = await fetch("/api/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ identifier, password })
+      });
+      const result = await response.json() as SignInResult;
 
       if (result.error) {
         setError(result.error);
+        return;
+      }
+
+      if (!response.ok) {
+        setError("Unable to sign in.");
         return;
       }
 

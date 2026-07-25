@@ -223,6 +223,30 @@ test.describe("authenticated pure-admin flow", () => {
     await expect(page.getByRole("heading", { name: "Group setup" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Teacher availability" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Assignment preview" })).toBeVisible();
+
+    const availabilityCheckboxes = page.getByRole("checkbox", {
+      name: /@itqan\.local/
+    });
+    if ((await availabilityCheckboxes.count()) > 0) {
+      const firstAvailability = availabilityCheckboxes.first();
+      const initiallyChecked = await firstAvailability.isChecked();
+      const publishAssignments = page.getByRole("button", { name: "Publish assignments" });
+
+      await firstAvailability.setChecked(!initiallyChecked);
+      await expect(
+        page.getByText("Unsaved availability changes. Save to refresh the assignment preview.")
+      ).toBeVisible();
+      await expect(
+        page.getByText(/Assignment preview paused\. Save teacher availability/)
+      ).toBeVisible();
+      await expect(publishAssignments).toBeDisabled();
+
+      await firstAvailability.setChecked(initiallyChecked);
+      await expect(
+        page.getByText("Unsaved availability changes. Save to refresh the assignment preview.")
+      ).toHaveCount(0);
+    }
+
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 });

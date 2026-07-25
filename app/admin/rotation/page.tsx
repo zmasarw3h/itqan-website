@@ -4,6 +4,11 @@ import AppNav from "@/app/nav";
 import RotationScopeSelector from "@/app/admin/rotation/scope-selector";
 import TeacherAvailabilityForm from "@/app/admin/rotation/teacher-availability-form";
 import {
+  RotationAvailabilityProvider,
+  RotationPreviewGuard,
+  RotationPublishButton
+} from "@/app/admin/rotation/availability-state";
+import {
   ROTATION_STATUS_MESSAGES,
   loadRotationPageData,
   type RotationSearchParams
@@ -279,98 +284,103 @@ export default async function AdminRotationPage({
             )}
           </section>
 
-          <section className="border-y border-stone-200 bg-white px-4 py-5 sm:rounded-lg sm:border sm:p-6">
-            <div>
-              <p className="text-xs font-semibold uppercase text-moss">Step 2</p>
-              <h2 className="mt-1 text-lg font-semibold text-ink">Teacher availability</h2>
-              <p className="mt-1 text-sm text-stone-600">Availability applies only to this cohort and Saturday.</p>
-            </div>
-            {data.context ? (
-              <TeacherAvailabilityForm
-                key={`${data.context.cohort.id}:${data.selectedWeekStart}`}
-                cohortId={data.context.cohort.id}
-                masjidId={data.context.masjid.id}
-                teachers={data.teachers}
-                weekStart={data.selectedWeekStart}
-              />
-            ) : null}
-          </section>
-
-          <section className="border-y border-stone-200 bg-white px-4 py-5 sm:rounded-lg sm:border sm:p-6">
-            <div className="flex flex-wrap items-start justify-between gap-4">
+          <RotationAvailabilityProvider
+            initialAvailableTeacherIds={data.teachers
+              .filter((teacher) => teacher.available)
+              .map((teacher) => teacher.id)}
+          >
+            <section className="border-y border-stone-200 bg-white px-4 py-5 sm:rounded-lg sm:border sm:p-6">
               <div>
-                <p className="text-xs font-semibold uppercase text-moss">Step 3</p>
-                <h2 className="mt-1 text-lg font-semibold text-ink">Assignment preview</h2>
-                <p className="mt-1 text-sm text-stone-600">One teacher per group for this Saturday.</p>
+                <p className="text-xs font-semibold uppercase text-moss">Step 2</p>
+                <h2 className="mt-1 text-lg font-semibold text-ink">Teacher availability</h2>
+                <p className="mt-1 text-sm text-stone-600">Availability applies only to this cohort and Saturday.</p>
               </div>
-              <form action={generateRotation}>
-                <input name="masjid_id" type="hidden" value={data.context?.masjid.id ?? ""} />
-                <input name="cohort_id" type="hidden" value={data.context?.cohort.id ?? ""} />
-                <input name="week_start" type="hidden" value={data.selectedWeekStart} />
-                <button
-                  className="rounded-md bg-gold px-4 py-2.5 text-sm font-semibold text-ink hover:bg-moss hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={!publishReady}
-                >
-                  Publish assignments
-                </button>
-              </form>
-            </div>
+              {data.context ? (
+                <TeacherAvailabilityForm
+                  key={`${data.context.cohort.id}:${data.selectedWeekStart}`}
+                  cohortId={data.context.cohort.id}
+                  masjidId={data.context.masjid.id}
+                  teachers={data.teachers}
+                  weekStart={data.selectedWeekStart}
+                />
+              ) : null}
+            </section>
 
-            {data.persistencePlan?.rotationPlan.warnings.length ? (
-              <div className="mt-4 space-y-2">
-                {data.persistencePlan.rotationPlan.warnings.map((warning) => (
-                  <p className="border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-sm text-amber-950" key={warning.code}>
-                    {warning.message}
-                  </p>
-                ))}
+            <section className="border-y border-stone-200 bg-white px-4 py-5 sm:rounded-lg sm:border sm:p-6">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase text-moss">Step 3</p>
+                  <h2 className="mt-1 text-lg font-semibold text-ink">Assignment preview</h2>
+                  <p className="mt-1 text-sm text-stone-600">One teacher per group for this Saturday.</p>
+                </div>
+                <form action={generateRotation}>
+                  <input name="masjid_id" type="hidden" value={data.context?.masjid.id ?? ""} />
+                  <input name="cohort_id" type="hidden" value={data.context?.cohort.id ?? ""} />
+                  <input name="week_start" type="hidden" value={data.selectedWeekStart} />
+                  <RotationPublishButton baseDisabled={!publishReady} />
+                </form>
               </div>
-            ) : null}
 
-            <div className="mt-5 overflow-x-auto border-y border-stone-200">
-              <table className="min-w-full divide-y divide-stone-200 text-sm">
-                <thead className="bg-stone-50">
-                  <tr className="text-left text-stone-600">
-                    <th className="px-3 py-2.5 font-medium">Group</th>
-                    <th className="px-3 py-2.5 font-medium">Students</th>
-                    <th className="px-3 py-2.5 font-medium">Current teacher</th>
-                    <th className="px-3 py-2.5 font-medium">Proposed teacher</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100">
-                  {data.groups.length > 0 ? (
-                    data.groups.map((group) => {
-                      const currentAssignment = data.assignments.find(
-                        (assignment) => assignment.group_id === group.id
-                      );
-                      const proposedAssignment = data.persistencePlan?.assignmentUpserts.find(
-                        (assignment) => assignment.group_id === group.id
-                      );
-                      const proposedTeacher = proposedAssignment
-                        ? data.teachers.find((teacher) => teacher.id === proposedAssignment.teacher_id)
-                        : null;
+              <RotationPreviewGuard>
+                <>
+                  {data.persistencePlan?.rotationPlan.warnings.length ? (
+                    <div className="mt-4 space-y-2">
+                      {data.persistencePlan.rotationPlan.warnings.map((warning) => (
+                        <p className="border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-sm text-amber-950" key={warning.code}>
+                          {warning.message}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
 
-                      return (
-                        <tr key={group.id}>
-                          <td className="px-3 py-3 font-medium text-ink">{group.name}</td>
-                          <td className="px-3 py-3 text-stone-700">{group.student_count}</td>
-                          <td className="px-3 py-3 text-stone-700">
-                            {currentAssignment?.teacher_name ?? "Unassigned"}
-                          </td>
-                          <td className={`px-3 py-3 font-medium ${proposedTeacher ? "text-green-800" : "text-amber-800"}`}>
-                            {proposedTeacher?.name ?? "Unassigned"}
-                          </td>
+                  <div className="mt-5 overflow-x-auto border-y border-stone-200">
+                    <table className="min-w-full divide-y divide-stone-200 text-sm">
+                      <thead className="bg-stone-50">
+                        <tr className="text-left text-stone-600">
+                          <th className="px-3 py-2.5 font-medium">Group</th>
+                          <th className="px-3 py-2.5 font-medium">Students</th>
+                          <th className="px-3 py-2.5 font-medium">Current teacher</th>
+                          <th className="px-3 py-2.5 font-medium">Proposed teacher</th>
                         </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td className="px-3 py-4 text-stone-600" colSpan={4}>No active groups yet.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
+                      </thead>
+                      <tbody className="divide-y divide-stone-100">
+                        {data.groups.length > 0 ? (
+                          data.groups.map((group) => {
+                            const currentAssignment = data.assignments.find(
+                              (assignment) => assignment.group_id === group.id
+                            );
+                            const proposedAssignment = data.persistencePlan?.assignmentUpserts.find(
+                              (assignment) => assignment.group_id === group.id
+                            );
+                            const proposedTeacher = proposedAssignment
+                              ? data.teachers.find((teacher) => teacher.id === proposedAssignment.teacher_id)
+                              : null;
+
+                            return (
+                              <tr key={group.id}>
+                                <td className="px-3 py-3 font-medium text-ink">{group.name}</td>
+                                <td className="px-3 py-3 text-stone-700">{group.student_count}</td>
+                                <td className="px-3 py-3 text-stone-700">
+                                  {currentAssignment?.teacher_name ?? "Unassigned"}
+                                </td>
+                                <td className={`px-3 py-3 font-medium ${proposedTeacher ? "text-green-800" : "text-amber-800"}`}>
+                                  {proposedTeacher?.name ?? "Unassigned"}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td className="px-3 py-4 text-stone-600" colSpan={4}>No active groups yet.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              </RotationPreviewGuard>
+            </section>
+          </RotationAvailabilityProvider>
         </div>
       </main>
     </>
