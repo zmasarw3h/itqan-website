@@ -3563,7 +3563,7 @@ async function runAssertions(ids: SeedIds) {
     [{ teacher_name: "expiredAssignmentTeacher" }],
     "student lost the historical teacher name after hierarchy deactivation"
   );
-  const { data: historicalTeacherProjection, error: historicalTeacherProjectionError } = await service.rpc(
+  const { data: historicalTeacherProjection, error: historicalTeacherProjectionError } = await studentA.rpc(
     "student_weekly_teacher",
     { input_student_id: ids.users.studentA, input_week_start: ids.previousWeekStart }
   );

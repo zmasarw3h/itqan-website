@@ -78,4 +78,4 @@ $$;
 revoke all on function public.student_weekly_teacher(uuid, date)
   from public, anon, authenticated, service_role;
 grant execute on function public.student_weekly_teacher(uuid, date)
-  to authenticated, service_role;
+  to authenticated;
