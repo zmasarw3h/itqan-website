@@ -121,7 +121,10 @@ export async function loadStudentWeekContext(
 
   return {
     scope,
-    teacher: scope ? await loadStudentWeekTeacher(supabase, weekStart) : null
+    // Historical teacher identity remains displayable even after an admin
+    // deactivates the old group/cohort/masjid and the operational scope is no
+    // longer available for student workflows.
+    teacher: await loadStudentWeekTeacher(supabase, weekStart)
   };
 }
 

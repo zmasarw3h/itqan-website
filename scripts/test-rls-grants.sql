@@ -47,6 +47,7 @@ insert into expected_authenticated_definers (signature) values
   ('student_leaderboard_available_weeks()'),
   ('student_masjid_for_week(uuid,date)'),
   ('student_scope_snapshot_matches(uuid,date,uuid,uuid,uuid)'),
+  ('student_weekly_teacher(uuid,date)'),
   ('student_weekly_teacher_name(date)'),
   ('teacher_assignment_contexts()'),
   ('teacher_can_read_membership(uuid,date,date)'),

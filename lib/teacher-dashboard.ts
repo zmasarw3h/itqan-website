@@ -11,7 +11,9 @@ export type TeacherAssignmentContext = {
   masjid_id: string;
   masjid_name: string;
   week_start: string;
-  roster_count: number;
+  // Navigation may retain a historical/upcoming assignment label without
+  // exposing the roster before the operational authorization window opens.
+  roster_count: number | null;
 };
 
 export type TeacherRosterMembership = {

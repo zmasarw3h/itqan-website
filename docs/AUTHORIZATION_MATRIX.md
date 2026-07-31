@@ -121,9 +121,11 @@ request ID to change the boundary, waive pending pre-boundary obligations withou
 and write the corresponding audits atomically. Trigger functions (`enforce_student_accountability_attestation()`,
 `enforce_student_checkin_integrity()`, `enforce_student_checkin_item_integrity()`,
 `recalculate_student_checkin_score()`, `set_student_scope_snapshot()`, `teacher_rotation_row_scope_matches()`, and
-`protect_foundation_row_identity()`) and the superseded broad
-student RPCs (`student_weekly_teacher(uuid,date)` and `student_cohort_students_for_week(uuid,date)`) have
-no `PUBLIC`, `anon`, or `authenticated` execute grant. All definer functions use an empty `search_path`.
+`protect_foundation_row_identity()`) and the superseded broad student RPC
+(`student_cohort_students_for_week(uuid,date)`) have no `PUBLIC`, `anon`, or `authenticated` execute grant.
+`student_weekly_teacher(uuid,date)` is a deliberately narrow authenticated historical-identity projection: its
+definer body limits students to themselves and scoped admins to their masjid, and it cannot authorize operational
+student data. All definer functions use an empty `search_path`.
 
 The non-definer helpers `week_start_for_date(date)` and `weekly_plan_path_is_owned(uuid,date,text)` are
 also executable by authenticated callers because RLS policies use them; neither reads protected data.

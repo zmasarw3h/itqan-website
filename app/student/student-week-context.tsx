@@ -6,11 +6,13 @@ import type { StudentWeekScope, StudentWeekTeacher } from "@/lib/student-scope";
 export function StudentSetupIncomplete({
   name,
   role,
-  weekStart
+  weekStart,
+  teacher
 }: {
   name: string;
   role: Role;
   weekStart: string;
+  teacher?: StudentWeekTeacher | null;
 }) {
   return (
     <>
@@ -26,6 +28,11 @@ export function StudentSetupIncomplete({
             Ask an admin to assign your cohort and group before using check-ins, weekly plans, recitation, grades, and
             leaderboard.
           </p>
+          {teacher ? (
+            <p className="mt-4 text-sm text-stone-700">
+              Assigned teacher for this historical week: <span className="font-medium text-ink">{teacher.teacher_name}</span>
+            </p>
+          ) : null}
         </section>
       </main>
     </>

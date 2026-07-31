@@ -25,7 +25,7 @@ export default async function PartnerRecitationPage({
   const studentContext = await loadStudentWeekContext(supabase, profile.id, weekStart);
 
   if (!studentContext.scope) {
-    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={weekStart} />;
+    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={weekStart} teacher={studentContext.teacher} />;
   }
 
   const { data: partnerRecitations } = await supabase

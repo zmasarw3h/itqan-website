@@ -75,17 +75,30 @@ export default async function TeacherDashboardPage({
                       {assignment.cohort_name} · {assignment.cohort_kind === "brothers" ? "Brothers" : "Sisters"}
                     </p>
                   </div>
-                  <div className="min-w-20 rounded-md bg-stone-50 px-3 py-2 text-right">
-                    <p className="text-2xl font-semibold text-ink">{assignment.roster_count}</p>
-                    <p className="text-xs text-stone-500">Students</p>
-                  </div>
+                  {assignment.roster_count === null ? (
+                    <p className="rounded-md bg-stone-50 px-3 py-2 text-right text-xs text-stone-500">
+                      Roster access unavailable
+                    </p>
+                  ) : (
+                    <div className="min-w-20 rounded-md bg-stone-50 px-3 py-2 text-right">
+                      <p className="text-2xl font-semibold text-ink">{assignment.roster_count}</p>
+                      <p className="text-xs text-stone-500">Students</p>
+                    </div>
+                  )}
                 </div>
-                <Link
-                  className="mt-5 inline-flex rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink"
-                  href={`/teacher/groups/${assignment.group_id}?week=${selectedWeekStart}`}
-                >
-                  Open group
-                </Link>
+                {assignment.roster_count === null ? (
+                  <p className="mt-5 text-sm text-stone-600">
+                    This assignment is listed for planning only. Group access begins on its tracker week and ends when
+                    staff access no longer permits it.
+                  </p>
+                ) : (
+                  <Link
+                    className="mt-5 inline-flex rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink"
+                    href={`/teacher/groups/${assignment.group_id}?week=${selectedWeekStart}`}
+                  >
+                    Open group
+                  </Link>
+                )}
               </article>
             ))}
           </div>

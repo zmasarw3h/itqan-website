@@ -47,7 +47,8 @@ Internal transactional state lives in the unexposed `private` schema:
 Server-side helper functions expose narrow caller-relative views used by the app:
 
 - `student_weekly_teacher_name(week_start)`: returns only the signed-in student's assigned teacher display name.
-- `teacher_assignment_contexts()`: returns only the signed-in teacher's effective assignments with safe masjid/cohort/group labels and roster counts.
+- `teacher_assignment_contexts()`: returns only the signed-in teacher's assignment labels. It returns a roster count only
+  while the exact group/week passes operational authorization; upcoming and historical labels carry no roster data.
 - `teacher_group_roster_context(group_id, week_start)`: returns only active students effective in the caller's exact assigned group/week, with student ID/name and capped daily-check-in and partner-recitation aggregates. It never returns contact details, notes, or raw records.
 - `can_teacher_read_weekly_plan_path(path)`: authorizes a weekly-plan Storage path only when its metadata, student membership, and the caller's exact group/week assignment agree.
 - `student_cohort_leaderboard_for_week(week_start)`: returns the minimum documented same-cohort leaderboard projection without peer UUIDs or contact details.
@@ -55,9 +56,10 @@ Server-side helper functions expose narrow caller-relative views used by the app
 - `admin_students_for_week(week_start)`: returns active students only in masajid the signed-in admin currently serves.
 - `cohort_masjid_id(cohort_id)`: returns a cohort's masjid only when the caller can read that cohort.
 
-The superseded `student_weekly_teacher(student_id, week_start)` and
-`student_cohort_students_for_week(student_id, week_start)` functions remain in the schema for migration
-compatibility but have no browser-role execute grant.
+`student_weekly_teacher(student_id, week_start)` remains as an authenticated, caller-checked historical teacher
+identity projection for a student themselves or a currently scoped admin. It does not expose operational student
+records. The superseded `student_cohort_students_for_week(student_id, week_start)` remains only for migration
+compatibility and has no browser-role execute grant.
 
 Service-only transactional functions added for Phase 1A and used by the Phase 1B server actions:
 

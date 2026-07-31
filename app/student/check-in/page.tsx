@@ -172,7 +172,7 @@ export default async function StudentCheckInPage({
   const studentContext = await loadStudentWeekContext(supabase, profile.id, currentWeekStart);
 
   if (!studentContext.scope) {
-    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={currentWeekStart} />;
+    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={currentWeekStart} teacher={studentContext.teacher} />;
   }
 
   const requiredWeeklyPlanWeekStart = weeklyPlanRequiredWeekStart(civilToday);

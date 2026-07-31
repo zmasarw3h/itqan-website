@@ -140,9 +140,37 @@ export default async function AdminStudentPage({
       ? today
       : selectedWeekDates[0];
   const canManageStudent = await canAdminManageStudentForWeek(supabase, resolvedParams.id, selectedWeekStart);
+  const { data: historicalTeacher } = await supabase
+    .rpc("student_weekly_teacher", {
+      input_student_id: resolvedParams.id,
+      input_week_start: selectedWeekStart
+    })
+    .maybeSingle<{ teacher_id: string; teacher_name: string }>();
 
   if (!canManageStudent) {
-    notFound();
+    if (!historicalTeacher) {
+      notFound();
+    }
+
+    return (
+      <>
+        <AppNav name={profile.name} role={profile.role} />
+        <main className="mx-auto max-w-3xl px-4 py-8">
+          <section className="rounded-lg border border-stone-200 bg-white p-6 shadow-sm">
+            <p className="text-sm font-medium uppercase text-moss">Historical halaqa assignment</p>
+            <h1 className="mt-2 text-2xl font-semibold text-ink">Assigned teacher</h1>
+            <p className="mt-2 text-stone-600">Week of {formatWeekRange(selectedWeekStart)}</p>
+            <p className="mt-5 rounded-md bg-stone-50 px-4 py-3 text-stone-800">
+              {historicalTeacher.teacher_name}
+            </p>
+            <p className="mt-4 text-sm text-stone-600">
+              This historical assignment is retained after the current hierarchy changes. Student records and actions
+              are unavailable because the operational assignment is no longer active.
+            </p>
+          </section>
+        </main>
+      </>
+    );
   }
 
   const storageSupabase = createSupabaseAdminClient();

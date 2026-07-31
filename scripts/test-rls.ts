@@ -2377,6 +2377,11 @@ async function runAssertions(ids: SeedIds) {
     [ids.previousWeekStart],
     "historical admin-teacher assignment was evaluated using today's membership instead of its week"
   );
+  assert.equal(
+    (historicalAdminTeacherContexts?.[0] as { roster_count?: number | null } | undefined)?.roster_count,
+    null,
+    "historical assignment navigation exposed a roster after operational staff access ended"
+  );
 
   const { data: futureAdminTeacherContexts, error: futureAdminTeacherContextsError } =
     await futureAssignmentTeacher.rpc("teacher_assignment_contexts");
@@ -2385,6 +2390,11 @@ async function runAssertions(ids: SeedIds) {
     (futureAdminTeacherContexts ?? []).map((row: { week_start: string }) => row.week_start),
     [addDays(ids.weekStart, 7)],
     "future admin-teacher assignment was not exposed for capability-aware navigation"
+  );
+  assert.equal(
+    (futureAdminTeacherContexts?.[0] as { roster_count?: number | null } | undefined)?.roster_count,
+    null,
+    "future assignment navigation exposed a roster before its Sunday week start"
   );
 
   // An open-ended current teacher retains historical operational access; a
@@ -2792,10 +2802,28 @@ async function runAssertions(ids: SeedIds) {
     input_student_id: ids.users.studentA,
     input_week_start: ids.weekStart
   });
-  await assertRpcDenied(studentA, "student_weekly_teacher", {
-    input_student_id: ids.users.studentA,
-    input_week_start: ids.weekStart
-  });
+  const { data: ownTeacherProjection, error: ownTeacherProjectionError } = await studentA.rpc(
+    "student_weekly_teacher",
+    {
+      input_student_id: ids.users.studentA,
+      input_week_start: ids.weekStart
+    }
+  );
+  assert.equal(ownTeacherProjectionError, null, ownTeacherProjectionError?.message);
+  assert.deepEqual(
+    ownTeacherProjection,
+    [{ teacher_id: ids.users.teacherA, teacher_name: "teacherA" }],
+    "student historical teacher projection did not remain limited to the caller's own identity"
+  );
+  const { data: crossStudentTeacherProjection, error: crossStudentTeacherProjectionError } = await studentA2.rpc(
+    "student_weekly_teacher",
+    {
+      input_student_id: ids.users.studentA,
+      input_week_start: ids.weekStart
+    }
+  );
+  assert.equal(crossStudentTeacherProjectionError, null, crossStudentTeacherProjectionError?.message);
+  assert.deepEqual(crossStudentTeacherProjection, [], "student historical teacher projection leaked another student");
   await assertRpcDenied(studentA, "set_student_scope_snapshot");
   await assertRpcDenied(studentA, "set_halaqa_grade_scope_snapshot");
   await assertRpcDenied(studentA, "enforce_student_accountability_attestation");
@@ -3544,6 +3572,16 @@ async function runAssertions(ids: SeedIds) {
     historicalTeacherProjection,
     [{ teacher_id: ids.users.expiredAssignmentTeacher, teacher_name: "expiredAssignmentTeacher" }],
     "server-side historical teacher projection lost assignment identity"
+  );
+  const { data: adminHistoricalTeacherProjection, error: adminHistoricalTeacherProjectionError } = await adminA.rpc(
+    "student_weekly_teacher",
+    { input_student_id: ids.users.studentA, input_week_start: ids.previousWeekStart }
+  );
+  assert.equal(adminHistoricalTeacherProjectionError, null, adminHistoricalTeacherProjectionError?.message);
+  assert.deepEqual(
+    adminHistoricalTeacherProjection,
+    [{ teacher_id: ids.users.expiredAssignmentTeacher, teacher_name: "expiredAssignmentTeacher" }],
+    "scoped admin lost the historical teacher name after hierarchy deactivation"
   );
 
   const deactivateHistoricalTeacherProfile = await service

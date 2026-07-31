@@ -52,7 +52,7 @@ export default async function StudentWeeklyPlanPage({
   const studentContext = await loadStudentWeekContext(supabase, profile.id, weekStart);
 
   if (!studentContext.scope) {
-    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={weekStart} />;
+    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={weekStart} teacher={studentContext.teacher} />;
   }
 
   const { data: weeklyPlan } = await supabase
