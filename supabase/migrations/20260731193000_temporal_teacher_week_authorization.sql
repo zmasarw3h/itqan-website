@@ -1633,6 +1633,16 @@ revoke all on function public.halaqa_saturday_for_week(date) from public, anon, 
 revoke all on function public.apply_teacher_rotation_generation(
   uuid, date, uuid, jsonb, jsonb, jsonb, jsonb, jsonb, integer, integer, integer, integer
 ) from public, anon, authenticated;
+revoke all on function private.raw_teacher_has_halaqa_saturday_eligibility(uuid, uuid, date)
+  from public, anon, authenticated, service_role;
+revoke all on function private.raw_historical_teacher_assignment_is_valid(uuid, uuid, date)
+  from public, anon, authenticated, service_role;
+revoke all on function private.raw_has_current_active_teacher_staff_for_masjid(uuid, uuid, date)
+  from public, anon, authenticated, service_role;
+revoke all on function private.raw_historical_student_group_for_week(uuid, date)
+  from public, anon, authenticated, service_role;
+revoke all on function private.raw_can_view_teacher_assignment_context(uuid, uuid, date)
+  from public, anon, authenticated, service_role;
 
 grant execute on function public.current_toronto_civil_date() to authenticated;
 grant execute on function public.apply_teacher_rotation_generation(
