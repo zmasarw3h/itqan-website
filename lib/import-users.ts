@@ -1,18 +1,11 @@
 import { normalizePhoneNumber, phoneNumberToAuthEmail } from "@/lib/phone-auth";
-import type { Role } from "@/lib/types";
 
 const IMPORT_COLUMNS = ["name", "phone", "role"] as const;
-const REPORT_COLUMNS = [
-  "row_number",
-  "name",
-  "input_phone",
-  "normalized_phone",
-  "role",
-  "auth_email",
-  "status",
-  "temporary_password",
-  "error"
-] as const;
+const REPORT_COLUMNS = ["row_number", "status", "error"] as const;
+
+export const IMPORT_USAGE = "Usage: npm run import-users -- [--dry-run] data/users.csv";
+export const IMPORT_MUTATION_DISABLED_MESSAGE =
+  "The legacy user importer is validation-only. Mutation is disabled; use the guarded application workflows.";
 
 export type RawImportRecord = {
   rowNumber: number;
@@ -26,20 +19,19 @@ export type ValidImportRecord = {
   name: string;
   inputPhone: string;
   normalizedPhone: string;
-  role: Role;
+  role: "student";
   authEmail: string;
 };
 
-export type ImportReportRow = {
+export type ImportValidationReportRow = {
   rowNumber: number;
-  name: string;
-  inputPhone: string;
-  normalizedPhone: string;
-  role: string;
-  authEmail: string;
-  status: "created" | "existing/updated" | "failed";
-  temporaryPassword: string;
+  status: "valid" | "rejected";
   error: string;
+};
+
+export type ImportArguments = {
+  csvPath: string;
+  dryRun: true;
 };
 
 function parseCsvRows(input: string) {
@@ -135,8 +127,12 @@ export function validateImportRecord(record: RawImportRecord): ValidImportRecord
 
   const role = record.role.toLowerCase();
 
-  if (role !== "student" && role !== "admin") {
-    throw new Error("role must be student or admin.");
+  if (role === "admin" || role === "teacher" || role === "super_admin") {
+    throw new Error("Privileged roles are not supported by the quarantined importer.");
+  }
+
+  if (role !== "student") {
+    throw new Error("Only student rows are supported by the quarantined importer.");
   }
 
   const normalizedPhone = normalizePhoneNumber(record.phone);
@@ -151,6 +147,45 @@ export function validateImportRecord(record: RawImportRecord): ValidImportRecord
   };
 }
 
+export function validateImportRecords(records: RawImportRecord[]): ImportValidationReportRow[] {
+  return records.map((record) => {
+    try {
+      validateImportRecord(record);
+      return {
+        rowNumber: record.rowNumber,
+        status: "valid",
+        error: ""
+      };
+    } catch (error) {
+      return {
+        rowNumber: record.rowNumber,
+        status: "rejected",
+        error: error instanceof Error ? error.message : "Unknown validation error."
+      };
+    }
+  });
+}
+
+export function parseImportArguments(args: readonly string[]): ImportArguments {
+  if (args.includes("--mutate")) {
+    throw new Error(IMPORT_MUTATION_DISABLED_MESSAGE);
+  }
+
+  const unsupportedOption = args.find((arg) => arg.startsWith("--") && arg !== "--dry-run");
+
+  if (unsupportedOption) {
+    throw new Error(`Unsupported option: ${unsupportedOption}. ${IMPORT_MUTATION_DISABLED_MESSAGE}`);
+  }
+
+  const paths = args.filter((arg) => arg !== "--dry-run");
+
+  if (paths.length !== 1) {
+    throw new Error(IMPORT_USAGE);
+  }
+
+  return { csvPath: paths[0], dryRun: true };
+}
+
 function escapeCsv(value: string | number) {
   const text = String(value);
 
@@ -161,19 +196,13 @@ function escapeCsv(value: string | number) {
   return text;
 }
 
-export function importReportRowsToCsv(rows: ImportReportRow[]) {
+export function importValidationReportRowsToCsv(rows: ImportValidationReportRow[]) {
   const lines = [
     REPORT_COLUMNS.join(","),
     ...rows.map((row) =>
       [
         row.rowNumber,
-        row.name,
-        row.inputPhone,
-        row.normalizedPhone,
-        row.role,
-        row.authEmail,
         row.status,
-        row.temporaryPassword,
         row.error
       ]
         .map(escapeCsv)

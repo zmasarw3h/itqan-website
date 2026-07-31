@@ -10,7 +10,14 @@ output/
 !.env.example
 .env*.local
 *.tsbuildinfo
-data/*.csv
+# Local import inputs and validation reports. Keep operator data out of Git while
+# leaving unrelated project spreadsheets and CSV fixtures eligible for review.
+data/itqan_admin_add.*
+data/itqan_student_list*.csv
+data/itqan_new_student.csv
+data/users.csv
+data/import-results-*.csv
+data/import-validation-*.csv
 !data/.gitkeep
 backups/
 backup/
