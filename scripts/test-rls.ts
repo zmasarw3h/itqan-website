@@ -2049,6 +2049,33 @@ async function runAssertions(ids: SeedIds) {
   );
   assert.ok(fridayOnlyAssignment.error, "assignment trigger accepted a teacher whose staff access ends Friday");
 
+  const fridayOnlyAssignmentUpdate = await service
+    .from("group_teacher_assignments")
+    .update({ teacher_id: ids.users.fridayOnlyTeacher })
+    .eq("id", ids.assignmentWriter);
+  assert.ok(
+    fridayOnlyAssignmentUpdate.error,
+    "assignment trigger accepted an ineligible teacher through a direct service-role update"
+  );
+
+  const deactivateFridayOnlyAssignment = await service
+    .from("group_teacher_assignments")
+    .update({ active: false })
+    .eq("id", ids.assignmentFridayOnly);
+  assert.equal(
+    deactivateFridayOnlyAssignment.error,
+    null,
+    `service-role assignment deactivation failed: ${deactivateFridayOnlyAssignment.error?.message}`
+  );
+  const reactivateFridayOnlyAssignment = await service
+    .from("group_teacher_assignments")
+    .update({ active: true })
+    .eq("id", ids.assignmentFridayOnly);
+  assert.ok(
+    reactivateFridayOnlyAssignment.error,
+    "active-only service-role reactivation bypassed Saturday eligibility"
+  );
+
   const fridayOnlyGeneration = await service.rpc("apply_teacher_rotation_generation", {
     input_cohort_id: ids.cohortWriter,
     input_week_start: ids.weekStart,
@@ -2359,6 +2386,83 @@ async function runAssertions(ids: SeedIds) {
     [addDays(ids.weekStart, 7)],
     "future admin-teacher assignment was not exposed for capability-aware navigation"
   );
+
+  // An open-ended current teacher retains historical operational access; a
+  // teacher whose staff membership ended on the prior Saturday does not.
+  const historicalOpenAssignment = await service
+    .from("group_teacher_assignments")
+    .insert({
+      group_id: ids.groupWriter,
+      teacher_id: ids.users.teacherA,
+      week_start: ids.previousWeekStart,
+      active: true,
+      assigned_by: ids.users.adminA
+    });
+  assert.equal(historicalOpenAssignment.error, null, historicalOpenAssignment.error?.message);
+  const { data: currentTeacherHistoricalScope } = await teacherA.rpc("is_teacher_for_group_week", {
+    input_group_id: ids.groupWriter,
+    input_week_start: ids.previousWeekStart
+  });
+  assert.equal(currentTeacherHistoricalScope, true, "current teacher lost historical assigned-week access");
+  const { data: saturdayEndScope } = await expiredAssignmentTeacher.rpc("is_teacher_for_group_week", {
+    input_group_id: ids.groupA,
+    input_week_start: ids.previousWeekStart
+  });
+  assert.equal(saturdayEndScope, false, "teacher ending on Saturday retained access after the event week");
+
+  // Upcoming assignment metadata may be listed, but no roster, plan, signed
+  // file, or grade authorization exists until its Sunday week_start.
+  const futureWeekStart = addDays(ids.weekStart, 7);
+  const { data: futureScope } = await futureAssignmentTeacher.rpc("is_teacher_for_group_week", {
+    input_group_id: ids.groupA,
+    input_week_start: futureWeekStart
+  });
+  assert.equal(futureScope, false, "future assignment granted teacher scope before its Sunday week_start");
+  await assertRpcDenied(futureAssignmentTeacher, "teacher_group_roster_context", {
+    input_group_id: ids.groupA,
+    input_week_start: futureWeekStart
+  });
+  const futurePlan = await requireData<Array<{ id: string }>>(
+    "insert future weekly plan",
+    service.from("weekly_plans").insert({
+      student_id: ids.users.studentA,
+      week_start: futureWeekStart,
+      file_path: `${ids.users.studentA}/${futureWeekStart}/plan.pdf`,
+      file_name: "future-plan.pdf",
+      file_type: "application/pdf",
+      file_size: 4
+    }).select("id")
+  );
+  const futurePlanPath = `${ids.users.studentA}/${futureWeekStart}/plan.pdf`;
+  const futurePlanUpload = await service.storage.from("weekly-plans").upload(
+    futurePlanPath,
+    new Blob(["future plan"], { type: "application/pdf" }),
+    { contentType: "application/pdf", upsert: true }
+  );
+  assert.equal(futurePlanUpload.error, null, futurePlanUpload.error?.message);
+  await assertHidden(futureAssignmentTeacher, "weekly_plans", futurePlan[0].id);
+  const futurePlanSigned = await futureAssignmentTeacher.storage
+    .from("weekly-plans")
+    .createSignedUrl(futurePlanPath, 60);
+  assert.ok(futurePlanSigned.error, "future assignment signed a weekly plan before Sunday");
+  const { data: futureGradeScope } = await futureAssignmentTeacher.rpc("can_grade_student_for_week", {
+    input_student_id: ids.users.studentA,
+    input_week_start: futureWeekStart
+  });
+  assert.equal(futureGradeScope, false, "future assignment granted grade access before Sunday");
+  await assertInsertBlocked(futureAssignmentTeacher, "halaqa_grades", {
+    student_id: ids.users.studentA,
+    week_start: futureWeekStart,
+    attended: true,
+    attendance_points: 100,
+    recitation_points: 40,
+    graded_by: ids.users.futureAssignmentTeacher
+  });
+  const { data: noExactAssignmentScope } = await teacherB.rpc("is_teacher_for_group_week", {
+    input_group_id: ids.groupA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(noExactAssignmentScope, false, "teacher without an exact assignment received scope");
 
   const { data: studentTeacherContexts, error: studentTeacherContextsError } = await studentA.rpc(
     "teacher_assignment_contexts"
@@ -3371,6 +3475,35 @@ async function runAssertions(ids: SeedIds) {
   });
   assert.ok(superAuditInsert.error, "signed super-admin inserted an audit row directly");
 
+  // The current week's Saturday is the authorization event. A teacher who
+  // starts on that Saturday (and whose membership ends that day) is eligible
+  // for this Sunday-Saturday tracker week, even before their first civil day
+  // of staff access arrives.
+  const currentSaturday = addDays(ids.weekStart, 6);
+  const saturdayStartStaff = await service
+    .from("masjid_staff_memberships")
+    .update({ starts_on: currentSaturday, ends_on: currentSaturday })
+    .eq("profile_id", ids.users.futureTeacher)
+    .eq("masjid_id", ids.masjidA)
+    .eq("staff_role", "teacher");
+  assert.equal(saturdayStartStaff.error, null, saturdayStartStaff.error?.message);
+  const saturdayStartAssignment = await service
+    .from("group_teacher_assignments")
+    .update({ teacher_id: ids.users.futureTeacher })
+    .eq("id", ids.assignmentAdminTeacher);
+  assert.equal(saturdayStartAssignment.error, null, saturdayStartAssignment.error?.message);
+  const { data: saturdayStartScope, error: saturdayStartScopeError } = await futureTeacher.rpc(
+    "is_teacher_for_group_week",
+    { input_group_id: ids.groupAdminTeacher, input_week_start: ids.weekStart }
+  );
+  assert.equal(saturdayStartScopeError, null, saturdayStartScopeError?.message);
+  assert.equal(saturdayStartScope, true, "Saturday-starting teacher was denied during the tracker week");
+  const saturdayStartRoster = await futureTeacher.rpc("teacher_group_roster_context", {
+    input_group_id: ids.groupAdminTeacher,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(saturdayStartRoster.error, null, saturdayStartRoster.error?.message);
+
   for (const [table, id] of [
     ["halaqa_groups", ids.groupA],
     ["cohorts", ids.cohortA],
@@ -3392,61 +3525,71 @@ async function runAssertions(ids: SeedIds) {
     "completed assignment labels disappeared after hierarchy deactivation"
   );
 
-  const { data: inactiveHistoricalRoster, error: inactiveHistoricalRosterError } =
-    await expiredAssignmentTeacher.rpc("teacher_group_roster_context", {
-      input_group_id: ids.groupA,
-      input_week_start: ids.previousWeekStart
-    });
-  assert.equal(inactiveHistoricalRosterError, null, inactiveHistoricalRosterError?.message);
-  assert.ok(
-    (inactiveHistoricalRoster ?? []).some(
-      (row: { student_id: string }) => row.student_id === ids.users.studentA
-    ),
-    "completed assignment roster disappeared after hierarchy deactivation"
+  const { data: historicalTeacherName, error: historicalTeacherNameError } = await studentA.rpc(
+    "student_weekly_teacher_name",
+    { input_week_start: ids.previousWeekStart }
   );
-  assert.ok(
-    !(inactiveHistoricalRoster ?? []).some(
-      (row: { student_id: string }) => row.student_id === ids.users.studentB
-    ),
-    "completed assignment roster leaked a student from another group"
+  assert.equal(historicalTeacherNameError, null, historicalTeacherNameError?.message);
+  assert.deepEqual(
+    historicalTeacherName,
+    [{ teacher_name: "expiredAssignmentTeacher" }],
+    "student lost the historical teacher name after hierarchy deactivation"
   );
-  await assertVisible(expiredAssignmentTeacher, "weekly_plans", ids.historicalPlanA);
-  await assertVisible(expiredAssignmentTeacher, "halaqa_grades", ids.historicalGradeA);
-  const { data: updatedHistoricalGrade, error: updatedHistoricalGradeError } =
-    await expiredAssignmentTeacher
-      .from("halaqa_grades")
-      .update({
-        notes: "historical teacher update",
-        graded_by: ids.users.expiredAssignmentTeacher
-      })
-      .eq("id", ids.historicalGradeA)
-      .select("id,notes,graded_by")
-      .single();
-  assert.equal(updatedHistoricalGradeError, null, updatedHistoricalGradeError?.message);
-  assert.deepEqual(updatedHistoricalGrade, {
-    id: ids.historicalGradeA,
-    notes: "historical teacher update",
+  const { data: historicalTeacherProjection, error: historicalTeacherProjectionError } = await service.rpc(
+    "student_weekly_teacher",
+    { input_student_id: ids.users.studentA, input_week_start: ids.previousWeekStart }
+  );
+  assert.equal(historicalTeacherProjectionError, null, historicalTeacherProjectionError?.message);
+  assert.deepEqual(
+    historicalTeacherProjection,
+    [{ teacher_id: ids.users.expiredAssignmentTeacher, teacher_name: "expiredAssignmentTeacher" }],
+    "server-side historical teacher projection lost assignment identity"
+  );
+
+  const deactivateHistoricalTeacherProfile = await service
+    .from("profiles")
+    .update({ active: false })
+    .eq("id", ids.users.expiredAssignmentTeacher);
+  assert.equal(
+    deactivateHistoricalTeacherProfile.error,
+    null,
+    `deactivate historical teacher profile: ${deactivateHistoricalTeacherProfile.error?.message}`
+  );
+  const { data: inactiveProfileHistoricalTeacherName, error: inactiveProfileHistoricalTeacherNameError } =
+    await studentA.rpc("student_weekly_teacher_name", { input_week_start: ids.previousWeekStart });
+  assert.equal(
+    inactiveProfileHistoricalTeacherNameError,
+    null,
+    inactiveProfileHistoricalTeacherNameError?.message
+  );
+  assert.deepEqual(
+    inactiveProfileHistoricalTeacherName,
+    [{ teacher_name: "expiredAssignmentTeacher" }],
+    "student lost the historical teacher name after the teacher profile was deactivated"
+  );
+
+  // A Saturday-ended staff membership is historical display evidence only
+  // after that event. It must not leave roster, plan, signed-file, or grade
+  // authorization on the next Sunday (or any later request date).
+  await assertRpcDenied(expiredAssignmentTeacher, "teacher_group_roster_context", {
+    input_group_id: ids.groupA,
+    input_week_start: ids.previousWeekStart
+  });
+  await assertHidden(expiredAssignmentTeacher, "weekly_plans", ids.historicalPlanA);
+  await assertHidden(expiredAssignmentTeacher, "halaqa_grades", ids.historicalGradeA);
+  await assertUpdateBlocked(expiredAssignmentTeacher, "halaqa_grades", ids.historicalGradeA, {
+    notes: "offboarded historical teacher update",
     graded_by: ids.users.expiredAssignmentTeacher
   });
-
-  const { data: insertedHistoricalGrade, error: insertedHistoricalGradeError } =
-    await expiredAssignmentTeacher
-      .from("halaqa_grades")
-      .insert({
-        student_id: ids.users.studentA2,
-        week_start: ids.previousWeekStart,
-        attended: true,
-        attendance_points: 100,
-        recitation_points: 42,
-        notes: "historical teacher insert",
-        graded_by: ids.users.expiredAssignmentTeacher
-      })
-      .select("id,masjid_id,cohort_id,halaqa_group_id")
-      .single();
-  assert.equal(insertedHistoricalGradeError, null, insertedHistoricalGradeError?.message);
-  assert.equal(insertedHistoricalGrade?.masjid_id, ids.masjidA);
-  assert.equal(insertedHistoricalGrade?.cohort_id, ids.cohortA);
-  assert.equal(insertedHistoricalGrade?.halaqa_group_id, ids.groupA);
+  await assertInsertBlocked(expiredAssignmentTeacher, "halaqa_grades", {
+    student_id: ids.users.studentA2,
+    week_start: ids.previousWeekStart,
+    attended: true,
+    attendance_points: 100,
+    recitation_points: 42,
+    notes: "offboarded historical teacher insert",
+    graded_by: ids.users.expiredAssignmentTeacher
+  });
 
   await assertUpdateBlocked(teacherB, "halaqa_grades", ids.historicalGradeA, {
     notes: "wrong historical teacher",
@@ -3467,11 +3610,7 @@ async function runAssertions(ids: SeedIds) {
   const historicalPlanSigned = await expiredAssignmentTeacher.storage
     .from("weekly-plans")
     .createSignedUrl(`${ids.users.studentA}/${ids.previousWeekStart}/plan.pdf`, 60);
-  assert.equal(
-    historicalPlanSigned.error,
-    null,
-    `completed assignment plan signing failed after hierarchy deactivation: ${historicalPlanSigned.error?.message}`
-  );
+  assert.ok(historicalPlanSigned.error, "offboarded teacher signed a completed assignment plan");
 
   await assertRpcDenied(teacherB, "teacher_group_roster_context", {
     input_group_id: ids.groupA,

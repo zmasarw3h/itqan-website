@@ -200,6 +200,15 @@ check-ins, partner recitation, and reset-tied scoring. A weekly-plan link appear
 whose membership is effective in that teacher's assigned group for the exact week. The download route
 rechecks the assignment server-side and creates a five-minute signed URL with the signed-in session.
 
+Teacher operational access never begins before the assignment Sunday. From that Sunday through the
+Saturday halaqa event, an exact active assignment and staff coverage of that Saturday are required; a
+teacher whose staff membership begins on Saturday is therefore eligible for the whole tracker week.
+After Saturday, the exact assignment and historical Saturday coverage remain necessary, and the teacher
+must also have active teacher staff access for the same masjid on the Toronto civil request date. A
+teacher offboarded on Saturday cannot later open the roster, plans, signed files, or grades. Historical
+student and admin displays retain the assigned teacher's name even if that teacher or the hierarchy is
+later deactivated; displaying that history does not grant operational access.
+
 ## Weekly Scoring
 
 Weekly scoring totals 1000 points:

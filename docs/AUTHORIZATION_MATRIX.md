@@ -14,7 +14,7 @@ server guards, and local RLS integration suite must agree with it.
 | Masajid/cohorts/groups | Active hierarchy connected to a current Toronto-civil-date membership | Active hierarchy connected to a current Toronto-civil-week assignment with Saturday teacher eligibility | Active currently administered masajid and active descendants | Global setup access, including inactive entities |
 | Student memberships | Own history | Rows whose membership window overlaps an effective assignment week | Scoped insert and deliberate open-row closure; identity/history rewrites and deletion are denied | Global read; signed direct insert/update/delete denied |
 | Staff memberships | Own history | Own history | Scoped teacher insert and deliberate deactivation/closure; identity/history rewrites, reactivation, admin grants, and deletion are denied | Global read; writes only through guarded service-role workflows |
-| Teacher assignments/rotation | None | Own active assignment/availability rows only when teacher staff eligibility covers the week’s Saturday | Scoped assignment insert/deactivation and rotation inputs; rotation runs are read only and generation uses the guarded service-role RPC | Global access |
+| Teacher assignments/rotation | None | Assignment navigation may show own upcoming/history; roster, plan, signed-file, and grade access start on Sunday, require exact active assignment plus Saturday coverage, and after Saturday also require current Toronto-civil-date teacher staff access | Scoped assignment insert/deactivation and rotation inputs; rotation runs are read only and generation uses the guarded service-role RPC | Global access |
 | Super-admin audit | None | None | None | Read only through signed sessions; guarded service-role workflows may insert but cannot update, delete, or truncate |
 | Guided Change review intents | None | None | None | No direct signed-session access; short-lived rows are created and read only by guarded server actions using the service role |
 | Cohort leaderboard | Sanitized projection only: name, rank, score summary, change/status, and own-row marker | None | Separate admin scoring surface | Global operational access |
@@ -22,8 +22,11 @@ server guards, and local RLS integration suite must agree with it.
 `week_start` is always the Sunday tracker-week key. The corresponding halaqa event is the following
 Saturday, derived with `public.halaqa_saturday_for_week(week_start)`. A teacher assignment is valid only
 when the assignment is active for the exact Sunday key and the teacher (including an admin-teacher) has
-an active teacher staff membership covering that Saturday. Future, expired, or inactive memberships do
-not grant access to the assignment, roster, plan, or grade workflow.
+teacher staff membership covering that Saturday. Operational access is denied before Sunday. From Sunday
+through Saturday, that Saturday coverage is sufficient, including a staff membership that begins on the
+Saturday. After Saturday, the historical Saturday coverage must still exist and the teacher must also
+have current active teacher staff access for the same masjid on the Toronto civil request date. A Saturday
+offboarding therefore prevents later roster, plan, signed-file, and grade access.
 
 `public.current_toronto_civil_date()` is the literal Toronto calendar date and governs rotation navigation
 and request-time staff authorization. `public.current_effective_date()` remains the 1:00 AM operational
@@ -58,7 +61,7 @@ policy was already super-admin-only and remains unchanged):
 | `masajid`, `cohorts`, `halaqa_groups` | Active caller-connected hierarchy select for ordinary roles; super admins can read all hierarchy, while mutations use guarded service-only workflows |
 | `student_group_memberships` | Student own history; effective assigned-teacher read; subject-, attribution-, and masjid-scoped normal-admin insert and open-row closure; signed super-admin direct writes and all direct deletes denied |
 | `masjid_staff_memberships` | Own history; teacher-only, attribution-checked normal-admin insert and deactivation/closure; signed super-admin direct writes and all direct deletes denied |
-| `group_teacher_assignments` | Saturday-eligible teacher own reads; eligible-teacher, attribution-, and masjid-scoped admin insert and active-to-inactive transition; a trigger independently enforces Saturday eligibility for direct service-role writes; immutable teacher/group/week/creator history; delete is super-admin-only |
+| `group_teacher_assignments` | Saturday-eligible teacher own reads; eligible-teacher, attribution-, and masjid-scoped admin insert and active-to-inactive transition; a table-specific trigger independently enforces Saturday eligibility for direct service-role inserts, identity changes, and active-only reactivation; immutable teacher/group/week/creator history; delete is super-admin-only |
 | Rotation tables | Saturday-eligible teacher own availability read; masjid-scoped admin/super-admin management for availability and settings; signed-session run access is scoped `SELECT` only and guarded generation is service-role-only |
 | `super_admin_audit_events` | `Active super admins can read audit events`; no signed-role insert/update/delete policy; table ACL grants service role only `SELECT` and `INSERT` |
 | `super_admin_guided_change_reviews` | RLS enabled with no signed-role policies; table ACL revokes `anon` and `authenticated`; the service role alone may create/read/delete a short-lived review intent that binds operation, scope, effective date, target, actor, and expected canonical access state |
@@ -103,7 +106,8 @@ The `authenticated` role can execute only these caller-relative definer function
   `apply_admin_checkin_correction(uuid,date,text,text,text[])` mutation.
 
 `apply_teacher_rotation_generation(...)` is service-role-only and repeats actor/cohort scope validation
-inside the transaction. The Phase 1A functions `apply_scoped_user_setup(...)`,
+inside the transaction while calling the same Saturday-eligibility predicate as direct assignment writes.
+The Phase 1A functions `apply_scoped_user_setup(...)`,
 `get_scoped_user_setup_request_result(...)`, `get_scoped_user_setup_auth_recovery(...)`,
 `get_person_access_state(uuid,uuid)`, `apply_super_admin_access_change(...)`,
 `prepare_super_admin_masjid_staff_grant(...)`, `apply_super_admin_masjid_staff_grant(...)`,

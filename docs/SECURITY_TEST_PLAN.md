@@ -341,8 +341,14 @@ Phase 1 is not mergeable until a local disposable Supabase harness:
 - Proves normal admins cannot read or mutate another masjid's operational data.
 - Proves students cannot read another student's owned operational records, including a student in the same cohort. The intentional cohort leaderboard RPC may expose only its documented leaderboard fields.
 - Proves teachers are limited to their exact assigned group/week and that their staff membership covers
-  the derived Saturday halaqa date; a Friday-expiring teacher is denied by RLS, the assignment trigger,
-  and the guarded rotation RPC.
+  the derived Saturday halaqa date; Saturday-starting access is allowed during that tracker week, while a
+  Friday-expiring teacher is denied by RLS, the assignment trigger, and the guarded rotation RPC.
+- Proves future assignments cannot open roster, plan, signed-download, or grade access before Sunday;
+  post-event access requires current staff status, so a Saturday-ended teacher is denied from the next
+  Sunday onward while an open-ended teacher can use an assigned historical week.
+- Proves historical teacher-name projections survive later profile, masjid, cohort, or group deactivation
+  without restoring any teacher operational authorization, and proves active-only assignment reactivation
+  cannot bypass Saturday eligibility through either authenticated or service-role writes.
 - Proves assigned teachers cannot read student email/phone through `profiles`, while the safe roster RPC rejects arbitrary groups/weeks and returns no undocumented fields.
 - Proves inactive and non-student grade targets are denied and old-week Storage denial is exercised against an uploaded object.
 - Proves inactive profiles and expired/future memberships do not grant current access.

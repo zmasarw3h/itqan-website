@@ -33,6 +33,35 @@ describe("app timezone timestamp formatting", () => {
 });
 
 describe("check-in date reset", () => {
+  it("keeps the Toronto civil date at Sunday midnight while check-in is still Saturday", () => {
+    const midnightSunday = new Date("2026-07-19T04:00:00.000Z");
+
+    expect(torontoCivilDateString(midnightSunday)).toBe("2026-07-19");
+    expect(checkInEffectiveDateString(midnightSunday)).toBe("2026-07-18");
+    expect(halaqaWeekStarts(torontoCivilDateString(midnightSunday)).current).toBe("2026-07-19");
+  });
+
+  it("keeps the previous check-in date at 00:59 Toronto", () => {
+    const beforeReset = new Date("2026-07-19T04:59:00.000Z");
+
+    expect(torontoCivilDateString(beforeReset)).toBe("2026-07-19");
+    expect(checkInEffectiveDateString(beforeReset)).toBe("2026-07-18");
+  });
+
+  it("switches the check-in date exactly at 01:00 Toronto", () => {
+    const reset = new Date("2026-07-19T05:00:00.000Z");
+
+    expect(torontoCivilDateString(reset)).toBe("2026-07-19");
+    expect(checkInEffectiveDateString(reset)).toBe("2026-07-19");
+  });
+
+  it("keeps the new check-in date at 01:01 Toronto", () => {
+    const afterReset = new Date("2026-07-19T05:01:00.000Z");
+
+    expect(torontoCivilDateString(afterReset)).toBe("2026-07-19");
+    expect(checkInEffectiveDateString(afterReset)).toBe("2026-07-19");
+  });
+
   it("returns the previous date before the reset hour in America/Toronto", () => {
     expect(checkInEffectiveDateString(new Date("2026-05-11T04:30:00.000Z"))).toBe("2026-05-10");
   });
@@ -51,6 +80,33 @@ describe("check-in date reset", () => {
     expect(torontoCivilDateString(beforeReset)).toBe("2026-07-19");
     expect(checkInEffectiveDateString(beforeReset)).toBe("2026-07-18");
     expect(halaqaWeekStarts(torontoCivilDateString(beforeReset)).current).toBe("2026-07-19");
+  });
+
+  it("handles the first day of a month without changing the civil date", () => {
+    const firstOfMonth = new Date("2026-08-01T04:30:00.000Z");
+
+    expect(torontoCivilDateString(firstOfMonth)).toBe("2026-08-01");
+    expect(checkInEffectiveDateString(firstOfMonth)).toBe("2026-07-31");
+  });
+
+  it("handles the spring DST jump in Toronto", () => {
+    const beforeReset = new Date("2026-03-08T05:30:00.000Z");
+    const afterJump = new Date("2026-03-08T07:30:00.000Z");
+
+    expect(torontoCivilDateString(beforeReset)).toBe("2026-03-08");
+    expect(checkInEffectiveDateString(beforeReset)).toBe("2026-03-07");
+    expect(torontoCivilDateString(afterJump)).toBe("2026-03-08");
+    expect(checkInEffectiveDateString(afterJump)).toBe("2026-03-08");
+  });
+
+  it("handles both occurrences of the fall DST 1 AM hour in Toronto", () => {
+    const firstOneAm = new Date("2026-11-01T05:30:00.000Z");
+    const secondOneAm = new Date("2026-11-01T06:30:00.000Z");
+
+    expect(torontoCivilDateString(firstOneAm)).toBe("2026-11-01");
+    expect(checkInEffectiveDateString(firstOneAm)).toBe("2026-11-01");
+    expect(torontoCivilDateString(secondOneAm)).toBe("2026-11-01");
+    expect(checkInEffectiveDateString(secondOneAm)).toBe("2026-11-01");
   });
 
   it("builds Sunday-Saturday tracker weeks", () => {

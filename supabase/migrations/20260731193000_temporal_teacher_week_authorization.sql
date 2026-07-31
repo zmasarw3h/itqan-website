@@ -30,7 +30,10 @@ begin
 end;
 $$;
 
-create or replace function private.raw_is_rotation_teacher_for_masjid_week(
+-- This is the single authoritative eligibility rule for publishing rotation
+-- data. It intentionally evaluates staff coverage on the Saturday halaqa
+-- event, not the Sunday storage key or the request date.
+create or replace function private.raw_teacher_has_halaqa_saturday_eligibility(
   input_actor_id uuid,
   input_masjid_id uuid,
   input_week_start date
@@ -61,7 +64,185 @@ as $$
   );
 $$;
 
+-- Retain the established helper name for callers that ask whether a teacher
+-- may be scheduled. Operational access uses raw_can_teacher_access_assignment
+-- below and is deliberately more restrictive after the event.
+create or replace function private.raw_is_rotation_teacher_for_masjid_week(
+  input_actor_id uuid,
+  input_masjid_id uuid,
+  input_week_start date
+)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select private.raw_teacher_has_halaqa_saturday_eligibility(
+    input_actor_id,
+    input_masjid_id,
+    input_week_start
+  );
+$$;
+
+-- Historical display proves only that this identity was assigned and covered
+-- the relevant Saturday. It must not depend on a profile, hierarchy, or staff
+-- row still being active today; it is not an authorization grant.
+create or replace function private.raw_historical_teacher_assignment_is_valid(
+  input_teacher_id uuid,
+  input_group_id uuid,
+  input_week_start date
+)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.group_teacher_assignments as assignments
+    join public.halaqa_groups as groups on groups.id = assignments.group_id
+    join public.cohorts on cohorts.id = groups.cohort_id
+    join public.masjid_staff_memberships as staff
+      on staff.profile_id = assignments.teacher_id
+      and staff.masjid_id = cohorts.masjid_id
+      and staff.staff_role = 'teacher'
+    where assignments.teacher_id = input_teacher_id
+      and assignments.group_id = input_group_id
+      and assignments.week_start = input_week_start
+      and assignments.active = true
+      and staff.starts_on <= public.halaqa_saturday_for_week(input_week_start)
+      and (
+        staff.ends_on is null
+        or staff.ends_on >= public.halaqa_saturday_for_week(input_week_start)
+      )
+  );
+$$;
+
+-- Request-time staff status is intentionally distinct from historical
+-- Saturday coverage. In particular, a teacher offboarded on Saturday has no
+-- operational access from the following Sunday onward.
+create or replace function private.raw_has_current_active_teacher_staff_for_masjid(
+  input_actor_id uuid,
+  input_masjid_id uuid,
+  input_request_date date
+)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.profiles
+    join public.masjid_staff_memberships as staff
+      on staff.profile_id = profiles.id
+    join public.masajid on masajid.id = staff.masjid_id
+    where profiles.id = input_actor_id
+      and profiles.role in ('teacher', 'admin', 'super_admin')
+      and profiles.active = true
+      and masajid.id = input_masjid_id
+      and masajid.active = true
+      and staff.staff_role = 'teacher'
+      and staff.active = true
+      and staff.starts_on <= input_request_date
+      and (staff.ends_on is null or staff.ends_on >= input_request_date)
+  );
+$$;
+
+-- Historical student membership is display-only. Unlike the operational
+-- membership helper, it intentionally survives a later hierarchy deactivation.
+create or replace function private.raw_historical_student_group_for_week(
+  input_student_id uuid,
+  input_week_start date
+)
+returns uuid
+language sql
+stable
+set search_path = ''
+as $$
+  select memberships.group_id
+  from public.student_group_memberships as memberships
+  where memberships.student_id = input_student_id
+    and memberships.starts_on <= input_week_start
+    and (memberships.ends_on is null or memberships.ends_on >= input_week_start)
+  order by memberships.starts_on desc, memberships.id desc
+  limit 1;
+$$;
+
 create or replace function private.raw_can_teacher_access_assignment(
+  input_actor_id uuid,
+  input_group_id uuid,
+  input_week_start date
+)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select public.current_toronto_civil_date() >= input_week_start
+    and exists (
+      select 1
+      from public.group_teacher_assignments as assignments
+      join public.halaqa_groups as groups on groups.id = assignments.group_id
+      join public.cohorts on cohorts.id = groups.cohort_id
+      join public.masajid on masajid.id = cohorts.masjid_id
+      where assignments.teacher_id = input_actor_id
+        and assignments.group_id = input_group_id
+        and assignments.week_start = input_week_start
+        and assignments.active = true
+        and (
+          (
+            public.current_toronto_civil_date()
+              <= public.halaqa_saturday_for_week(input_week_start)
+            and groups.active = true
+            and cohorts.active = true
+            and masajid.active = true
+            and private.raw_teacher_has_halaqa_saturday_eligibility(
+              input_actor_id,
+              masajid.id,
+              input_week_start
+            )
+          )
+          or (
+            public.current_toronto_civil_date()
+              > public.halaqa_saturday_for_week(input_week_start)
+            and private.raw_historical_teacher_assignment_is_valid(
+              input_actor_id,
+              input_group_id,
+              input_week_start
+            )
+            and private.raw_has_current_active_teacher_staff_for_masjid(
+              input_actor_id,
+              masajid.id,
+              public.current_toronto_civil_date()
+            )
+          )
+        )
+    );
+$$;
+
+-- All legacy group/week authorization call sites are operational paths, so
+-- they inherit the exact Sunday-through-Saturday and post-event rules above.
+create or replace function private.raw_is_teacher_for_group_week(
+  input_actor_id uuid,
+  input_group_id uuid,
+  input_week_start date
+)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select private.raw_can_teacher_access_assignment(
+    input_actor_id,
+    input_group_id,
+    input_week_start
+  );
+$$;
+
+-- Navigation may show an assigned teacher an upcoming or completed label,
+-- but this predicate is never used for roster, plan, or grading access.
+create or replace function private.raw_can_view_teacher_assignment_context(
   input_actor_id uuid,
   input_group_id uuid,
   input_week_start date
@@ -73,31 +254,31 @@ set search_path = ''
 as $$
   select exists (
     select 1
-    from public.profiles as actors
-    join public.group_teacher_assignments as assignments
-      on assignments.teacher_id = actors.id
+    from public.group_teacher_assignments as assignments
     join public.halaqa_groups as groups on groups.id = assignments.group_id
     join public.cohorts on cohorts.id = groups.cohort_id
     join public.masajid on masajid.id = cohorts.masjid_id
-    join public.masjid_staff_memberships as staff
-      on staff.profile_id = actors.id
-      and staff.masjid_id = masajid.id
-      and staff.staff_role = 'teacher'
-    where actors.id = input_actor_id
-      and actors.role in ('teacher', 'admin', 'super_admin')
-      and actors.active = true
+    where assignments.teacher_id = input_actor_id
       and assignments.group_id = input_group_id
       and assignments.week_start = input_week_start
       and assignments.active = true
-      and staff.active = true
-      and staff.starts_on <= public.halaqa_saturday_for_week(input_week_start)
-      and (
-        staff.ends_on is null
-        or staff.ends_on >= public.halaqa_saturday_for_week(input_week_start)
+      and private.raw_historical_teacher_assignment_is_valid(
+        input_actor_id,
+        input_group_id,
+        input_week_start
       )
       and (
         public.halaqa_saturday_for_week(input_week_start) < public.current_toronto_civil_date()
-        or (groups.active = true and cohorts.active = true and masajid.active = true)
+        or (
+          groups.active = true
+          and cohorts.active = true
+          and masajid.active = true
+          and private.raw_teacher_has_halaqa_saturday_eligibility(
+            input_actor_id,
+            masajid.id,
+            input_week_start
+          )
+        )
       )
   );
 $$;
@@ -414,7 +595,7 @@ as $$
   join public.masajid on masajid.id = cohorts.masjid_id
   where assignments.teacher_id = (select auth.uid())
     and assignments.active = true
-    and private.raw_can_teacher_access_assignment(
+    and private.raw_can_view_teacher_assignment_context(
       (select auth.uid()), assignments.group_id, assignments.week_start
     )
   order by assignments.week_start desc, masajid.name, cohorts.sort_order, groups.sort_order, groups.name;
@@ -553,24 +734,94 @@ begin
   select profiles.name
   from public.group_teacher_assignments as assignments
   join public.profiles on profiles.id = assignments.teacher_id
-  where assignments.group_id = private.raw_student_group_for_week((select auth.uid()), input_week_start)
+  where assignments.group_id = private.raw_historical_student_group_for_week(
+      (select auth.uid()),
+      input_week_start
+    )
     and assignments.week_start = input_week_start
     and assignments.active = true
-    and profiles.active = true
     and exists (
       select 1 from public.profiles as caller
       where caller.id = (select auth.uid())
         and caller.role = 'student'
         and caller.active = true
     )
-    and private.raw_is_rotation_teacher_for_masjid_week(
+    and private.raw_historical_teacher_assignment_is_valid(
       assignments.teacher_id,
-      private.raw_group_masjid_id(assignments.group_id),
+      assignments.group_id,
       input_week_start
     )
   order by assignments.created_at desc
   limit 1;
 end;
+$$;
+
+-- Retained for server-side and administrative callers. This projection is
+-- deliberately display-only and uses the same historical identity proof as
+-- the student-facing name RPC.
+create or replace function public.student_weekly_teacher(
+  input_student_id uuid,
+  input_week_start date
+)
+returns table (
+  teacher_id uuid,
+  teacher_name text
+)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select profiles.id, profiles.name
+  from public.group_teacher_assignments as assignments
+  join public.profiles on profiles.id = assignments.teacher_id
+  where assignments.group_id = private.raw_historical_student_group_for_week(
+      input_student_id,
+      input_week_start
+    )
+    and assignments.week_start = input_week_start
+    and assignments.active = true
+    and private.raw_historical_teacher_assignment_is_valid(
+      assignments.teacher_id,
+      assignments.group_id,
+      input_week_start
+    )
+    and (
+      coalesce((select auth.jwt() ->> 'role'), '') = 'service_role'
+      or (
+        input_student_id = (select auth.uid())
+        and exists (
+          select 1
+          from public.profiles as caller
+          where caller.id = (select auth.uid())
+            and caller.role = 'student'
+            and caller.active = true
+        )
+      )
+      or private.raw_is_active_super_admin((select auth.uid()))
+      or exists (
+        select 1
+        from public.profiles as caller
+        join public.masjid_staff_memberships as staff
+          on staff.profile_id = caller.id
+        join public.halaqa_groups as groups
+          on groups.id = assignments.group_id
+        join public.cohorts on cohorts.id = groups.cohort_id
+        where caller.id = (select auth.uid())
+          and caller.role = 'admin'
+          and caller.active = true
+          and staff.masjid_id = cohorts.masjid_id
+          and staff.staff_role = 'admin'
+          and staff.active = true
+          and staff.starts_on <= public.current_toronto_civil_date()
+          and (
+            staff.ends_on is null
+            or staff.ends_on >= public.current_toronto_civil_date()
+          )
+      )
+    )
+  order by assignments.created_at desc
+  limit 1;
 $$;
 
 create or replace function public.apply_teacher_rotation_generation(
@@ -736,22 +987,10 @@ begin
         and halaqa_groups.cohort_id = input_cohort_id
         and halaqa_groups.active = true
     )
-    or not exists (
-      select 1
-      from public.profiles
-      join public.masjid_staff_memberships
-        on masjid_staff_memberships.profile_id = profiles.id
-      where profiles.id = payload.teacher_id
-        and profiles.role in ('teacher', 'admin', 'super_admin')
-        and profiles.active = true
-        and masjid_staff_memberships.masjid_id = cohort_masjid
-        and masjid_staff_memberships.staff_role = 'teacher'
-        and masjid_staff_memberships.active = true
-        and masjid_staff_memberships.starts_on <= public.halaqa_saturday_for_week(input_week_start)
-        and (
-          masjid_staff_memberships.ends_on is null
-          or masjid_staff_memberships.ends_on >= public.halaqa_saturday_for_week(input_week_start)
-        )
+    or not private.raw_teacher_has_halaqa_saturday_eligibility(
+      payload.teacher_id,
+      cohort_masjid,
+      input_week_start
     );
 
   if invalid_count > 0 then
@@ -1331,8 +1570,42 @@ security definer
 set search_path = ''
 as $$
 begin
+  if tg_table_name = 'cohort_rotation_settings' then
+    if not exists (
+      select 1
+      from public.cohorts
+      where cohorts.id = new.cohort_id
+        and cohorts.masjid_id = new.masjid_id
+    ) then
+      raise exception 'cohort_id must belong to masjid_id';
+    end if;
+
+    return new;
+  end if;
+
+  if tg_table_name = 'teacher_rotation_availability' then
+    if not exists (
+      select 1
+      from public.cohorts
+      where cohorts.id = new.cohort_id
+        and cohorts.masjid_id = new.masjid_id
+    ) then
+      raise exception 'cohort_id must belong to masjid_id';
+    end if;
+
+    if not private.raw_teacher_has_halaqa_saturday_eligibility(
+      new.teacher_id,
+      new.masjid_id,
+      new.week_start
+    ) then
+      raise exception 'teacher_id must have active teacher staff membership through the Saturday halaqa date.';
+    end if;
+
+    return new;
+  end if;
+
   if tg_table_name = 'group_teacher_assignments' then
-    if not private.raw_is_rotation_teacher_for_masjid_week(
+    if new.active and not private.raw_teacher_has_halaqa_saturday_eligibility(
       new.teacher_id,
       private.raw_group_masjid_id(new.group_id),
       new.week_start
@@ -1343,42 +1616,17 @@ begin
     return new;
   end if;
 
-  if not exists (
-    select 1
-    from public.cohorts
-    where cohorts.id = new.cohort_id
-      and cohorts.masjid_id = new.masjid_id
-  ) then
-    raise exception 'cohort_id must belong to masjid_id';
-  end if;
-
-  if tg_table_name = 'teacher_rotation_availability'
-    and not private.raw_is_rotation_teacher_for_masjid_week(
-      new.teacher_id, new.masjid_id, new.week_start
-    ) then
-    raise exception 'teacher_id must have active teacher staff membership through the Saturday halaqa date.';
-  end if;
-
-  return new;
+  raise exception 'teacher_rotation_row_scope_matches is not attached to table %', tg_table_name;
 end;
 $$;
 
-do $$
-begin
-  if not exists (
-    select 1
-    from pg_trigger
-    where tgrelid = 'public.group_teacher_assignments'::regclass
-      and tgname = 'teacher_assignment_teacher_eligibility_trigger'
-      and not tgisinternal
-  ) then
-    create trigger teacher_assignment_teacher_eligibility_trigger
-      before insert or update of teacher_id, group_id, week_start
-      on public.group_teacher_assignments
-      for each row execute function public.teacher_rotation_row_scope_matches();
-  end if;
-end;
-$$;
+drop trigger if exists teacher_assignment_teacher_eligibility_trigger
+  on public.group_teacher_assignments;
+
+create trigger teacher_assignment_teacher_eligibility_trigger
+  before insert or update of teacher_id, group_id, week_start, active
+  on public.group_teacher_assignments
+  for each row execute function public.teacher_rotation_row_scope_matches();
 
 revoke all on function public.current_toronto_civil_date() from public, anon, authenticated, service_role;
 revoke all on function public.halaqa_saturday_for_week(date) from public, anon, authenticated, service_role;
