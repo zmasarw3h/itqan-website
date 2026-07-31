@@ -1,5 +1,11 @@
 import "server-only";
-import { formatWeekRange, isValidDateString, todayDateString, weekStartForDate } from "@/lib/dates";
+import {
+  formatWeekRange,
+  halaqaSaturdayForWeek,
+  isValidDateString,
+  torontoCivilDateString,
+  weekStartForDate
+} from "@/lib/dates";
 import { loadAdminCreateUserScopeOptions } from "@/lib/admin-scope";
 import {
   buildRotationContexts,
@@ -131,8 +137,8 @@ export const ROTATION_STATUS_MESSAGES: Record<string, { text: string; className:
   }
 };
 
-export function defaultRotationWeekStart(today = todayDateString()) {
-  return weekStartForDate(today);
+export function defaultRotationWeekStart(civilDate = torontoCivilDateString()) {
+  return weekStartForDate(civilDate);
 }
 
 export function validRotationWeekStart(value: string | undefined, fallback = defaultRotationWeekStart()) {
@@ -281,14 +287,15 @@ export async function loadActiveRotationTeachers(input: {
   context: RotationContext;
   weekStart: string;
 }): Promise<RotationTeacherRow[]> {
+  const halaqaSaturday = halaqaSaturdayForWeek(input.weekStart);
   const { data: staffRows, error: staffError } = await input.adminSupabase
     .from("masjid_staff_memberships")
     .select("profile_id,starts_on")
     .eq("masjid_id", input.context.masjid.id)
     .eq("staff_role", "teacher")
     .eq("active", true)
-    .lte("starts_on", input.weekStart)
-    .or(`ends_on.is.null,ends_on.gte.${input.weekStart}`)
+    .lte("starts_on", halaqaSaturday)
+    .or(`ends_on.is.null,ends_on.gte.${halaqaSaturday}`)
     .order("starts_on", { ascending: true })
     .returns<Array<{ profile_id: string; starts_on: string }>>();
 

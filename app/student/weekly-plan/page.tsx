@@ -1,7 +1,7 @@
 import AppNav from "@/app/nav";
 import { StudentSetupIncomplete, StudentWeekContextPanel } from "@/app/student/student-week-context";
 import WeeklyPlanUploadForm from "@/app/student/weekly-plan/weekly-plan-upload-form";
-import { formatDateTimeInAppTimeZone, formatWeekRange, todayDateString, weekStartForDate } from "@/lib/dates";
+import { formatDateTimeInAppTimeZone, formatWeekRange, torontoCivilDateString, weekStartForDate } from "@/lib/dates";
 import { loadStudentWeekContext } from "@/lib/student-scope";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
@@ -48,7 +48,7 @@ export default async function StudentWeeklyPlanPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["student"]);
-  const weekStart = weekStartForDate(todayDateString());
+  const weekStart = weekStartForDate(torontoCivilDateString());
   const studentContext = await loadStudentWeekContext(supabase, profile.id, weekStart);
 
   if (!studentContext.scope) {

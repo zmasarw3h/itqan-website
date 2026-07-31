@@ -16,7 +16,12 @@ import {
 } from "@/lib/admin-scope-rules";
 import { buildAdminUserCreateInput, scopedUserSetupFailureSearchParams } from "@/lib/admin-users";
 import { normalizeNote } from "@/lib/checkins";
-import { isValidDateString, todayDateString, weekStartForDate } from "@/lib/dates";
+import {
+  checkInEffectiveDateString,
+  isValidDateString,
+  torontoCivilDateString,
+  weekStartForDate
+} from "@/lib/dates";
 import { PARTNER_RECITATION_ROUNDS, parsePartnerRecitationRounds, partnerRecitationPayloads } from "@/lib/partner-recitations";
 import { HALAQA_ATTENDANCE_POINTS } from "@/lib/scoring";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -66,7 +71,7 @@ export async function createUser(formData: FormData) {
     redirect(`${createUserPath}?status=invalid`);
   }
 
-  const today = todayDateString();
+  const today = torontoCivilDateString();
   const startsOn = weekStartForDate(today);
   const submittedScoreStartsOn = formString(formData.get("score_starts_on"));
   const selectedStudentMasjidId = formString(formData.get("student_masjid_id"));
@@ -302,7 +307,7 @@ export async function correctCheckIn(formData: FormData) {
     redirect("/admin?status=invalid-correction");
   }
 
-  if (date > todayDateString()) {
+  if (date > checkInEffectiveDateString()) {
     redirect(adminStudentStatusPath(studentId, "correction-future-date", redirectWeek));
   }
 
@@ -483,7 +488,11 @@ export async function deleteStudent(formData: FormData) {
     redirect(`/admin/students/${student.id}?status=delete-name-mismatch`);
   }
 
-  const canManageStudent = await canAdminManageStudentForWeek(supabase, student.id, weekStartForDate(todayDateString()));
+  const canManageStudent = await canAdminManageStudentForWeek(
+    supabase,
+    student.id,
+    weekStartForDate(torontoCivilDateString())
+  );
 
   if (!canManageStudent) {
     redirect("/admin?status=student-scope-denied");

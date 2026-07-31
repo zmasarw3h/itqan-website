@@ -8,7 +8,8 @@ import {
   halaqaSaturdayForWeek,
   halaqaWeekStarts,
   isValidDateString,
-  todayDateString,
+  checkInEffectiveDateString,
+  torontoCivilDateString,
   weekDatesFromStart,
   weekStartForDate
 } from "@/lib/dates";
@@ -33,15 +34,23 @@ describe("app timezone timestamp formatting", () => {
 
 describe("check-in date reset", () => {
   it("returns the previous date before the reset hour in America/Toronto", () => {
-    expect(todayDateString(new Date("2026-05-11T04:30:00.000Z"))).toBe("2026-05-10");
+    expect(checkInEffectiveDateString(new Date("2026-05-11T04:30:00.000Z"))).toBe("2026-05-10");
   });
 
   it("returns the current date at the reset hour in America/Toronto", () => {
-    expect(todayDateString(new Date("2026-05-11T05:00:00.000Z"))).toBe("2026-05-11");
+    expect(checkInEffectiveDateString(new Date("2026-05-11T05:00:00.000Z"))).toBe("2026-05-11");
   });
 
   it("returns the current date after the reset hour in America/Toronto", () => {
-    expect(todayDateString(new Date("2026-05-11T12:00:00.000Z"))).toBe("2026-05-11");
+    expect(checkInEffectiveDateString(new Date("2026-05-11T12:00:00.000Z"))).toBe("2026-05-11");
+  });
+
+  it("keeps the Toronto civil date distinct from the check-in effective date before 1:00 AM", () => {
+    const beforeReset = new Date("2026-07-19T04:30:00.000Z");
+
+    expect(torontoCivilDateString(beforeReset)).toBe("2026-07-19");
+    expect(checkInEffectiveDateString(beforeReset)).toBe("2026-07-18");
+    expect(halaqaWeekStarts(torontoCivilDateString(beforeReset)).current).toBe("2026-07-19");
   });
 
   it("builds Sunday-Saturday tracker weeks", () => {

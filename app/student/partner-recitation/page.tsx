@@ -1,7 +1,7 @@
 import AppNav from "@/app/nav";
 import { submitPartnerRecitation } from "@/app/student/actions";
 import { StudentSetupIncomplete, StudentWeekContextPanel } from "@/app/student/student-week-context";
-import { formatDateTimeInAppTimeZone, friendlyDate, todayDateString, weekStartForDate } from "@/lib/dates";
+import { checkInEffectiveDateString, formatDateTimeInAppTimeZone, friendlyDate, weekStartForDate } from "@/lib/dates";
 import { buildPartnerRecitationView } from "@/lib/partner-recitations";
 import { loadStudentWeekContext } from "@/lib/student-scope";
 import { requireProfile } from "@/lib/supabase-server";
@@ -20,7 +20,7 @@ export default async function PartnerRecitationPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["student"]);
-  const today = todayDateString();
+  const today = checkInEffectiveDateString();
   const weekStart = weekStartForDate(today);
   const studentContext = await loadStudentWeekContext(supabase, profile.id, weekStart);
 

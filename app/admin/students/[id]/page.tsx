@@ -13,7 +13,7 @@ import {
   formatWeekRange,
   friendlyDate,
   isValidDateString,
-  todayDateString,
+  checkInEffectiveDateString,
   weekDatesFromStart,
   weekStartForDate
 } from "@/lib/dates";
@@ -127,7 +127,7 @@ export default async function AdminStudentPage({
   const resolvedParams = await params;
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["admin"]);
-  const today = todayDateString();
+  const today = checkInEffectiveDateString();
   const currentTrackerWeekStart = weekStartForDate(today);
   const selectedWeekStart = validWeekStart(resolvedSearchParams.week, currentTrackerWeekStart);
   const selectedWeekDates = weekDatesFromStart(selectedWeekStart);

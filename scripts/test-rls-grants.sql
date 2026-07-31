@@ -30,6 +30,7 @@ insert into expected_authenticated_definers (signature) values
   ('cohort_masjid_id(uuid)'),
   ('current_effective_date()'),
   ('current_partner_recitation_round()'),
+  ('current_toronto_civil_date()'),
   ('group_masjid_id(uuid)'),
   ('is_active_admin()'),
   ('is_active_student()'),

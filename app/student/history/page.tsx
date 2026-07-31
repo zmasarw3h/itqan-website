@@ -5,7 +5,7 @@ import {
   formatWeekRange,
   friendlyDate,
   isValidDateString,
-  todayDateString,
+  checkInEffectiveDateString,
   weekDatesFromStart,
   weekStartForDate
 } from "@/lib/dates";
@@ -36,7 +36,7 @@ export default async function StudentHistoryPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["student"]);
-  const today = todayDateString();
+  const today = checkInEffectiveDateString();
   const currentWeekStart = weekStartForDate(today);
   const selectedWeekStart = validWeekStart(resolvedSearchParams.week, currentWeekStart);
   const selectedWeekDates = weekDatesFromStart(selectedWeekStart);

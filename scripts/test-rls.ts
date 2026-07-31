@@ -22,6 +22,7 @@ type UserName =
   | "adminB"
   | "teacherA"
   | "teacherB"
+  | "fridayOnlyTeacher"
   | "expiredTeacher"
   | "futureTeacher"
   | "inactiveTeacher"
@@ -60,6 +61,7 @@ type SeedIds = {
   groupA: string;
   groupB: string;
   groupAdminTeacher: string;
+  groupFridayOnly: string;
   groupWriter: string;
   today: string;
   weekStart: string;
@@ -102,6 +104,7 @@ type SeedIds = {
   assignmentA: string;
   assignmentAdminTeacher: string;
   assignmentB: string;
+  assignmentFridayOnly: string;
   assignmentWriter: string;
   expiredTeacherAssignment: string;
   futureTeacherAssignment: string;
@@ -114,7 +117,7 @@ type SeedIds = {
   auditId: string;
 };
 
-function torontoDateString() {
+function torontoCivilDateString() {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Toronto",
     year: "numeric",
@@ -124,8 +127,24 @@ function torontoDateString() {
     hourCycle: "h23"
   }).formatToParts(new Date());
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  const calendarDate = `${values.year}-${values.month}-${values.day}`;
-  return Number(values.hour) < 1 ? addDays(calendarDate, -1) : calendarDate;
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function checkInEffectiveDateString() {
+  const civilDate = torontoCivilDateString();
+  const hour = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Toronto",
+    hour: "2-digit",
+    hourCycle: "h23"
+  })
+    .formatToParts(new Date())
+    .find((part) => part.type === "hour")?.value;
+
+  if (!hour) {
+    throw new Error("Unable to determine the Toronto hour.");
+  }
+
+  return Number(hour) < 1 ? addDays(civilDate, -1) : civilDate;
 }
 
 function addDays(date: string, days: number) {
@@ -182,6 +201,7 @@ async function seed(): Promise<SeedIds> {
     "adminB",
     "teacherA",
     "teacherB",
+    "fridayOnlyTeacher",
     "expiredTeacher",
     "futureTeacher",
     "inactiveTeacher",
@@ -274,6 +294,7 @@ async function seed(): Promise<SeedIds> {
     admin.from("halaqa_groups").insert([
       { cohort_id: cohortA, name: "A Group", active: true, sort_order: 10 },
       { cohort_id: cohortA, name: "A Admin Teacher Group", active: true, sort_order: 15 },
+      { cohort_id: cohortA, name: "A Friday Only Group", active: true, sort_order: 17 },
       { cohort_id: cohortWriter, name: "A Writer Group", active: true, sort_order: 10 },
       { cohort_id: cohortB, name: "B Group", active: true, sort_order: 10 },
       { cohort_id: inactiveMasjidCohort, name: "Inactive Masjid Group", active: true, sort_order: 10 },
@@ -283,14 +304,16 @@ async function seed(): Promise<SeedIds> {
   );
   const groupA = groups.find((row) => row.name === "A Group")!.id;
   const groupAdminTeacher = groups.find((row) => row.name === "A Admin Teacher Group")!.id;
+  const groupFridayOnly = groups.find((row) => row.name === "A Friday Only Group")!.id;
   const groupWriter = groups.find((row) => row.name === "A Writer Group")!.id;
   const groupB = groups.find((row) => row.name === "B Group")!.id;
   const inactiveMasjidGroup = groups.find((row) => row.name === "Inactive Masjid Group")!.id;
   const inactiveCohortGroup = groups.find((row) => row.name === "Inactive Cohort Group")!.id;
   const inactiveGroup = groups.find((row) => row.name === "Inactive Group")!.id;
 
-  const today = torontoDateString();
-  const weekStart = weekStartForDate(today);
+  const civilToday = torontoCivilDateString();
+  const today = checkInEffectiveDateString();
+  const weekStart = weekStartForDate(civilToday);
   const previousWeekStart = addDays(weekStart, -7);
   const unassignedWeekStart = addDays(weekStart, -14);
   const startsOn = addDays(weekStart, -28);
@@ -298,8 +321,8 @@ async function seed(): Promise<SeedIds> {
   const historicalEndsOn = addDays(startsOn, -1);
   const inactiveHistoricalStartsOn = addDays(historicalStartsOn, -28);
   const inactiveHistoricalEndsOn = addDays(historicalStartsOn, -1);
-  const yesterday = addDays(today, -1);
-  const tomorrow = addDays(today, 1);
+  const yesterday = addDays(civilToday, -1);
+  const tomorrow = addDays(civilToday, 1);
 
   const studentMemberships = await requireData<Array<{ id: string; student_id: string; group_id: string }>>(
     "insert student memberships",
@@ -371,6 +394,13 @@ async function seed(): Promise<SeedIds> {
       { profile_id: users.teacherA, masjid_id: masjidA, staff_role: "teacher", active: true, starts_on: startsOn },
       { profile_id: users.teacherB, masjid_id: masjidB, staff_role: "teacher", active: true, starts_on: startsOn },
       {
+        profile_id: users.fridayOnlyTeacher,
+        masjid_id: masjidA,
+        staff_role: "teacher",
+        active: true,
+        starts_on: weekStart
+      },
+      {
         profile_id: users.expiredAssignmentTeacher,
         masjid_id: masjidA,
         staff_role: "teacher",
@@ -421,6 +451,7 @@ async function seed(): Promise<SeedIds> {
     admin.from("group_teacher_assignments").insert([
       { group_id: groupA, teacher_id: users.teacherA, week_start: weekStart, active: true, assigned_by: users.adminA },
       { group_id: groupAdminTeacher, teacher_id: users.adminA, week_start: weekStart, active: true, assigned_by: users.superAdmin },
+      { group_id: groupFridayOnly, teacher_id: users.fridayOnlyTeacher, week_start: weekStart, active: true, assigned_by: users.superAdmin },
       { group_id: groupWriter, teacher_id: users.teacherA, week_start: weekStart, active: true, assigned_by: users.superAdmin },
       { group_id: groupB, teacher_id: users.teacherB, week_start: weekStart, active: true, assigned_by: users.adminB },
       {
@@ -441,6 +472,7 @@ async function seed(): Promise<SeedIds> {
   );
   const assignmentA = assignments.find((row) => row.group_id === groupA)!.id;
   const assignmentAdminTeacher = assignments.find((row) => row.group_id === groupAdminTeacher)!.id;
+  const assignmentFridayOnly = assignments.find((row) => row.group_id === groupFridayOnly)!.id;
   const assignmentWriter = assignments.find((row) => row.group_id === groupWriter)!.id;
   const assignmentB = assignments.find((row) => row.group_id === groupB)!.id;
   const expiredTeacherAssignment = assignments.find(
@@ -449,6 +481,17 @@ async function seed(): Promise<SeedIds> {
   const futureTeacherAssignment = assignments.find(
     (row) => row.teacher_id === users.futureAssignmentTeacher
   )!.id;
+
+  await requireData(
+    "expire Friday-only teacher staff before the Saturday halaqa event",
+    admin
+      .from("masjid_staff_memberships")
+      .update({ ends_on: addDays(weekStart, 5) })
+      .eq("profile_id", users.fridayOnlyTeacher)
+      .eq("masjid_id", masjidA)
+      .eq("staff_role", "teacher")
+      .select("id")
+  );
 
   const submissionA = calculateDailySubmission(today, tasksForDate(today).map((task) => task.key));
   const submissionA2 = calculateDailySubmission(today, []);
@@ -716,6 +759,7 @@ async function seed(): Promise<SeedIds> {
     groupA,
     groupB,
     groupAdminTeacher,
+    groupFridayOnly,
     groupWriter,
     today,
     weekStart,
@@ -758,6 +802,7 @@ async function seed(): Promise<SeedIds> {
     assignmentA,
     assignmentAdminTeacher,
     assignmentB,
+    assignmentFridayOnly,
     assignmentWriter,
     expiredTeacherAssignment,
     futureTeacherAssignment,
@@ -821,6 +866,7 @@ async function runAssertions(ids: SeedIds) {
     adminB,
     teacherA,
     teacherB,
+    fridayOnlyTeacher,
     studentA,
     studentA2,
     studentWriter,
@@ -840,6 +886,7 @@ async function runAssertions(ids: SeedIds) {
     signIn("adminB"),
     signIn("teacherA"),
     signIn("teacherB"),
+    signIn("fridayOnlyTeacher"),
     signIn("studentA"),
     signIn("studentA2"),
     signIn("studentWriter"),
@@ -1981,6 +2028,47 @@ async function runAssertions(ids: SeedIds) {
     "balanced student moved away from the deterministic first group"
   );
 
+  const fridayOnlyAvailability = await service.from("teacher_rotation_availability").insert({
+    teacher_id: ids.users.fridayOnlyTeacher,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortWriter,
+    week_start: ids.weekStart,
+    available: true
+  });
+  assert.ok(fridayOnlyAvailability.error, "Friday-only teacher was accepted for the Saturday rotation event");
+
+  const fridayOnlyAssignment = await service.from("group_teacher_assignments").upsert(
+    {
+      group_id: ids.groupWriter,
+      teacher_id: ids.users.fridayOnlyTeacher,
+      week_start: ids.weekStart,
+      active: true,
+      assigned_by: ids.users.adminA
+    },
+    { onConflict: "group_id,week_start" }
+  );
+  assert.ok(fridayOnlyAssignment.error, "assignment trigger accepted a teacher whose staff access ends Friday");
+
+  const fridayOnlyGeneration = await service.rpc("apply_teacher_rotation_generation", {
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: ids.weekStart,
+    input_generated_by: ids.users.adminA,
+    membership_closes: [],
+    membership_inserts: [],
+    membership_replaces: [],
+    assignment_upserts: [{
+      group_id: ids.groupWriter,
+      teacher_id: ids.users.fridayOnlyTeacher,
+      week_start: ids.weekStart
+    }],
+    assignment_deactivations: [],
+    available_teacher_count: 1,
+    group_count: 2,
+    assigned_count: 1,
+    warning_count: 0
+  });
+  assert.ok(fridayOnlyGeneration.error, "rotation RPC accepted a teacher whose staff access ends Friday");
+
   const { data: generatedRunId, error: generatedRunError } = await service.rpc(
     "apply_teacher_rotation_generation",
     {
@@ -2071,6 +2159,28 @@ async function runAssertions(ids: SeedIds) {
     await assertVisible(teacherA, table, ownId);
     await assertHidden(teacherA, table, crossId);
   }
+  await assertHidden(fridayOnlyTeacher, "group_teacher_assignments", ids.assignmentFridayOnly);
+  const { data: fridayOnlyTeacherAssignmentContexts, error: fridayOnlyTeacherAssignmentContextsError } =
+    await fridayOnlyTeacher.rpc("teacher_assignment_contexts");
+  assert.equal(
+    fridayOnlyTeacherAssignmentContextsError,
+    null,
+    fridayOnlyTeacherAssignmentContextsError?.message
+  );
+  assert.deepEqual(
+    fridayOnlyTeacherAssignmentContexts,
+    [],
+    "Friday-only teacher received an assignment context for a Saturday halaqa week"
+  );
+  const { data: fridayOnlyTeacherScope } = await fridayOnlyTeacher.rpc("is_teacher_for_group_week", {
+    input_group_id: ids.groupFridayOnly,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(fridayOnlyTeacherScope, false, "Friday-only teacher retained group-week authorization");
+  await assertRpcDenied(fridayOnlyTeacher, "teacher_group_roster_context", {
+    input_group_id: ids.groupFridayOnly,
+    input_week_start: ids.weekStart
+  });
   const { data: leakedTeacherProfile, error: leakedTeacherProfileError } = await teacherA
     .from("profiles")
     .select("id,name,email,phone")
@@ -3410,6 +3520,7 @@ async function runAssertions(ids: SeedIds) {
     ["is_active_super_admin"],
     ["current_effective_date"],
     ["current_partner_recitation_round"],
+    ["current_toronto_civil_date"],
     ["is_admin_for_masjid", { input_masjid_id: ids.masjidA }],
     ["is_staff_for_masjid", { input_masjid_id: ids.masjidA }],
     ["is_teacher_for_group_week", { input_group_id: ids.groupA, input_week_start: ids.weekStart }],

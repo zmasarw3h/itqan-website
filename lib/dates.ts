@@ -39,7 +39,11 @@ function getDatePartsInTimeZone(date: Date, timeZone: string) {
   return { dateString: `${year}-${month}-${day}`, hour: Number(hour) };
 }
 
-export function todayDateString(
+export function torontoCivilDateString(now = new Date(), timeZone = APP_TIME_ZONE) {
+  return getDatePartsInTimeZone(now, timeZone).dateString;
+}
+
+export function checkInEffectiveDateString(
   now = new Date(),
   timeZone = APP_TIME_ZONE,
   resetHour = CHECK_IN_RESET_HOUR
@@ -104,8 +108,8 @@ export function weekDatesFromStart(weekStart: string) {
   return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
 }
 
-export function currentWeekDates(today = todayDateString()) {
-  return weekDatesFromStart(weekStartForDate(today));
+export function currentWeekDates(checkInEffectiveDate = checkInEffectiveDateString()) {
+  return weekDatesFromStart(weekStartForDate(checkInEffectiveDate));
 }
 
 export function formatWeekRange(weekStart: string) {
@@ -150,8 +154,8 @@ export function formatHalaqaSaturday(weekStart: string) {
   }).format(new Date(`${halaqaSaturdayForWeek(weekStart)}T00:00:00.000Z`));
 }
 
-export function halaqaWeekStarts(today = todayDateString()) {
-  const current = weekStartForDate(today);
+export function halaqaWeekStarts(civilDate = torontoCivilDateString()) {
+  const current = weekStartForDate(civilDate);
 
   return {
     previous: addDays(current, -7),

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import AppNav from "@/app/nav";
 import { SUPER_ADMIN_PEOPLE_STATUS_MESSAGES, loadPersonDetailData } from "@/app/super-admin/data";
 import { GuidedAccessChange } from "@/app/super-admin/people/[id]/access/guided-access-change";
-import { todayDateString } from "@/lib/dates";
+import { torontoCivilDateString } from "@/lib/dates";
 import { reconcilePersonDetailWithAccessState } from "@/lib/person-access-state";
 import { requireSuperAdminAdminClient } from "@/lib/super-admin";
 import type { GuidedAccessSnapshot } from "@/lib/super-admin-guided-change";
@@ -112,7 +112,7 @@ export default async function SuperAdminPersonAccessPage({
 
         <GuidedAccessChange
           snapshot={snapshot}
-          today={todayDateString()}
+          today={torontoCivilDateString()}
         />
       </main>
     </>

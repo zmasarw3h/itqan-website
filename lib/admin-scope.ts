@@ -9,7 +9,7 @@ import type {
   AdminUserGroupScope as AdminGroupScope,
   AdminUserMasjidScope as AdminMasjidScope
 } from "@/lib/admin-user-scope";
-import { todayDateString } from "@/lib/dates";
+import { torontoCivilDateString } from "@/lib/dates";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import type { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requireProfile } from "@/lib/supabase-server";
@@ -123,7 +123,7 @@ async function loadAllActiveMasjidScopes(adminSupabase: AdminSupabaseClient): Pr
 export async function loadAdminMasjidScopes(
   adminSupabase: AdminSupabaseClient,
   adminId: string,
-  effectiveDate = todayDateString()
+  effectiveDate = torontoCivilDateString()
 ): Promise<AdminMasjidScope[]> {
   const { data, error } = await adminSupabase
     .from("masjid_staff_memberships")

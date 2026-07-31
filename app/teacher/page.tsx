@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import AppNav from "@/app/nav";
 import TeacherWeekSelector from "@/app/teacher/week-selector";
-import { formatWeekRange, todayDateString, weekStartForDate } from "@/lib/dates";
+import { formatWeekRange, torontoCivilDateString, weekStartForDate } from "@/lib/dates";
 import {
   assignmentWeekStarts,
   assignmentsForWeek,
@@ -23,7 +23,7 @@ export default async function TeacherDashboardPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const { supabase, profile, assignments } = await requireTeacherExperience();
-  const currentWeekStart = weekStartForDate(todayDateString());
+  const currentWeekStart = weekStartForDate(torontoCivilDateString());
   const requestedWeek = Array.isArray(resolvedSearchParams.week)
     ? resolvedSearchParams.week[0]
     : resolvedSearchParams.week;

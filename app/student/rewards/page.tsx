@@ -1,6 +1,6 @@
 import AppNav from "@/app/nav";
 import { StudentSetupIncomplete } from "@/app/student/student-week-context";
-import { formatWeekRange, todayDateString, weekStartForDate } from "@/lib/dates";
+import { checkInEffectiveDateString, formatWeekRange, weekStartForDate } from "@/lib/dates";
 import {
   buildStudentRewardSummary,
   formatMonthLabel,
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 export default async function StudentRewardsPage() {
   const { supabase, profile } = await requireProfile(["student"]);
-  const today = todayDateString();
+  const today = checkInEffectiveDateString();
   const currentWeekStart = weekStartForDate(today);
   const studentScope = await loadStudentScopeForWeek(supabase, profile.id, currentWeekStart);
 

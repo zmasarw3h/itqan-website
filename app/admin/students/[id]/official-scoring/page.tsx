@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import AppNav from "@/app/nav";
 import { applyOfficialScoringStart, reviewOfficialScoringStart } from "./actions";
 import { canAdminManageStudentForWeek, requireScopedAdmin } from "@/lib/admin-scope";
-import { addDays, formatWeekRange, todayDateString, weekStartForDate } from "@/lib/dates";
+import { addDays, formatWeekRange, torontoCivilDateString, weekStartForDate } from "@/lib/dates";
 import {
   isCanonicalScoringSunday,
   officialScoringStatus,
@@ -43,7 +43,7 @@ export default async function OfficialScoringPage({
 }) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
   const { supabase, adminSupabase, profile } = await requireScopedAdmin();
-  const currentWeekStart = weekStartForDate(todayDateString());
+  const currentWeekStart = weekStartForDate(torontoCivilDateString());
   const canManage = await canAdminManageStudentForWeek(supabase, id, currentWeekStart);
 
   if (!canManage) notFound();

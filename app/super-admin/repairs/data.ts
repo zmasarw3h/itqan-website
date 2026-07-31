@@ -1,5 +1,5 @@
 import "server-only";
-import { todayDateString, weekStartForDate } from "@/lib/dates";
+import { torontoCivilDateString, weekStartForDate } from "@/lib/dates";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import type {
   Cohort,
@@ -61,7 +61,7 @@ function coversDate(row: { active: boolean; starts_on: string; ends_on: string |
 }
 
 export async function loadRepairIssues(adminSupabase: AdminSupabaseClient) {
-  const today = todayDateString();
+  const today = torontoCivilDateString();
   const currentWeek = weekStartForDate(today);
 
   const [profiles, masajid, cohorts, groups, studentMemberships, staffMemberships, assignments] = await Promise.all([

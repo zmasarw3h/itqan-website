@@ -192,7 +192,11 @@ Uploading again during the same week replaces the existing weekly plan record. T
 
 Admins open `/admin/students/[id]` from the student list to view the student's current weekly plan. If a plan exists, the admin sees the file name, upload timestamp, and a signed view/download link. If no plan exists, the page shows `No plan uploaded for this week.`
 
-Teachers open `/teacher` and choose an assignment week. A weekly-plan link appears only for a student
+Teachers open `/teacher` and choose an assignment week. `week_start` remains the Sunday tracker-week
+storage key, while the halaqa event date is the following Saturday. Teacher staff eligibility for the
+assignment is evaluated on that Saturday, not on the Sunday storage key. Rotation navigation and
+request-time staff access use Toronto civil dates; the 1:00 AM effective date remains limited to daily
+check-ins, partner recitation, and reset-tied scoring. A weekly-plan link appears only for a student
 whose membership is effective in that teacher's assigned group for the exact week. The download route
 rechecks the assignment server-side and creates a five-minute signed URL with the signed-in session.
 

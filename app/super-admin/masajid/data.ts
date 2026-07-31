@@ -1,7 +1,7 @@
 import "server-only";
 import { buildMasjidSetupWarnings } from "@/lib/super-admin-setup";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { todayDateString } from "@/lib/dates";
+import { torontoCivilDateString } from "@/lib/dates";
 import type { Cohort, HalaqaGroup, Masjid, MasjidStaffMembership, Profile } from "@/lib/types";
 
 type AdminSupabaseClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -159,7 +159,7 @@ async function loadCurrentStaffForMasjids(adminSupabase: AdminSupabaseClient, ma
     return [];
   }
 
-  const today = todayDateString();
+  const today = torontoCivilDateString();
   const { data, error } = await adminSupabase
     .from("masjid_staff_memberships")
     .select("id,profile_id,masjid_id,staff_role,active,starts_on,ends_on")

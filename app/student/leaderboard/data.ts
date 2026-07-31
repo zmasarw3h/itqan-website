@@ -5,7 +5,7 @@ import {
   addDays,
   formatWeekRange,
   isValidDateString,
-  todayDateString,
+  checkInEffectiveDateString,
   weekStartForDate
 } from "@/lib/dates";
 import { loadStudentScopeForWeek, type StudentWeekScope } from "@/lib/student-scope";
@@ -66,7 +66,7 @@ export async function loadStudentLeaderboardData(
   currentStudentId: string,
   searchParams: StudentLeaderboardSearchParams
 ): Promise<StudentLeaderboardData> {
-  const today = todayDateString();
+  const today = checkInEffectiveDateString();
   const currentWeekStart = weekStartForDate(today);
   const selectedWeekStart = validWeekStart(searchParams.week, currentWeekStart);
   const previousWeekStart = addDays(selectedWeekStart, -7);

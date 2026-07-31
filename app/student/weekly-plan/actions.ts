@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { todayDateString, weekStartForDate } from "@/lib/dates";
+import { torontoCivilDateString, weekStartForDate } from "@/lib/dates";
 import { requireStudentScopeForWeek } from "@/lib/student-scope";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
@@ -18,7 +18,7 @@ import {
 export async function uploadWeeklyPlan(formData: FormData) {
   const { supabase, profile } = await requireProfile(["student"]);
   const file = formData.get("plan");
-  const weekStart = weekStartForDate(todayDateString());
+  const weekStart = weekStartForDate(torontoCivilDateString());
   try {
     await requireStudentScopeForWeek(supabase, profile.id, weekStart);
   } catch {

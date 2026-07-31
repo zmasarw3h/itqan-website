@@ -5,7 +5,13 @@ import {
   weekIsComplete,
   type LeaderboardRow
 } from "@/lib/leaderboard";
-import { formatWeekRange, isValidDateString, todayDateString, weekDatesFromStart, weekStartForDate } from "@/lib/dates";
+import {
+  checkInEffectiveDateString,
+  formatWeekRange,
+  isValidDateString,
+  weekDatesFromStart,
+  weekStartForDate
+} from "@/lib/dates";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn, HalaqaGrade, PartnerRecitation } from "@/lib/types";
 
@@ -116,7 +122,7 @@ export async function loadLeaderboardData(
   supabase: SupabaseClient,
   searchParams: LeaderboardSearchParams
 ): Promise<LeaderboardData> {
-  const today = todayDateString();
+  const today = checkInEffectiveDateString();
   const currentWeekStart = weekStartForDate(today);
   const selectedWeekStart = validWeekStart(searchParams.week, currentWeekStart);
   const below70Only = searchParams.below70 === "1";

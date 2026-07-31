@@ -2,7 +2,7 @@ import {
   addDays,
   formatWeekRange,
   isValidDateString,
-  todayDateString,
+  checkInEffectiveDateString,
   weekDatesFromStart,
   weekStartForDate
 } from "@/lib/dates";
@@ -219,7 +219,7 @@ export function computedBadgeAwardFromRow(row: WeeklyIncentiveScoreRow): Compute
 
 export async function loadCompletedWeekStarts(
   supabase: SupabaseClient,
-  today = todayDateString(),
+  today = checkInEffectiveDateString(),
   studentIds?: string[]
 ) {
   if (studentIds && !studentIds.length) {
@@ -361,7 +361,7 @@ export async function loadWeeklyIncentiveReportData(input: {
   students?: ActiveStudent[];
   today?: string;
 }) {
-  const today = input.today ?? todayDateString();
+  const today = input.today ?? checkInEffectiveDateString();
   const scopedStudentIds = input.students?.map((student) => student.id);
   const completedWeekStarts = await loadCompletedWeekStarts(input.supabase, today, scopedStudentIds);
   const selectedWeekStart = validCompletedWeekStart(input.week, completedWeekStarts);
@@ -411,7 +411,7 @@ export async function findOrCreateBlockingAccountabilityObligation(input: {
   studentId: string;
   today?: string;
 }) {
-  const today = input.today ?? todayDateString();
+  const today = input.today ?? checkInEffectiveDateString();
 
   if (!accountabilityGateIsActiveForDate(today)) {
     return null;

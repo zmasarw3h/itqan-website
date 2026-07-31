@@ -1,5 +1,5 @@
 import type { CheckIn, CheckInItem } from "@/lib/types";
-import { todayDateString } from "@/lib/dates";
+import { checkInEffectiveDateString } from "@/lib/dates";
 
 export type HistoryDayRow = {
   date: string;
@@ -38,7 +38,7 @@ export function buildHistoryDayRows(input: {
     itemsByCheckInId.set(item.checkin_id, [...(itemsByCheckInId.get(item.checkin_id) ?? []), item]);
   }
 
-  const today = input.today ?? todayDateString();
+  const today = input.today ?? checkInEffectiveDateString();
 
   return input.weekDates.map((date) => {
     const checkin = checkinByDate.get(date) ?? null;

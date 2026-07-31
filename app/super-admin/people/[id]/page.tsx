@@ -10,7 +10,7 @@ import {
   type TeacherAssignmentDetail
 } from "@/app/super-admin/data";
 import AppNav from "@/app/nav";
-import { formatDateTimeInAppTimeZone, formatWeekRange, todayDateString } from "@/lib/dates";
+import { formatDateTimeInAppTimeZone, formatWeekRange, torontoCivilDateString } from "@/lib/dates";
 import { officialScoringStatus } from "@/lib/official-scoring";
 import { reconcilePersonDetailWithAccessState } from "@/lib/person-access-state";
 import { requireSuperAdminAdminClient } from "@/lib/super-admin";
@@ -36,7 +36,7 @@ function stateClass(active: boolean) {
   return active ? "bg-green-50 text-green-800" : "bg-stone-100 text-stone-600";
 }
 
-function membershipState(input: { starts_on: string; ends_on: string | null; active?: boolean }, today = todayDateString()) {
+function membershipState(input: { starts_on: string; ends_on: string | null; active?: boolean }, today = torontoCivilDateString()) {
   const activeByDate = input.starts_on <= today && (!input.ends_on || input.ends_on >= today);
 
   if (input.active === false) return { label: "Inactive", className: "bg-stone-100 text-stone-600" };
@@ -185,7 +185,7 @@ function StaffMembershipCard({
               <span className="text-sm font-medium text-ink">Ends on</span>
               <input
                 className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
-                defaultValue={todayDateString()}
+                defaultValue={torontoCivilDateString()}
                 min={membership.starts_on}
                 name="ends_on"
                 required
@@ -361,7 +361,7 @@ function GuidedChangeEntry({ profile }: { profile: Profile }) {
 
 function ScoreStartCorrectionPanel({ profile }: { profile: Profile }) {
   if (profile.role !== "student") return null;
-  const status = officialScoringStatus(profile.score_starts_on, todayDateString());
+  const status = officialScoringStatus(profile.score_starts_on, torontoCivilDateString());
 
   return (
     <section className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">

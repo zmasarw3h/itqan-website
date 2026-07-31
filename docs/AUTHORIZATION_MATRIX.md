@@ -5,27 +5,33 @@ server guards, and local RLS integration suite must agree with it.
 
 | Surface | Student | Teacher / admin-teacher | Scoped admin | Super admin |
 | --- | --- | --- | --- | --- |
-| Profiles | Own active profile only | Own profile plus active students whose membership overlaps an effective assigned group/week | Active people with student or staff history in a currently administered masjid | Global read; writes only through guarded service-role workflows |
+| Profiles | Own active profile only | Own profile plus active students in an assigned group/week whose teacher eligibility reaches that week’s Saturday | Active people with student or staff history in a currently administered masjid | Global read; writes only through guarded service-role workflows |
 | Check-ins and items | Own rows; writes require an effective matching group snapshot, canonical tasks, and database-derived scores | Read only rows in an effective assigned group for that row's tracker week | Read only through RLS; corrections use one internally scoped transactional RPC | Global operational access |
 | Weekly plans | Own metadata and own storage path only | Read only assigned group/week metadata; signed links require the same server-side scope check | Read only metadata and signed links for students in a currently administered masjid | Global operational access |
 | Partner recitation | Own rows; current round writes require an effective, matching group snapshot | Read only assigned group/week rows | Scoped read/write for administered masajid | Global operational access |
 | Halaqa grades | Own read only | Read/write only the exact assigned group/week | Scoped read/write for administered masajid | Global operational access |
 | Incentives/accountability | Own eligible post-`score_starts_on` obligations and badges; only the existing self-attestation update is allowed | No direct access | Scoped rows; guarded scoring-boundary activation/forward moves require authority over all affected history | Global operational access; guarded scoring-boundary changes may also move backward |
-| Masajid/cohorts/groups | Active hierarchy connected to a current effective membership | Active hierarchy connected to a current-week effective assignment/staff membership | Active currently administered masajid and active descendants | Global setup access, including inactive entities |
+| Masajid/cohorts/groups | Active hierarchy connected to a current Toronto-civil-date membership | Active hierarchy connected to a current Toronto-civil-week assignment with Saturday teacher eligibility | Active currently administered masajid and active descendants | Global setup access, including inactive entities |
 | Student memberships | Own history | Rows whose membership window overlaps an effective assignment week | Scoped insert and deliberate open-row closure; identity/history rewrites and deletion are denied | Global read; signed direct insert/update/delete denied |
 | Staff memberships | Own history | Own history | Scoped teacher insert and deliberate deactivation/closure; identity/history rewrites, reactivation, admin grants, and deletion are denied | Global read; writes only through guarded service-role workflows |
-| Teacher assignments/rotation | None | Own effective assignment/availability rows | Scoped assignment insert/deactivation and rotation inputs; rotation runs are read only and generation uses the guarded service-role RPC | Global access |
+| Teacher assignments/rotation | None | Own active assignment/availability rows only when teacher staff eligibility covers the week’s Saturday | Scoped assignment insert/deactivation and rotation inputs; rotation runs are read only and generation uses the guarded service-role RPC | Global access |
 | Super-admin audit | None | None | None | Read only through signed sessions; guarded service-role workflows may insert but cannot update, delete, or truncate |
 | Guided Change review intents | None | None | None | No direct signed-session access; short-lived rows are created and read only by guarded server actions using the service role |
 | Cohort leaderboard | Sanitized projection only: name, rank, score summary, change/status, and own-row marker | None | Separate admin scoring surface | Global operational access |
 
-Effective dates use `public.current_effective_date()` and Sunday tracker weeks. A teacher assignment is
-valid only when the assignment is active for the exact week and the teacher (including an admin-teacher)
-has an active teacher staff membership covering that week. Future, expired, or inactive memberships do
-not grant current access.
+`week_start` is always the Sunday tracker-week key. The corresponding halaqa event is the following
+Saturday, derived with `public.halaqa_saturday_for_week(week_start)`. A teacher assignment is valid only
+when the assignment is active for the exact Sunday key and the teacher (including an admin-teacher) has
+an active teacher staff membership covering that Saturday. Future, expired, or inactive memberships do
+not grant access to the assignment, roster, plan, or grade workflow.
+
+`public.current_toronto_civil_date()` is the literal Toronto calendar date and governs rotation navigation
+and request-time staff authorization. `public.current_effective_date()` remains the 1:00 AM operational
+date exclusively for daily check-ins, partner recitation, and scoring rules tied to that reset.
 
 Ordinary hierarchy reads additionally require the referenced masjid, cohort, and group to be active and
-the caller's membership or teacher assignment to be effective now/current week. Historical membership
+the caller's membership or teacher assignment to be current by Toronto civil date/current civil week.
+Teacher assignments additionally require staff coverage through their derived Saturday halaqa date. Historical membership
 rows remain available where the matrix permits them, but expired/future relationships and inactive
 foundation entities neither reveal the current hierarchy nor grant current operational access. Weekly
 projection RPCs reject any caller-supplied week start that is not a Sunday.
@@ -52,8 +58,8 @@ policy was already super-admin-only and remains unchanged):
 | `masajid`, `cohorts`, `halaqa_groups` | Active caller-connected hierarchy select for ordinary roles; super admins can read all hierarchy, while mutations use guarded service-only workflows |
 | `student_group_memberships` | Student own history; effective assigned-teacher read; subject-, attribution-, and masjid-scoped normal-admin insert and open-row closure; signed super-admin direct writes and all direct deletes denied |
 | `masjid_staff_memberships` | Own history; teacher-only, attribution-checked normal-admin insert and deactivation/closure; signed super-admin direct writes and all direct deletes denied |
-| `group_teacher_assignments` | Effective teacher own reads; eligible-teacher, attribution-, and masjid-scoped admin insert and active-to-inactive transition; immutable teacher/group/week/creator history; delete is super-admin-only |
-| Rotation tables | Effective teacher own availability read; masjid-scoped admin/super-admin management for availability and settings; signed-session run access is scoped `SELECT` only and guarded generation is service-role-only |
+| `group_teacher_assignments` | Saturday-eligible teacher own reads; eligible-teacher, attribution-, and masjid-scoped admin insert and active-to-inactive transition; a trigger independently enforces Saturday eligibility for direct service-role writes; immutable teacher/group/week/creator history; delete is super-admin-only |
+| Rotation tables | Saturday-eligible teacher own availability read; masjid-scoped admin/super-admin management for availability and settings; signed-session run access is scoped `SELECT` only and guarded generation is service-role-only |
 | `super_admin_audit_events` | `Active super admins can read audit events`; no signed-role insert/update/delete policy; table ACL grants service role only `SELECT` and `INSERT` |
 | `super_admin_guided_change_reviews` | RLS enabled with no signed-role policies; table ACL revokes `anon` and `authenticated`; the service role alone may create/read/delete a short-lived review intent that binds operation, scope, effective date, target, actor, and expected canonical access state |
 | `storage.objects` weekly-plan policies | Student-owned select and masjid-scoped admin select via `can_admin_read_weekly_plan_path(text)`; bucket-scoped restrictive policies deny authenticated insert/update/delete regardless of any differently named permissive policy because guarded server actions own that workflow |
@@ -72,8 +78,9 @@ that identical scope.
 
 The `authenticated` role can execute only these caller-relative definer functions:
 
-- Role/effective-time checks: `is_active_admin()`, `is_active_student()`, `is_active_teacher()`,
-  `is_active_super_admin()`, `current_effective_date()`, and `current_partner_recitation_round()`.
+- Role/date checks: `is_active_admin()`, `is_active_student()`, `is_active_teacher()`,
+  `is_active_super_admin()`, `current_toronto_civil_date()`, `current_effective_date()`, and
+  `current_partner_recitation_round()`.
 - Scoped authorization: `is_admin_for_masjid(uuid)`, `is_staff_for_masjid(uuid)`,
   `is_teacher_for_group_week(uuid,date)`, `can_read_student_for_week(uuid,date)`,
   `can_grade_student_for_week(uuid,date)`, `can_admin_manage_student_for_week(uuid,date)`, and
