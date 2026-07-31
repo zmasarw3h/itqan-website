@@ -3673,7 +3673,15 @@ async function runAssertions(ids: SeedIds) {
     input_week_start: addDays(ids.weekStart, 7)
   });
   const { data: inactiveCurrentContexts } = await teacherA.rpc("teacher_assignment_contexts");
-  assert.deepEqual(inactiveCurrentContexts, [], "inactive hierarchy exposed a current assignment");
+  assert.deepEqual(
+    (inactiveCurrentContexts ?? []).map((row: { group_id: string; week_start: string; roster_count: number | null }) => ({
+      group_id: row.group_id,
+      week_start: row.week_start,
+      roster_count: row.roster_count
+    })),
+    [{ group_id: ids.groupWriter, week_start: ids.previousWeekStart, roster_count: null }],
+    "inactive hierarchy exposed a current assignment or roster instead of only the completed historical label"
+  );
   const { data: inactiveFutureContexts } = await futureAssignmentTeacher.rpc("teacher_assignment_contexts");
   assert.deepEqual(inactiveFutureContexts, [], "inactive hierarchy exposed a future assignment");
   await assertHidden(expiredAssignmentTeacher, "masajid", ids.masjidA);
