@@ -8,7 +8,11 @@ import {
   checkInEffectiveDateString,
   weekStartForDate
 } from "@/lib/dates";
-import { loadStudentScopeForWeek, type StudentWeekScope } from "@/lib/student-scope";
+import {
+  loadStudentWeekContext,
+  type StudentWeekScope,
+  type StudentWeekTeacher
+} from "@/lib/student-scope";
 import type { StudentLeaderboardRow } from "@/lib/student-leaderboard";
 
 type SupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
@@ -30,6 +34,7 @@ export type StudentLeaderboardSearchParams = {
 
 export type StudentLeaderboardData = {
   scope: StudentWeekScope | null;
+  teacher: StudentWeekTeacher | null;
   rows: StudentLeaderboardRow[];
   currentStudentRow: StudentLeaderboardRow | null;
   availableWeekStarts: string[];
@@ -70,11 +75,13 @@ export async function loadStudentLeaderboardData(
   const currentWeekStart = weekStartForDate(today);
   const selectedWeekStart = validWeekStart(searchParams.week, currentWeekStart);
   const previousWeekStart = addDays(selectedWeekStart, -7);
-  const scope = await loadStudentScopeForWeek(supabase, currentStudentId, selectedWeekStart);
+  const studentContext = await loadStudentWeekContext(supabase, currentStudentId, selectedWeekStart);
+  const { scope, teacher } = studentContext;
 
   if (!scope) {
     return {
       scope: null,
+      teacher,
       rows: [],
       currentStudentRow: null,
       availableWeekStarts: [selectedWeekStart, currentWeekStart].sort((a, b) => b.localeCompare(a)),
@@ -117,6 +124,7 @@ export async function loadStudentLeaderboardData(
 
   return {
     scope,
+    teacher,
     rows,
     currentStudentRow: rows.find((row) => row.isCurrentStudent) ?? null,
     availableWeekStarts,
