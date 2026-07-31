@@ -1,12 +1,7 @@
 import { normalizePhoneNumber, phoneNumberToAuthEmail } from "@/lib/phone-auth";
 
 const IMPORT_COLUMNS = ["name", "phone", "role"] as const;
-const REPORT_COLUMNS = [
-  "row_number",
-  "role",
-  "status",
-  "error"
-] as const;
+const REPORT_COLUMNS = ["row_number", "status", "error"] as const;
 
 export const IMPORT_USAGE = "Usage: npm run import-users -- [--dry-run] data/users.csv";
 export const IMPORT_MUTATION_DISABLED_MESSAGE =
@@ -30,7 +25,6 @@ export type ValidImportRecord = {
 
 export type ImportValidationReportRow = {
   rowNumber: number;
-  role: string;
   status: "valid" | "rejected";
   error: string;
 };
@@ -159,14 +153,12 @@ export function validateImportRecords(records: RawImportRecord[]): ImportValidat
       validateImportRecord(record);
       return {
         rowNumber: record.rowNumber,
-        role: record.role,
         status: "valid",
         error: ""
       };
     } catch (error) {
       return {
         rowNumber: record.rowNumber,
-        role: record.role,
         status: "rejected",
         error: error instanceof Error ? error.message : "Unknown validation error."
       };
@@ -210,7 +202,6 @@ export function importValidationReportRowsToCsv(rows: ImportValidationReportRow[
     ...rows.map((row) =>
       [
         row.rowNumber,
-        row.role,
         row.status,
         row.error
       ]

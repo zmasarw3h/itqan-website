@@ -40,7 +40,7 @@ Lightweight masjid operations system that started as an emergency Canvas replace
    ```bash
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
-# Server-only key used for user import and private weekly-plan Storage operations.
+# Server-only key used by guarded account-management workflows and private weekly-plan Storage operations.
 # Do not expose this in browser code.
 SUPABASE_SERVICE_ROLE_KEY=
    ```
@@ -79,9 +79,9 @@ SUPABASE_SERVICE_ROLE_KEY=
 
    ```csv
    name,email,phone,role,active
-   Admin One,14165550000@itqan.local,+1 416 555 0000,admin,true
-   Student One,14165550101@itqan.local,+1 416 555 0101,student,true
-   Student Two,14165550102@itqan.local,+1 416 555 0102,student,true
+   Synthetic Admin,15550101000@itqan.local,+1 555 010 1000,admin,true
+   Synthetic Student,15550101001@itqan.local,+1 555 010 1001,student,true
+   Synthetic Student Two,15550101002@itqan.local,+1 555 010 1002,student,true
    ```
 
 7. Run the app:
@@ -243,8 +243,8 @@ npm run import-users -- --dry-run docs/sample-users.csv
 ```
 
 The command needs no Supabase environment variables. It writes a local validation report to
-`data/import-validation-YYYY-MM-DD-HHMMSS.csv`; the report contains only row number, role, validation
-status, and a generic error. Keep real input files and generated reports local and never commit them.
+`data/import-validation-YYYY-MM-DD-HHMMSS.csv`; the report contains only row number, validation status,
+and a generic error. Keep real input files and generated reports local and never commit them.
 
 Phone login still uses Supabase email/password internally. The validation step normalizes phone numbers and
 checks the synthetic auth-email shape that a future guarded workflow may use:

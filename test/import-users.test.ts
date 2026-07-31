@@ -72,13 +72,12 @@ describe("user import helpers", () => {
     const csv = importValidationReportRowsToCsv([
       {
         rowNumber: 2,
-        role: "student",
         status: "valid",
         error: ""
       }
     ]);
 
-    expect(csv).toBe("row_number,role,status,error\n2,student,valid,\n");
+    expect(csv).toBe("row_number,status,error\n2,valid,\n");
     expect(csv).not.toMatch(/password|temporary|auth_email/i);
   });
 
@@ -104,10 +103,20 @@ describe("user import helpers", () => {
     expect(report).toEqual([
       {
         rowNumber: 2,
-        role: "admin",
         status: "rejected",
         error: "Privileged roles are not supported by the quarantined importer."
       }
     ]);
+  });
+
+  it("does not copy untrusted role text into validation reports", () => {
+    const report = importValidationReportRowsToCsv(
+      validateImportRecords([
+        { rowNumber: 2, name: "Synthetic", phone: "5550101001", role: "untrusted-name-phone-email" }
+      ])
+    );
+
+    expect(report).not.toContain("untrusted-name-phone-email");
+    expect(report).toContain("row_number,status,error");
   });
 });
