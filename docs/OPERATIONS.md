@@ -12,7 +12,7 @@ Manual in the app:
 4. Choose Student or Teacher.
 5. For a student, choose the masjid, cohort, and group.
 6. For a teacher, choose the masjid where they should have teacher access.
-7. Share the temporary password shown by the app flow: `itqan2026`.
+7. Share the temporary password shown by the guarded app flow.
 8. Ask the user to change their password after first sign-in.
 
 The app creates the Supabase Auth user first, then calls `apply_scoped_user_setup(...)` once to create
@@ -86,43 +86,53 @@ Seeded masajid:
 
 Thunder Bay starts without assigned staff. Add an active `masjid_staff_memberships` row for each admin or teacher who should access that masjid before expecting them to manage students or rotation there.
 
-## Import Users
+## Legacy Import: Validation Only
 
-Automated locally with the existing import script:
+The legacy importer is quarantined and must not be used to mutate production. It has no Supabase
+connection, service-role key, Auth API, profile upsert, password, role-change, or membership-assignment
+path. Its default execution is validation-only; `--mutate` is explicitly disabled. Admin, teacher, and
+super-admin rows are rejected so an import file cannot create an unscoped privileged profile.
+
+Use it only to validate a local, synthetic-shaped CSV:
 
 1. Prepare a local CSV with exactly:
 
    ```csv
    name,phone,role
-   Sample Student,+1 555 010 1000,student
-   Sample Admin,+1 555 010 1001,admin
+   Synthetic Student,+1 555 010 1000,student
+   Synthetic Student Two,+1 555 010 1001,student
    ```
 
-2. Ensure these environment variables are available locally:
+   The maintained fixture is `docs/sample-users.csv`.
+
+2. Run the default validation or explicit dry-run:
 
    ```bash
-   NEXT_PUBLIC_SUPABASE_URL=
-   SUPABASE_SERVICE_ROLE_KEY=
+   npm run import-users -- docs/sample-users.csv
+   npm run import-users -- --dry-run docs/sample-users.csv
    ```
 
-3. Run:
+3. Review the local metadata-only report in `data/import-validation-*.csv`.
 
-   ```bash
-   npm run import-users -- data/users.csv
-   ```
+The command needs no Supabase environment variables and cannot create or update an account. Do not pass
+`--mutate`; it is rejected. Do not commit real user CSVs or generated reports. The focused ignore rules
+cover the known import-input and report patterns without ignoring unrelated project spreadsheets.
 
-4. Review the generated local report in `data/import-results-*.csv`.
+Normal user and access creation must use the guarded application workflows: admins use `Admin Dashboard
+-> Add User` for scoped student/teacher creation, and super admins use `/super-admin/people` plus the
+Guided Change workflow for privileged access. There is no interim bulk mutation workflow in this slice.
 
-Do not commit real user CSVs or generated reports. The import sets new and existing imported users to the temporary password `itqan2026`.
-
-The import tooling predates multi-masjid scope. After importing new users, verify they have the required `student_group_memberships` or `masjid_staff_memberships` rows before asking them to sign in.
+Existing passwords and identities were intentionally not changed. Removing the confirmed workbook from
+the current tree does not remove it from Git history; see `docs/PRIVACY_INCIDENT_INVENTORY.md` and
+`docs/HISTORY_REMEDIATION_RUNBOOK.md`.
 
 ## Reset or Change Passwords
 
 - User self-service: signed-in users can open `Password` in the app navigation and change their own password.
 - Super-admin reset: open `/super-admin/people`, select the person, and use the password reset section.
 - Emergency admin reset: manual in Supabase Auth dashboard if the user cannot sign in and the super-admin console is unavailable.
-- Bulk reset: manual via the local import script. Re-running `npm run import-users -- data/users.csv` resets imported users in that CSV to `itqan2026`.
+- Bulk reset: not available through the quarantined importer. Use the existing guarded operator workflow
+  for an explicitly requested individual reset; this slice does not rotate existing credentials.
 
 ## Deploy App
 

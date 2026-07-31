@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { importReportRowsToCsv, parseImportCsv, validateImportRecord } from "@/lib/import-users";
+import {
+  IMPORT_MUTATION_DISABLED_MESSAGE,
+  importValidationReportRowsToCsv,
+  parseImportArguments,
+  parseImportCsv,
+  validateImportRecord,
+  validateImportRecords
+} from "@/lib/import-users";
 
 describe("user import helpers", () => {
   it("parses valid name,phone,role CSV rows", () => {
@@ -30,7 +37,7 @@ describe("user import helpers", () => {
     });
   });
 
-  it("rejects invalid roles", () => {
+  it("rejects teacher and other privileged roles", () => {
     expect(() =>
       validateImportRecord({
         rowNumber: 2,
@@ -38,7 +45,16 @@ describe("user import helpers", () => {
         phone: "5550101000",
         role: "teacher"
       })
-    ).toThrow("role must be student or admin");
+    ).toThrow("Privileged roles are not supported by the quarantined importer");
+
+    expect(() =>
+      validateImportRecord({
+        rowNumber: 3,
+        name: "Sample Admin",
+        phone: "5550101001",
+        role: "admin"
+      })
+    ).toThrow("Privileged roles are not supported by the quarantined importer");
   });
 
   it("rejects invalid phone numbers", () => {
@@ -52,22 +68,46 @@ describe("user import helpers", () => {
     ).toThrow("valid");
   });
 
-  it("formats local credential report CSV rows", () => {
-    const csv = importReportRowsToCsv([
+  it("formats a privacy-safe validation report without credentials", () => {
+    const csv = importValidationReportRowsToCsv([
       {
         rowNumber: 2,
-        name: "Sample Student",
-        inputPhone: "5550101000",
-        normalizedPhone: "+15550101000",
         role: "student",
-        authEmail: "15550101000@itqan.local",
-        status: "created",
-        temporaryPassword: "temporary-password",
+        status: "valid",
         error: ""
       }
     ]);
 
-    expect(csv).toContain("row_number,name,input_phone,normalized_phone,role,auth_email,status");
-    expect(csv).toContain("2,Sample Student,5550101000,+15550101000,student,15550101000@itqan.local,created");
+    expect(csv).toBe("row_number,role,status,error\n2,student,valid,\n");
+    expect(csv).not.toMatch(/password|temporary|auth_email/i);
+  });
+
+  it("defaults to validation and rejects every mutation flag", () => {
+    expect(parseImportArguments(["docs/sample-users.csv"])).toEqual({
+      csvPath: "docs/sample-users.csv",
+      dryRun: true
+    });
+    expect(parseImportArguments(["--dry-run", "docs/sample-users.csv"])).toEqual({
+      csvPath: "docs/sample-users.csv",
+      dryRun: true
+    });
+    expect(() => parseImportArguments(["--mutate", "docs/sample-users.csv"])).toThrow(
+      IMPORT_MUTATION_DISABLED_MESSAGE
+    );
+  });
+
+  it("reports privileged rows as rejected without producing a mutation result", () => {
+    const report = validateImportRecords([
+      { rowNumber: 2, name: "Sample Admin", phone: "5550101001", role: "admin" }
+    ]);
+
+    expect(report).toEqual([
+      {
+        rowNumber: 2,
+        role: "admin",
+        status: "rejected",
+        error: "Privileged roles are not supported by the quarantined importer."
+      }
+    ]);
   });
 });

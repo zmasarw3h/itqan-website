@@ -216,55 +216,49 @@ does not replace this production constraint. A separate reviewed migration shoul
 rows, then replace it with a masjid-and-week uniqueness rule and include an explicit rollout/rollback
 plan.
 
-## Import Users From CSV
+## Legacy User Import (Validation Only)
 
-Use the local import script to create/update Supabase Auth users and matching `public.profiles` rows from a CSV.
+The legacy CSV importer is quarantined. It performs local validation only and is not a production mutation
+path. It does not connect to Supabase, create Auth users, update existing Auth identities, write profiles,
+change roles, assign memberships, or choose/report passwords. `--mutate` and other mutation modes are
+intentionally unsupported and exit before any external connection. Use the guarded application workflows
+for normal user and access creation; no bulk mutation replacement is provided in this slice.
 
-The input CSV must have exactly these columns:
+The input CSV must have exactly these columns. Only student rows are accepted for validation; teacher,
+admin, and super-admin rows are rejected.
 
 ```csv
 name,phone,role
-Sample Student,+1 555 010 1000,student
-Sample Admin,+1 555 010 1001,admin
+Synthetic Student,+1 555 010 1000,student
+Synthetic Student Two,+1 555 010 1001,student
 ```
 
-A fake sample file is available at `docs/sample-users.csv`.
+A clearly synthetic sample file is available at `docs/sample-users.csv`.
 
-Run the import with:
+Run validation with either form:
 
 ```bash
-npm run import-users -- data/users.csv
+npm run import-users -- docs/sample-users.csv
+npm run import-users -- --dry-run docs/sample-users.csv
 ```
 
-Required environment variables:
+The command needs no Supabase environment variables. It writes a local validation report to
+`data/import-validation-YYYY-MM-DD-HHMMSS.csv`; the report contains only row number, role, validation
+status, and a generic error. Keep real input files and generated reports local and never commit them.
 
-```bash
-NEXT_PUBLIC_SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
-```
-
-The script uses the Supabase Admin API locally with `SUPABASE_SERVICE_ROLE_KEY`. Never expose that key to browser code and do not log it.
-
-Phone login still uses Supabase email/password internally. The import normalizes phone numbers and creates synthetic auth emails:
+Phone login still uses Supabase email/password internally. The validation step normalizes phone numbers and
+checks the synthetic auth-email shape that a future guarded workflow may use:
 
 - `5550101000` becomes `+15550101000`
 - Auth email becomes `15550101000@itqan.local`
 
-The script sets the same temporary password for every imported user:
+The contained importer never creates or updates an account, never resets an existing password, and never
+mutates a profile merely because a person appears in a file. Existing passwords were intentionally not
+changed by this slice; any remaining shared-password risk is a separate follow-up.
 
-```txt
-itqan2026
-```
-
-New users are created with that password. Existing imported users are also reset to that password when you rerun the import, and their `public.profiles` rows are updated.
-
-After each run, a local credential report is written to:
-
-```txt
-data/import-results-YYYY-MM-DD-HHMMSS.csv
-```
-
-Report CSV files include the temporary password for imported users. Keep real import CSV files and generated reports local. The repo ignores `data/*.csv`; commit only `data/.gitkeep` and fake samples under `docs/`.
+The confirmed real-data workbook was removed from the current tree. Deletion does not remove its Git
+history; review `docs/PRIVACY_INCIDENT_INVENTORY.md` and `docs/HISTORY_REMEDIATION_RUNBOOK.md` for the
+redacted inventory and separately approved history-remediation process.
 
 ## Deployment
 
