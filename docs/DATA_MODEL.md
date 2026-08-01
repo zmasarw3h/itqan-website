@@ -11,7 +11,7 @@
 - `score_starts_on`: nullable first canonical Sunday included in student scoring. `null` means the student is not scorable yet; it never means score all history.
 - `created_at`
 
-`profiles.role` is a routing/default-experience hint. Scoped authorization comes from membership and assignment tables plus Supabase RLS.
+`profiles.role` is the cached current primary/default experience for non-super-admins. The database projects it from currently effective admin staff, teacher staff, and student placement windows in that precedence order; a profile with no current placement becomes inactive. A future membership does not project early. Scoped authorization still comes from membership and assignment tables plus Supabase RLS.
 
 ## Multi-Masjid Scope
 
@@ -68,9 +68,10 @@ Service-only transactional functions added for Phase 1A and used by the Phase 1B
 - `get_scoped_user_setup_auth_recovery(...)`: resolves an Auth-only identity only when its trusted Auth metadata exactly matches the setup request UUID, actor, normalized email, and complete canonical setup payload. It never exposes Auth identity lookup to browser roles.
 - `get_person_access_state(actor_id, target_profile_id)`: returns a canonical profile/membership snapshot only after verifying that the passed actor is currently an active super admin.
 - `apply_super_admin_access_change(...)`: locks and compares that snapshot, derives the access transition in PostgreSQL, writes profile/membership/audit changes atomically, and protects the last active super admin and last active admin of an active masjid.
-- `apply_super_admin_masjid_staff_grant(...)`: atomically promotes an active person, reconciles student access, inserts the requested admin and/or teacher memberships, and writes all audit events using an idempotent request ledger and canonical stale-state check.
+- `apply_super_admin_masjid_staff_grant(...)`: atomically adds only missing admin and/or teacher memberships at one masjid. It never ends an existing staff capability or changes another masjid, and writes all audit events using an idempotent request ledger and canonical stale-state check.
 - `prepare_super_admin_masjid_staff_grant(...)`: captures or replays the original canonical access snapshot for one stable staff-grant request before the mutation RPC runs.
-- `apply_super_admin_staff_membership_end(...)`: closes one open staff membership and writes its audit event in the same transaction after checking the canonical snapshot, date, target relationship, and continuous future admin-coverage invariant.
+- `apply_super_admin_staff_membership_end(...)`: closes one open staff membership, recomputes the projected profile role, and writes its audit event in the same transaction after checking the canonical snapshot, inclusive date, teacher-assignment safety, and continuous future admin-coverage invariant.
+- `refresh_current_profile_role()`: refreshes the signed-in profile's cached current role/active projection at session load; it does not grant scope by itself.
 - `apply_super_admin_masjid_update(...)`: atomically updates masjid fields and active state, writes the audit event, rejects stale state, and prevents activation without continuous admin coverage.
 - `preview_official_scoring_start_change(...)`: returns the direction, affected activity weeks, and pending pre-boundary obligations only after revalidating the active admin actor and the complete affected masjid scope.
 - `apply_official_scoring_start_change(...)`: atomically changes the student-wide boundary, waives pending pre-boundary obligations without marking them paid, writes profile and per-obligation audit events, and records an idempotent request result. Scoped admins may activate or move forward only when all affected history is inside their current masjid authority; super admins may also move backward.
@@ -149,3 +150,4 @@ Existing admins receive TIC admin staff memberships. Existing active students re
 - Active super admins can read `super_admin_audit_events`; browser/client writes to the audit table are not exposed.
 - Normal admins close or deactivate membership/assignment rows instead of deleting foundation history. Direct signed-session deletes of student and staff membership history are denied, including for super admins.
 - Teachers are scoped by assigned group/week and can grade/view weekly plans only for students whose membership is effective in that exact assignment.
+- Access transition semantics, including selected-masjid replacement, additive previews, multi-masjid preservation, deactivation, and assignment-aware teacher removal, are documented in [`ACCESS_TRANSITION_SEMANTICS.md`](ACCESS_TRANSITION_SEMANTICS.md).

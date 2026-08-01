@@ -333,13 +333,24 @@ Super admin workflow in the app:
 4. Open the masjid detail page to edit the masjid, create or deactivate cohorts, and create or deactivate groups.
 5. Grant the first admin or admin-teacher from an existing active person by email or phone.
 
-Staff grants use one stable form request UUID and the guarded transactional workflow. Profile promotion,
-student-membership reconciliation, one or both staff memberships, and all audit events commit or roll back
-together. An ambiguous response is retried with the same UUID and reports `staff-grant-uncertain` if its
-result still cannot be established. After commit, the same UUID and stable grant inputs replay the stored
-result even when the current expected-state token has changed; actor, target, masjid, grant, and effective
-date remain part of replay identity. Active masajid must retain continuous future admin coverage through
-all scheduled handoffs and ultimately have open-ended admin coverage.
+Masjid-page staff grants use one stable form request UUID and the guarded transactional workflow. The
+choices are additive: `Add admin access`, `Add teacher access`, and `Add admin + teacher access`. The
+workflow inserts only missing capabilities at the selected masjid, never ends an existing staff row, and
+does not reconcile away a student placement. The form previews the current and resulting masjid access
+before the operator submits. An ambiguous response is retried with the same UUID and reports
+`staff-grant-uncertain` if its result still cannot be established. After commit, the same UUID and stable
+grant inputs replay the stored result even when the current expected-state token has changed; actor,
+target, masjid, grant, and effective date remain part of replay identity. Active masajid must retain
+continuous future admin coverage through all scheduled handoffs and ultimately have open-ended admin
+coverage.
+
+Guided Change is the replacement workflow. `Set Teacher only`, `Set Admin only`, and `Set Admin + Teacher`
+operate on the explicitly selected masjid and leave every other masjid untouched. The projected global
+role is recomputed from all currently effective staff and student memberships. A future replacement does
+not change the current global role early. Teacher capability removal is assignment-aware: the database
+rejects a closure that would leave an active assignment beyond the membership's inclusive end date.
+Account deactivation is immediate on the current application date and closes current access atomically;
+future-dated deactivation is not supported.
 
 Masjid edits and active-state changes use one guarded transaction for the row update and audit event.
 Reactivation locks against concurrent admin-access changes and is rejected unless coverage is continuous

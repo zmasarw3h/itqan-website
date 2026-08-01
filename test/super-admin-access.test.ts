@@ -3,6 +3,7 @@ import {
   adminMasjidConfirmationNamesForPlan,
   adminMasjidConfirmationText,
   buildSuperAdminAccessChangePlan,
+  previewAdditiveStaffGrant,
   staffAccessLabel,
   SuperAdminAccessPlanError,
   type StaffMembershipWindow,
@@ -124,7 +125,7 @@ describe("super-admin access planning", () => {
     });
   });
 
-  it("deactivates without changing the profile role and closes open access rows", () => {
+  it("deactivates without changing the profile role and closes open access the day before", () => {
     expect(
       buildSuperAdminAccessChangePlan({
         targetRole: "admin",
@@ -137,13 +138,74 @@ describe("super-admin access planning", () => {
     ).toMatchObject({
       nextRole: "admin",
       nextActive: false,
-      studentMembershipCloses: [{ id: "student-membership-1", endsOn: "2026-07-07" }],
+      studentMembershipCloses: [{ id: "student-membership-1", endsOn: "2026-07-06" }],
       staffMembershipCloses: [
-        { id: "teacher-thunder-bay", endsOn: "2026-07-07" },
-        { id: "admin-tic", endsOn: "2026-07-07" }
+        { id: "teacher-thunder-bay", endsOn: "2026-07-06" },
+        { id: "admin-tic", endsOn: "2026-07-06" }
       ],
       requiresAdminMasjidConfirmation: true
     });
+  });
+
+  it("previews additive grants without ending existing capabilities", () => {
+    const adminAtThunderBay: StaffMembershipWindow = {
+      id: "admin-thunder-bay",
+      masjid_id: "thunder-bay",
+      masjid_name: "Thunder Bay Masjid",
+      staff_role: "admin",
+      active: true,
+      starts_on: "2026-06-01",
+      ends_on: null
+    };
+    const preview = previewAdditiveStaffGrant({
+      targetRole: "admin",
+      targetActive: true,
+      masjidId: "thunder-bay",
+      grant: "teacher",
+      startsOn: "2026-07-07",
+      currentDate: "2026-07-07",
+      staffMemberships: [adminAtThunderBay, staffMemberships[1]]
+    });
+
+    expect(preview.currentMasjidAccess).toBe("Admin only");
+    expect(preview.resultingMasjidAccess).toBe("Admin + Teacher");
+    expect(preview.addedRoles).toEqual(["teacher"]);
+    expect(preview.resultingRole).toBe("admin");
+    expect(preview.noOp).toBe(false);
+  });
+
+  it("keeps current role state while previewing a future additive capability", () => {
+    const preview = previewAdditiveStaffGrant({
+      targetRole: "student",
+      targetActive: true,
+      masjidId: "thunder-bay",
+      grant: "teacher",
+      startsOn: "2026-07-10",
+      currentDate: "2026-07-07",
+      studentMemberships,
+      staffMemberships: []
+    });
+
+    expect(preview.resultingRole).toBe("student");
+    expect(preview.resultingActive).toBe(true);
+    expect(preview.effectiveRole).toBe("teacher");
+    expect(preview.effectiveActive).toBe(true);
+  });
+
+  it("reports an additive no-op when every selected capability is already effective", () => {
+    const preview = previewAdditiveStaffGrant({
+      targetRole: "admin",
+      targetActive: true,
+      masjidId: "tic",
+      grant: "admin",
+      startsOn: "2026-07-07",
+      currentDate: "2026-07-07",
+      staffMemberships
+    });
+
+    expect(preview.addedRoles).toEqual([]);
+    expect(preview.noOp).toBe(true);
+    expect(preview.resultingMasjidAccess).toBe("Admin only");
   });
 
   it("refuses to replace a future open membership with an impossible end date", () => {

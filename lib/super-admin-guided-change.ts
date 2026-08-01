@@ -1,4 +1,4 @@
-import { friendlyDate, weekStartForDate } from "@/lib/dates";
+import { friendlyDate, halaqaSaturdayForWeek, weekStartForDate } from "@/lib/dates";
 import {
   adminMasjidConfirmationNamesForPlan,
   adminMasjidConfirmationText,
@@ -14,16 +14,16 @@ import {
 import type { Role, StaffRole } from "@/lib/types";
 
 export type GuidedAccessOperation =
-  | "add_teacher"
-  | "add_admin"
-  | "add_admin_teacher"
+  | "set_teacher_only"
+  | "set_admin_only"
+  | "set_admin_teacher"
   | "assign_student"
   | "deactivate_account";
 
 const GUIDED_OPERATIONS = new Set<GuidedAccessOperation>([
-  "add_teacher",
-  "add_admin",
-  "add_admin_teacher",
+  "set_teacher_only",
+  "set_admin_only",
+  "set_admin_teacher",
   "assign_student",
   "deactivate_account"
 ]);
@@ -127,20 +127,6 @@ function activeStaffRolesAt(
     .map((membership) => membership.staff_role);
 }
 
-function hasOpenStaffRole(
-  memberships: GuidedStaffMembership[],
-  masjidId: string,
-  role: StaffRole
-) {
-  return memberships.some(
-    (membership) =>
-      membership.masjid_id === masjidId &&
-      membership.staff_role === role &&
-      membership.active &&
-      membership.ends_on === null
-  );
-}
-
 export function presetForGuidedOperation(input: {
   operation: GuidedAccessOperation;
   masjidId?: string | null;
@@ -148,21 +134,14 @@ export function presetForGuidedOperation(input: {
 }): SuperAdminAccessPreset {
   if (input.operation === "assign_student") return "student";
   if (input.operation === "deactivate_account") return "inactive";
-  if (input.operation === "add_admin_teacher") return "admin_teacher";
+  if (input.operation === "set_admin_teacher") return "admin_teacher";
 
   if (!input.masjidId) {
     throw new SuperAdminAccessPlanError("Choose an active masjid.");
   }
 
-  if (input.operation === "add_teacher") {
-    return hasOpenStaffRole(input.staffMemberships, input.masjidId, "admin")
-      ? "admin_teacher"
-      : "teacher";
-  }
-
-  return hasOpenStaffRole(input.staffMemberships, input.masjidId, "teacher")
-    ? "admin_teacher"
-    : "admin";
+  if (input.operation === "set_teacher_only") return "teacher";
+  return "admin";
 }
 
 function roleLabel(role: Role) {
@@ -222,23 +201,15 @@ function operationLabel(snapshot: GuidedAccessSnapshot, operation: GuidedAccessO
   );
 
   if (!snapshot.profile.active) {
-    if (operation === "add_teacher") return "Reactivate with teacher access";
-    if (operation === "add_admin") return "Reactivate with admin access";
-    if (operation === "add_admin_teacher") return "Reactivate with admin + teacher access";
+    if (operation === "set_teacher_only") return "Set Teacher only";
+    if (operation === "set_admin_only") return "Set Admin only";
+    if (operation === "set_admin_teacher") return "Set Admin + Teacher";
     if (operation === "assign_student") return "Reactivate with student placement";
   }
 
-  if (operation === "add_teacher") {
-    return hasStudent ? "Convert student to teacher access" : "Add teacher access";
-  }
-
-  if (operation === "add_admin") {
-    return hasStudent ? "Convert student to admin access" : "Add admin access";
-  }
-
-  if (operation === "add_admin_teacher") {
-    return hasStudent ? "Convert student to admin + teacher" : "Add admin + teacher access";
-  }
+  if (operation === "set_teacher_only") return "Set Teacher only";
+  if (operation === "set_admin_only") return "Set Admin only";
+  if (operation === "set_admin_teacher") return "Set Admin + Teacher";
 
   if (operation === "assign_student") {
     return hasStaff ? "Convert staff account to student" : hasStudent ? "Move student placement" : "Assign student placement";
@@ -274,6 +245,16 @@ function addPlanRows(input: {
     });
   }
 
+  if (plan.effectiveRole !== plan.nextRole || plan.effectiveActive !== plan.nextActive) {
+    rows.push({
+      id: "scheduled-profile",
+      label: "Global role at effective date",
+      current: `${roleLabel(plan.nextRole)} · ${plan.nextActive ? "Active" : "Inactive"}`,
+      after: `${roleLabel(plan.effectiveRole)} · ${plan.effectiveActive ? "Active" : "Inactive"}`,
+      detail: `At ${friendlyDate(draft.startsOn)}`
+    });
+  }
+
   if (draft.operation === "assign_student" && input.selectedGroup) {
     const current = selectedStudentMembershipAt(snapshot, draft.startsOn);
     rows.push({
@@ -285,7 +266,7 @@ function addPlanRows(input: {
     });
   }
 
-  if (input.selectedMasjid && draft.operation.startsWith("add_")) {
+  if (input.selectedMasjid && draft.operation.startsWith("set_")) {
     const currentRoles = activeStaffRolesAt(snapshot.staffMemberships, input.selectedMasjid.id, draft.startsOn);
     const nextRoles = resultingStaffRoles({
       masjidId: input.selectedMasjid.id,
@@ -370,6 +351,12 @@ function unchangedImpact(input: {
     unchanged.push(`Global default role remains ${roleLabel(input.snapshot.profile.role)}.`);
   }
 
+  if (input.plan.effectiveRole !== input.plan.nextRole || input.plan.effectiveActive !== input.plan.nextActive) {
+    unchanged.push(
+      `Global default role changes to ${roleLabel(input.plan.effectiveRole)} on ${friendlyDate(input.draft.startsOn)}.`
+    );
+  }
+
   return unchanged;
 }
 
@@ -422,17 +409,6 @@ export function buildGuidedChangeReview(input: {
     );
   }
 
-  if (
-    draft.operation === "deactivate_account" &&
-    snapshot.staffMemberships.some(
-      (membership) => membership.active && membership.ends_on === null && membership.staff_role === "teacher"
-    )
-  ) {
-    blockers.push(
-      "Open teacher access must be ended through its assignment-aware workflow before this account can be deactivated."
-    );
-  }
-
   if (draft.operation === "deactivate_account" && draft.startsOn && draft.startsOn !== today) {
     blockers.push("Account deactivation is immediate and must use today’s application date.");
   }
@@ -451,17 +427,12 @@ export function buildGuidedChangeReview(input: {
       selectedMasjidId: selectedMasjid?.id,
       selectedGroupId: selectedGroup?.id,
       studentMemberships: snapshot.studentMemberships,
-      staffMemberships: snapshot.staffMemberships
+      staffMemberships: snapshot.staffMemberships,
+      currentDate: today
     });
   } catch (error) {
     blockers.push(
       error instanceof SuperAdminAccessPlanError ? error.message : "Unable to calculate this access change."
-    );
-  }
-
-  if (plan && draft.startsOn > today && (plan.nextRole !== snapshot.profile.role || plan.nextActive !== snapshot.profile.active)) {
-    blockers.push(
-      "This change would update the global account before the selected date. Choose today, or use a membership-only change that preserves the current role."
     );
   }
 
@@ -473,12 +444,20 @@ export function buildGuidedChangeReview(input: {
     )
   );
 
-  if (
-    snapshot.teacherAssignments.length > 0 &&
-    (closesTeacherAccess || draft.operation === "deactivate_account")
-  ) {
+  const teacherRemovalAffectsAssignment = Boolean(
+    plan &&
+      snapshot.teacherAssignments.some((assignment) => {
+        const close = plan.staffMembershipCloses.find((candidate) => {
+          const membership = snapshot.staffMemberships.find((row) => row.id === candidate.id);
+          return membership?.staff_role === "teacher" && membership.masjid_id === assignment.masjid_id;
+        });
+        return Boolean(close && halaqaSaturdayForWeek(assignment.week_start) > close.endsOn);
+      })
+  );
+
+  if (closesTeacherAccess && teacherRemovalAffectsAssignment) {
     blockers.push(
-      "Current or upcoming teacher assignments must be resolved before this operation can remove teacher access."
+      "Current or upcoming teacher assignments must be resolved before this operation can remove teacher access for their halaqa Saturday."
     );
   }
 
@@ -493,10 +472,6 @@ export function buildGuidedChangeReview(input: {
 
     if (!hasMutation) {
       blockers.push("The selected access is already in effect; there is no change to apply.");
-    }
-
-    if (draft.operation.startsWith("add_") && plan.studentMembershipCloses.length > 0) {
-      warnings.push("This is an account conversion: the current student placement will end when staff access starts.");
     }
 
     if (draft.operation === "assign_student" && plan.staffMembershipCloses.length > 0) {

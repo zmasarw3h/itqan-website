@@ -1,7 +1,7 @@
 import "server-only";
 import { buildMasjidSetupWarnings } from "@/lib/super-admin-setup";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { torontoCivilDateString } from "@/lib/dates";
+import { checkInEffectiveDateString } from "@/lib/dates";
 import type { Cohort, HalaqaGroup, Masjid, MasjidStaffMembership, Profile } from "@/lib/types";
 
 type AdminSupabaseClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -87,7 +87,7 @@ export const SUPER_ADMIN_MASJID_STATUS_MESSAGES: Record<string, { text: string; 
     className: "bg-red-50 text-red-700"
   },
   "staff-granted": {
-    text: "Staff access granted.",
+    text: "Staff access added.",
     className: "bg-green-50 text-green-800"
   },
   "staff-grant-stale": {
@@ -159,7 +159,7 @@ async function loadCurrentStaffForMasjids(adminSupabase: AdminSupabaseClient, ma
     return [];
   }
 
-  const today = torontoCivilDateString();
+  const today = checkInEffectiveDateString();
   const { data, error } = await adminSupabase
     .from("masjid_staff_memberships")
     .select("id,profile_id,masjid_id,staff_role,active,starts_on,ends_on")

@@ -1,6 +1,7 @@
 # Super Admin Architecture Brief
 
-> Status as of July 13, 2026: Phase 0, Phase 1A, Phase 1B, and scoped admin delegation are implemented.
+> Status as of August 1, 2026: Phase 0, Phase 1A, Phase 1B, scoped admin delegation, and access-transition
+> projection semantics are implemented.
 > `/super-admin/people` and `/super-admin/masajid` are live. Phase 3B repair UI is deferred until scoped
 > operational RLS, privileged-function permissions, and transactional mutation primitives are complete.
 
@@ -18,22 +19,26 @@ The console exists to replace risky production SQL edits for operational tasks s
 
 This is not a broad analytics dashboard. The first release must be a small, safe operations surface.
 
+Access-transition replacement, additive grant, multi-masjid, role-projection, date-boundary, and
+teacher-assignment rules are maintained in [`ACCESS_TRANSITION_SEMANTICS.md`](ACCESS_TRANSITION_SEMANTICS.md).
+
 ## Findings At Planning Time
 
 - `profiles.role` already supports `student | teacher | admin | super_admin`.
 - `super_admin` exists in the database role constraint and helper functions.
 - At planning time there was no `/super-admin` route; the people and masjid setup routes now exist.
 - Teacher role routing still falls back to the account/password page until the teacher dashboard is implemented.
-- `profiles.role` is a routing/default-experience hint.
+- `profiles.role` is the cached current primary/default experience for non-super-admins. The database
+  projects it from current effective admin, teacher, and student memberships in that precedence order.
 - Actual scoped access comes from:
   - `student_group_memberships`
   - `masjid_staff_memberships`
   - `group_teacher_assignments`
-- `admin-teacher` is not a database role. It is a computed state:
+- `admin-teacher` is not a database role. It is a computed capability state:
   - `profiles.role = 'admin'`
   - active `masjid_staff_memberships` row with `staff_role = 'admin'`
   - active `masjid_staff_memberships` row with `staff_role = 'teacher'`
-  - both rows scoped to the same masjid and effective date
+  - rows scoped to the relevant masjid(s) and effective dates
 
 Recent incidents this console must make easy:
 
@@ -90,10 +95,10 @@ Update role routing:
 - Access `/super-admin`.
 - Create/update/deactivate masajid.
 - Create/update/deactivate cohorts.
-- Grant or revoke `staff_role = 'admin'`.
-- Change `profiles.role`.
-- Change `profiles.active`.
-- Promote/demote admin-teacher patterns.
+- Add missing `staff_role = 'admin'` and/or `staff_role = 'teacher'` capability at one selected masjid.
+- Replace selected-masjid capability with `Set Teacher only`, `Set Admin only`, or `Set Admin + Teacher`.
+- Recompute the current projected `profiles.role` and `profiles.active` from all effective memberships.
+- End teacher capability only when active assignments remain fulfilable through their halaqa Saturdays.
 - Reset passwords.
 - Move students or staff across masajid.
 - Create another `super_admin` outside Phase 1 UI through a controlled runbook.
@@ -423,10 +428,20 @@ Per masjid, show computed state:
 - `Admin only`
 - `Admin + Teacher`
 
-Use two independent controls:
+Keep the computed state read-only in the masjid editor. Its additive choices are:
 
-- `Admin access`
-- `Teacher access`
+- `Add admin access`
+- `Add teacher access`
+- `Add admin + teacher access`
+
+Use Guided Change for selected-masjid replacement:
+
+- `Set Teacher only`
+- `Set Admin only`
+- `Set Admin + Teacher`
+
+Additive choices never end an existing capability; replacement changes only the
+selected masjid and preserves access at other masajid.
 
 Show:
 

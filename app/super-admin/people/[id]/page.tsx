@@ -10,7 +10,7 @@ import {
   type TeacherAssignmentDetail
 } from "@/app/super-admin/data";
 import AppNav from "@/app/nav";
-import { formatDateTimeInAppTimeZone, formatWeekRange, torontoCivilDateString } from "@/lib/dates";
+import { checkInEffectiveDateString, formatDateTimeInAppTimeZone, formatWeekRange, torontoCivilDateString } from "@/lib/dates";
 import { officialScoringStatus } from "@/lib/official-scoring";
 import { reconcilePersonDetailWithAccessState } from "@/lib/person-access-state";
 import { requireSuperAdminAdminClient } from "@/lib/super-admin";
@@ -36,7 +36,7 @@ function stateClass(active: boolean) {
   return active ? "bg-green-50 text-green-800" : "bg-stone-100 text-stone-600";
 }
 
-function membershipState(input: { starts_on: string; ends_on: string | null; active?: boolean }, today = torontoCivilDateString()) {
+function membershipState(input: { starts_on: string; ends_on: string | null; active?: boolean }, today = checkInEffectiveDateString()) {
   const activeByDate = input.starts_on <= today && (!input.ends_on || input.ends_on >= today);
 
   if (input.active === false) return { label: "Inactive", className: "bg-stone-100 text-stone-600" };
@@ -185,7 +185,7 @@ function StaffMembershipCard({
               <span className="text-sm font-medium text-ink">Ends on</span>
               <input
                 className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
-                defaultValue={torontoCivilDateString()}
+                defaultValue={checkInEffectiveDateString()}
                 min={membership.starts_on}
                 name="ends_on"
                 required

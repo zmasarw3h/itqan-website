@@ -49,6 +49,15 @@ describe("login identifier resolver", () => {
     ).resolves.toBe("923219448926@itqan.local");
   });
 
+  it("resolves an inactive profile so post-auth projection can reactivate scheduled access", async () => {
+    await expect(
+      resolveLoginIdentifierToAuthEmail(
+        "201060901044",
+        lookupFrom([{ ...profile("+201060901044"), active: false }])
+      )
+    ).resolves.toBe("201060901044@itqan.local");
+  });
+
   it("returns a clear error for ambiguous phone matches", async () => {
     await expect(
       resolveLoginIdentifierToAuthEmail(

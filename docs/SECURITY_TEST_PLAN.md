@@ -371,8 +371,18 @@ Phase 1 is not mergeable until a local disposable Supabase harness:
 - Proves signed super admins cannot directly mutate profiles or insert/update/delete student/staff
   memberships while service-role-only guarded workflow RPCs remain executable.
 - Proves admin/admin-teacher staff grants are atomic, stale-safe, replay-safe, browser-denied, and roll back
-  profile, student membership, partial staff membership, and audit writes together on failure. A committed
+  only the missing selected capability, preserve existing student/staff state, are previewed by the UI, and roll back
+  partial staff membership and audit writes together on failure. A committed
   request replays its stored result when only the expected-state token changes, while changed stable inputs fail.
+- Proves Guided Change replacement is explicit (`Set Teacher only`, `Set Admin only`, and `Set Admin + Teacher`),
+  affects only the selected masjid, preserves capabilities at other masajid, and projects the global role from
+  all currently effective capabilities rather than from the selected operation label.
+- Proves future staff memberships do not change the current `profiles.role` or `profiles.active` state before
+  their start date, while the session refresh and date-boundary projection activate them when effective.
+- Proves every teacher capability removal path rejects active assignments whose halaqa Saturday is after the
+  inclusive membership end date, and that direct membership-ending recomputes the global role atomically.
+- Proves immediate account deactivation closes current access consistently, rejects future-dated deactivation,
+  and does not leave a current or future teacher assignment that the person can no longer fulfil.
 - Proves super-admin access changes reject stale snapshots and request-ID reuse with changed input.
 - Proves standalone staff-membership closure serializes concurrent retries, rejects stale state and sole
   active-masjid-admin removal, and rolls membership plus audit writes back together when a guard fails.

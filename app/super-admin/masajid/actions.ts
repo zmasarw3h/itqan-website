@@ -6,7 +6,13 @@ import {
   findActiveProfileForStaffGrant,
   loadMasjidSetupDetailData
 } from "@/app/super-admin/masajid/data";
-import { isValidDateString, torontoCivilDateString } from "@/lib/dates";
+import { loadPersonDetailData } from "@/app/super-admin/data";
+import { checkInEffectiveDateString, isValidDateString } from "@/lib/dates";
+import {
+  previewAdditiveStaffGrant,
+  SuperAdminAccessPlanError,
+  type AdditiveStaffGrantPreview
+} from "@/lib/super-admin-access";
 import {
   isValidMasjidSlug,
   normalizeMasjidSlug,
@@ -27,6 +33,7 @@ import {
   type MasjidStaffGrantResult,
   type PersonAccessState
 } from "@/lib/transactional-workflows";
+import { reconcilePersonDetailWithAccessState } from "@/lib/person-access-state";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -60,6 +67,16 @@ function requireUuid(value: string | null) {
 function validateName(value: string, maxLength = 120) {
   return value.length >= 2 && value.length <= maxLength;
 }
+
+export type MasjidStaffGrantPreview =
+  | (AdditiveStaffGrantPreview & {
+      ok: true;
+      personName: string;
+      masjidName: string;
+      grant: "admin" | "teacher" | "admin_teacher";
+      startsOn: string;
+    })
+  | { ok: false; message: string };
 
 type HierarchyOperation = "create_cohort" | "update_cohort" | "create_group" | "update_group";
 
@@ -423,11 +440,80 @@ export async function updateGroupSetup(formData: FormData) {
   redirect(masjidPath(masjidId, "group-updated"));
 }
 
+export async function previewMasjidStaffAccess(formData: FormData): Promise<MasjidStaffGrantPreview> {
+  const masjidId = formString(formData, "masjid_id");
+  const personQuery = formString(formData, "person_query");
+  const grant = parseStaffAccessGrant(formData.get("staff_access"));
+  const startsOn = formString(formData, "starts_on") || checkInEffectiveDateString();
+
+  if (!requireUuid(masjidId) || !personQuery || !grant || !isValidDateString(startsOn)) {
+    return { ok: false, message: "Enter a person, access choice, and valid effective date." };
+  }
+
+  try {
+    const { profile: actor, adminSupabase } = await requireSuperAdminAdminClient();
+    const masjid = await loadMasjidSetupDetailData(adminSupabase, masjidId);
+
+    if (!masjid || !masjid.masjid.active) {
+      return { ok: false, message: "Choose an active masjid." };
+    }
+
+    const target = await findActiveProfileForStaffGrant(adminSupabase, personQuery);
+
+    if (!target) {
+      return { ok: false, message: "No single active profile matched that email or phone." };
+    }
+
+    const detail = await loadPersonDetailData(adminSupabase, target.id);
+
+    if (!detail) {
+      return { ok: false, message: "Unable to load the selected profile." };
+    }
+
+    const { data: expectedState, error: expectedStateError } = await adminSupabase.rpc("get_person_access_state", {
+      input_actor_id: actor.id,
+      input_target_profile_id: target.id
+    });
+
+    if (expectedStateError || !expectedState) {
+      return { ok: false, message: "Unable to load the current access state." };
+    }
+
+    const canonical = reconcilePersonDetailWithAccessState(detail, expectedState as PersonAccessState);
+    const preview = previewAdditiveStaffGrant({
+      targetRole: canonical.profile.role,
+      targetActive: canonical.profile.active,
+      masjidId,
+      grant,
+      startsOn,
+      currentDate: checkInEffectiveDateString(),
+      staffMemberships: canonical.staffMemberships,
+      studentMemberships: canonical.studentMemberships
+    });
+
+    return {
+      ok: true,
+      personName: canonical.profile.name,
+      masjidName: masjid.masjid.name,
+      grant,
+      startsOn,
+      ...preview
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof SuperAdminAccessPlanError
+        ? error.message
+        : "Unable to prepare the staff access preview."
+    };
+  }
+}
+
 export async function grantMasjidStaffAccess(formData: FormData) {
   const masjidId = formString(formData, "masjid_id");
   const personQuery = formString(formData, "person_query");
   const grant = parseStaffAccessGrant(formData.get("staff_access"));
-  const startsOn = formString(formData, "starts_on") || torontoCivilDateString();
+  const startsOn = formString(formData, "starts_on") || checkInEffectiveDateString();
   const requestId = formString(formData, "request_id");
 
   if (!requireUuid(masjidId) || !personQuery || !grant || !isValidDateString(startsOn) || !requireUuid(requestId)) {

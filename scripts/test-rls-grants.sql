@@ -40,6 +40,7 @@ insert into expected_authenticated_definers (signature) values
   ('is_rotation_teacher_for_masjid_week(uuid,uuid,date)'),
   ('is_staff_for_masjid(uuid)'),
   ('is_teacher_for_group_week(uuid,date)'),
+  ('refresh_current_profile_role()'),
   ('student_cohort_for_week(uuid,date)'),
   ('student_cohort_leaderboard_for_week(date)'),
   ('student_current_group_id(uuid)'),

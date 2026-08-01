@@ -11,7 +11,7 @@ import {
   loadStaffMembershipsForPerson,
   loadStudentMembershipsForPerson
 } from "@/app/super-admin/data";
-import { isValidDateString, torontoCivilDateString } from "@/lib/dates";
+import { checkInEffectiveDateString, isValidDateString } from "@/lib/dates";
 import { reconcilePersonDetailWithAccessState } from "@/lib/person-access-state";
 import { validateNewPassword } from "@/lib/password";
 import {
@@ -159,7 +159,7 @@ export async function prepareGuidedPersonAccessChange(formData: FormData): Promi
   const review = buildGuidedChangeReview({
     snapshot,
     draft: { operation, startsOn, masjidId, groupId },
-    today: torontoCivilDateString()
+    today: checkInEffectiveDateString()
   });
 
   if (review.blockers.length > 0 || !review.plan || !review.preset) {
@@ -227,7 +227,7 @@ export async function savePersonAccess(formData: FormData) {
 
   let guidedOperation = null;
   let preset = isGuidedChange ? null : parseSuperAdminAccessPreset(formData.get("access_preset"));
-  let startsOn = isGuidedChange ? torontoCivilDateString() : formString(formData, "starts_on");
+  let startsOn = isGuidedChange ? checkInEffectiveDateString() : formString(formData, "starts_on");
 
   if ((!isGuidedChange && !preset) || (!isGuidedChange && !isValidDateString(startsOn))) {
     redirect(isGuidedChange ? personAccessPath(personId, "invalid") : personPath(personId, "invalid"));
@@ -360,7 +360,7 @@ export async function savePersonAccess(formData: FormData) {
           masjidId: selectedMasjidId,
           groupId: selectedGroupId
         },
-        today: torontoCivilDateString()
+        today: checkInEffectiveDateString()
       });
 
       if (guidedReview.blockers.length > 0 || !guidedReview.preset || !guidedReview.plan) {
@@ -375,15 +375,16 @@ export async function savePersonAccess(formData: FormData) {
     }
 
     const plan = guidedReview?.plan ?? buildSuperAdminAccessChangePlan({
-        targetRole: target.role,
-        targetActive: target.active,
-        preset,
-        startsOn,
-        selectedMasjidId,
-        selectedGroupId,
-        studentMemberships,
-        staffMemberships
-      });
+      targetRole: target.role,
+      targetActive: target.active,
+      preset,
+      startsOn,
+      selectedMasjidId,
+      selectedGroupId,
+      studentMemberships,
+      staffMemberships,
+      currentDate: checkInEffectiveDateString()
+    });
 
     assertProfileRoleTransition({
       actorId: actor.id,
@@ -494,7 +495,7 @@ export async function savePersonAccess(formData: FormData) {
 export async function endStaffMembership(formData: FormData) {
   const personId = formString(formData, "person_id");
   const membershipId = formString(formData, "membership_id");
-  const endsOn = formString(formData, "ends_on") || torontoCivilDateString();
+  const endsOn = formString(formData, "ends_on") || checkInEffectiveDateString();
 
   if (!requireUuid(personId) || !requireUuid(membershipId) || !isValidDateString(endsOn)) {
     redirect(invalidPeoplePath());
