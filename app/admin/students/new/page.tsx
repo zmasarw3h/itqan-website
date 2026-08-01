@@ -6,7 +6,7 @@ import AddUserForm from "@/app/admin/students/new/add-user-form";
 import { loadAdminCreateUserScopeOptions, requireScopedAdmin } from "@/lib/admin-scope";
 import { resolveStudentScope, resolveTeacherMasjidId } from "@/lib/admin-user-scope";
 import { preservedScopedUserSetupRequestId } from "@/lib/admin-users";
-import { addDays, todayDateString, weekStartForDate } from "@/lib/dates";
+import { addDays, torontoCivilDateString, weekStartForDate } from "@/lib/dates";
 import type { Role } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -119,7 +119,7 @@ export default async function NewStudentPage({
     ? resolvedSearchParams.teacher_masjid_id!
     : fallbackTeacherMasjidId;
   const message = statusMessage(resolvedSearchParams.status, createdRole);
-  const currentScoreWeekStart = weekStartForDate(todayDateString());
+  const currentScoreWeekStart = weekStartForDate(torontoCivilDateString());
   const defaultScoreStartsOn = preservedRequestId && resolvedSearchParams.score_starts_on
     ? resolvedSearchParams.score_starts_on
     : addDays(currentScoreWeekStart, 7);

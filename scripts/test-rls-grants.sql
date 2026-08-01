@@ -30,6 +30,7 @@ insert into expected_authenticated_definers (signature) values
   ('cohort_masjid_id(uuid)'),
   ('current_effective_date()'),
   ('current_partner_recitation_round()'),
+  ('current_toronto_civil_date()'),
   ('group_masjid_id(uuid)'),
   ('is_active_admin()'),
   ('is_active_student()'),
@@ -46,11 +47,80 @@ insert into expected_authenticated_definers (signature) values
   ('student_leaderboard_available_weeks()'),
   ('student_masjid_for_week(uuid,date)'),
   ('student_scope_snapshot_matches(uuid,date,uuid,uuid,uuid)'),
+  ('student_weekly_teacher(uuid,date)'),
   ('student_weekly_teacher_name(date)'),
   ('teacher_assignment_contexts()'),
   ('teacher_can_read_membership(uuid,date,date)'),
   ('teacher_grade_scope_snapshot_matches(uuid,date,uuid,uuid,uuid)'),
   ('teacher_group_roster_context(uuid,date)');
+
+-- The shared rotation trigger is deliberately attached only to tables whose
+-- row shape it handles in an explicit branch. Keep this catalog assertion
+-- alongside behavioral seed tests so a future attachment cannot reintroduce
+-- an unsafe NEW-field reference.
+do $$
+declare
+  missing_attachments text;
+  unexpected_attachments text;
+  assignment_active_update_missing boolean;
+begin
+  select string_agg(expected.table_oid::regclass::text || ':' || expected.trigger_name, ', ' order by expected.table_oid::regclass::text)
+  into missing_attachments
+  from (
+    values
+      ('public.cohort_rotation_settings'::regclass, 'cohort_rotation_settings_scope_trigger'),
+      ('public.teacher_rotation_availability'::regclass, 'teacher_rotation_availability_scope_trigger'),
+      ('public.group_teacher_assignments'::regclass, 'teacher_assignment_teacher_eligibility_trigger')
+  ) as expected(table_oid, trigger_name)
+  where not exists (
+    select 1
+    from pg_trigger as triggers
+    where triggers.tgrelid = expected.table_oid
+      and triggers.tgname = expected.trigger_name
+      and triggers.tgfoid = 'public.teacher_rotation_row_scope_matches()'::regprocedure
+      and not triggers.tgisinternal
+  );
+
+  select string_agg(triggers.tgrelid::regclass::text || ':' || triggers.tgname, ', ' order by triggers.tgrelid::regclass::text)
+  into unexpected_attachments
+  from pg_trigger as triggers
+  where triggers.tgfoid = 'public.teacher_rotation_row_scope_matches()'::regprocedure
+    and not triggers.tgisinternal
+    and not exists (
+      select 1
+      from (
+        values
+          ('public.cohort_rotation_settings'::regclass, 'cohort_rotation_settings_scope_trigger'),
+          ('public.teacher_rotation_availability'::regclass, 'teacher_rotation_availability_scope_trigger'),
+          ('public.group_teacher_assignments'::regclass, 'teacher_assignment_teacher_eligibility_trigger')
+      ) as expected(table_oid, trigger_name)
+      where expected.table_oid = triggers.tgrelid
+        and expected.trigger_name = triggers.tgname
+    );
+
+  select not exists (
+    select 1
+    from pg_trigger as triggers
+    join pg_attribute as attributes
+      on attributes.attrelid = triggers.tgrelid
+      and attributes.attnum = any(triggers.tgattr)
+    where triggers.tgrelid = 'public.group_teacher_assignments'::regclass
+      and triggers.tgname = 'teacher_assignment_teacher_eligibility_trigger'
+      and attributes.attname = 'active'
+  )
+  into assignment_active_update_missing;
+
+  if missing_attachments is not null
+    or unexpected_attachments is not null
+    or assignment_active_update_missing then
+    raise exception
+      'rotation trigger attachment mismatch: missing=% unexpected=% assignment_active_update_missing=%',
+      coalesce(missing_attachments, 'none'),
+      coalesce(unexpected_attachments, 'none'),
+      assignment_active_update_missing;
+  end if;
+end;
+$$;
 
 do $$
 declare

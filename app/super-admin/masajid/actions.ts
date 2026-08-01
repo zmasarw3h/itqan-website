@@ -6,7 +6,7 @@ import {
   findActiveProfileForStaffGrant,
   loadMasjidSetupDetailData
 } from "@/app/super-admin/masajid/data";
-import { isValidDateString, todayDateString } from "@/lib/dates";
+import { isValidDateString, torontoCivilDateString } from "@/lib/dates";
 import {
   isValidMasjidSlug,
   normalizeMasjidSlug,
@@ -427,7 +427,7 @@ export async function grantMasjidStaffAccess(formData: FormData) {
   const masjidId = formString(formData, "masjid_id");
   const personQuery = formString(formData, "person_query");
   const grant = parseStaffAccessGrant(formData.get("staff_access"));
-  const startsOn = formString(formData, "starts_on") || todayDateString();
+  const startsOn = formString(formData, "starts_on") || torontoCivilDateString();
   const requestId = formString(formData, "request_id");
 
   if (!requireUuid(masjidId) || !personQuery || !grant || !isValidDateString(startsOn) || !requireUuid(requestId)) {

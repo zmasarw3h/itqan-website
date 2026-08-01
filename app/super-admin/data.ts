@@ -1,7 +1,7 @@
 import "server-only";
 import { staffAccessLabel, staffMembershipIsActiveOn, membershipIsActiveOn } from "@/lib/super-admin-access";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { todayDateString, weekStartForDate } from "@/lib/dates";
+import { torontoCivilDateString, weekStartForDate } from "@/lib/dates";
 import type {
   Cohort,
   CohortKind,
@@ -450,7 +450,7 @@ export async function loadPeopleSearchData(
 
   const profiles = data ?? [];
   const profileIds = profiles.map((profile) => profile.id);
-  const today = todayDateString();
+  const today = torontoCivilDateString();
   const [studentAccessRows, staffAccessRows] = await Promise.all([
     loadCurrentStudentAccessForPeople({ adminSupabase, profileIds, today }),
     loadCurrentStaffAccessForPeople({ adminSupabase, profileIds, today })
@@ -665,7 +665,7 @@ export async function loadStaffMembershipsForPerson(adminSupabase: AdminSupabase
 }
 
 async function loadTeacherAssignmentsForPerson(adminSupabase: AdminSupabaseClient, profileId: string) {
-  const weekStart = weekStartForDate(todayDateString());
+  const weekStart = weekStartForDate(torontoCivilDateString());
   const { data, error } = await adminSupabase
     .from("group_teacher_assignments")
     .select("id,group_id,teacher_id,week_start,active,assigned_by,created_at,updated_at")
@@ -715,7 +715,7 @@ function buildWarnings(input: {
   studentMemberships: StudentMembershipDetail[];
   staffMemberships: StaffMembershipDetail[];
 }) {
-  const today = todayDateString();
+  const today = torontoCivilDateString();
   const activeStudentMemberships = input.studentMemberships.filter((membership) => membershipIsActiveOn(membership, today));
   const activeStaffMemberships = input.staffMemberships.filter((membership) => staffMembershipIsActiveOn(membership, today));
   const activeTeacherStaffMemberships = activeStaffMemberships.filter((membership) => membership.staff_role === "teacher");

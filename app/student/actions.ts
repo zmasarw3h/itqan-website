@@ -10,7 +10,7 @@ import {
   normalizeNote,
   taskForDateOrThrow
 } from "@/lib/checkins";
-import { todayDateString, weekStartForDate } from "@/lib/dates";
+import { checkInEffectiveDateString, torontoCivilDateString, weekStartForDate } from "@/lib/dates";
 import { assertNoDuplicatePartnerRecitation } from "@/lib/partner-recitations";
 import { partnerRoundForDate, PARTNER_RECITATION_POINTS_PER_ROUND, tasksForDate } from "@/lib/scoring";
 import { requireStudentScopeForWeek } from "@/lib/student-scope";
@@ -94,11 +94,12 @@ function checkInSelect() {
 
 async function findOrCreateTodayCheckIn() {
   const { supabase, profile } = await requireProfile(["student"]);
-  const today = todayDateString();
+  const today = checkInEffectiveDateString();
+  const civilToday = torontoCivilDateString();
   const weekStart = weekStartForDate(today);
   await requireStudentScopeForWeek(supabase, profile.id, weekStart);
 
-  const requiredWeeklyPlanWeekStart = weeklyPlanRequiredWeekStart(today);
+  const requiredWeeklyPlanWeekStart = weeklyPlanRequiredWeekStart(civilToday);
   const { data: currentWeeklyPlan } = await supabase
     .from("weekly_plans")
     .select("week_start")
@@ -106,7 +107,7 @@ async function findOrCreateTodayCheckIn() {
     .eq("week_start", requiredWeeklyPlanWeekStart)
     .maybeSingle<Pick<WeeklyPlan, "week_start">>();
 
-  if (weeklyPlanBlocksCheckIn(currentWeeklyPlan ?? null, today)) {
+  if (weeklyPlanBlocksCheckIn(currentWeeklyPlan ?? null, civilToday)) {
     throw new Error("Upload this week's weekly plan before using today's checklist.");
   }
 
@@ -362,7 +363,7 @@ export async function saveTodayCheckInNote(input: { note: string }): Promise<Sav
 
 export async function submitPartnerRecitation() {
   const { supabase, profile } = await requireProfile(["student"]);
-  const today = todayDateString();
+  const today = checkInEffectiveDateString();
   const weekStart = weekStartForDate(today);
   try {
     await requireStudentScopeForWeek(supabase, profile.id, weekStart);

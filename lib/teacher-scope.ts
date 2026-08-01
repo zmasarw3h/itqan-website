@@ -66,9 +66,14 @@ export async function loadTeacherAssignmentContexts(supabase: SupabaseClient) {
     throw new Error("Unable to load teacher assignments.");
   }
 
-  return ((data ?? []) as Array<Omit<TeacherAssignmentContext, "roster_count"> & { roster_count: number | string }>).map(
-    (assignment) => ({ ...assignment, roster_count: Number(assignment.roster_count ?? 0) })
-  );
+  return (
+    (data ?? []) as Array<
+      Omit<TeacherAssignmentContext, "roster_count"> & { roster_count: number | string | null }
+    >
+  ).map((assignment) => ({
+    ...assignment,
+    roster_count: assignment.roster_count === null ? null : Number(assignment.roster_count)
+  }));
 }
 
 export async function assertTeacherGroupAssignment(

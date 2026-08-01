@@ -22,6 +22,7 @@ type UserName =
   | "adminB"
   | "teacherA"
   | "teacherB"
+  | "fridayOnlyTeacher"
   | "expiredTeacher"
   | "futureTeacher"
   | "inactiveTeacher"
@@ -60,6 +61,7 @@ type SeedIds = {
   groupA: string;
   groupB: string;
   groupAdminTeacher: string;
+  groupFridayOnly: string;
   groupWriter: string;
   today: string;
   weekStart: string;
@@ -102,6 +104,7 @@ type SeedIds = {
   assignmentA: string;
   assignmentAdminTeacher: string;
   assignmentB: string;
+  assignmentFridayOnly: string;
   assignmentWriter: string;
   expiredTeacherAssignment: string;
   futureTeacherAssignment: string;
@@ -114,7 +117,7 @@ type SeedIds = {
   auditId: string;
 };
 
-function torontoDateString() {
+function torontoCivilDateString() {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Toronto",
     year: "numeric",
@@ -124,8 +127,24 @@ function torontoDateString() {
     hourCycle: "h23"
   }).formatToParts(new Date());
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  const calendarDate = `${values.year}-${values.month}-${values.day}`;
-  return Number(values.hour) < 1 ? addDays(calendarDate, -1) : calendarDate;
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function checkInEffectiveDateString() {
+  const civilDate = torontoCivilDateString();
+  const hour = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Toronto",
+    hour: "2-digit",
+    hourCycle: "h23"
+  })
+    .formatToParts(new Date())
+    .find((part) => part.type === "hour")?.value;
+
+  if (!hour) {
+    throw new Error("Unable to determine the Toronto hour.");
+  }
+
+  return Number(hour) < 1 ? addDays(civilDate, -1) : civilDate;
 }
 
 function addDays(date: string, days: number) {
@@ -182,6 +201,7 @@ async function seed(): Promise<SeedIds> {
     "adminB",
     "teacherA",
     "teacherB",
+    "fridayOnlyTeacher",
     "expiredTeacher",
     "futureTeacher",
     "inactiveTeacher",
@@ -274,6 +294,7 @@ async function seed(): Promise<SeedIds> {
     admin.from("halaqa_groups").insert([
       { cohort_id: cohortA, name: "A Group", active: true, sort_order: 10 },
       { cohort_id: cohortA, name: "A Admin Teacher Group", active: true, sort_order: 15 },
+      { cohort_id: cohortA, name: "A Friday Only Group", active: true, sort_order: 17 },
       { cohort_id: cohortWriter, name: "A Writer Group", active: true, sort_order: 10 },
       { cohort_id: cohortB, name: "B Group", active: true, sort_order: 10 },
       { cohort_id: inactiveMasjidCohort, name: "Inactive Masjid Group", active: true, sort_order: 10 },
@@ -283,14 +304,16 @@ async function seed(): Promise<SeedIds> {
   );
   const groupA = groups.find((row) => row.name === "A Group")!.id;
   const groupAdminTeacher = groups.find((row) => row.name === "A Admin Teacher Group")!.id;
+  const groupFridayOnly = groups.find((row) => row.name === "A Friday Only Group")!.id;
   const groupWriter = groups.find((row) => row.name === "A Writer Group")!.id;
   const groupB = groups.find((row) => row.name === "B Group")!.id;
   const inactiveMasjidGroup = groups.find((row) => row.name === "Inactive Masjid Group")!.id;
   const inactiveCohortGroup = groups.find((row) => row.name === "Inactive Cohort Group")!.id;
   const inactiveGroup = groups.find((row) => row.name === "Inactive Group")!.id;
 
-  const today = torontoDateString();
-  const weekStart = weekStartForDate(today);
+  const civilToday = torontoCivilDateString();
+  const today = checkInEffectiveDateString();
+  const weekStart = weekStartForDate(civilToday);
   const previousWeekStart = addDays(weekStart, -7);
   const unassignedWeekStart = addDays(weekStart, -14);
   const startsOn = addDays(weekStart, -28);
@@ -298,8 +321,8 @@ async function seed(): Promise<SeedIds> {
   const historicalEndsOn = addDays(startsOn, -1);
   const inactiveHistoricalStartsOn = addDays(historicalStartsOn, -28);
   const inactiveHistoricalEndsOn = addDays(historicalStartsOn, -1);
-  const yesterday = addDays(today, -1);
-  const tomorrow = addDays(today, 1);
+  const yesterday = addDays(civilToday, -1);
+  const tomorrow = addDays(civilToday, 1);
 
   const studentMemberships = await requireData<Array<{ id: string; student_id: string; group_id: string }>>(
     "insert student memberships",
@@ -371,6 +394,13 @@ async function seed(): Promise<SeedIds> {
       { profile_id: users.teacherA, masjid_id: masjidA, staff_role: "teacher", active: true, starts_on: startsOn },
       { profile_id: users.teacherB, masjid_id: masjidB, staff_role: "teacher", active: true, starts_on: startsOn },
       {
+        profile_id: users.fridayOnlyTeacher,
+        masjid_id: masjidA,
+        staff_role: "teacher",
+        active: true,
+        starts_on: weekStart
+      },
+      {
         profile_id: users.expiredAssignmentTeacher,
         masjid_id: masjidA,
         staff_role: "teacher",
@@ -421,6 +451,7 @@ async function seed(): Promise<SeedIds> {
     admin.from("group_teacher_assignments").insert([
       { group_id: groupA, teacher_id: users.teacherA, week_start: weekStart, active: true, assigned_by: users.adminA },
       { group_id: groupAdminTeacher, teacher_id: users.adminA, week_start: weekStart, active: true, assigned_by: users.superAdmin },
+      { group_id: groupFridayOnly, teacher_id: users.fridayOnlyTeacher, week_start: weekStart, active: true, assigned_by: users.superAdmin },
       { group_id: groupWriter, teacher_id: users.teacherA, week_start: weekStart, active: true, assigned_by: users.superAdmin },
       { group_id: groupB, teacher_id: users.teacherB, week_start: weekStart, active: true, assigned_by: users.adminB },
       {
@@ -441,6 +472,7 @@ async function seed(): Promise<SeedIds> {
   );
   const assignmentA = assignments.find((row) => row.group_id === groupA)!.id;
   const assignmentAdminTeacher = assignments.find((row) => row.group_id === groupAdminTeacher)!.id;
+  const assignmentFridayOnly = assignments.find((row) => row.group_id === groupFridayOnly)!.id;
   const assignmentWriter = assignments.find((row) => row.group_id === groupWriter)!.id;
   const assignmentB = assignments.find((row) => row.group_id === groupB)!.id;
   const expiredTeacherAssignment = assignments.find(
@@ -449,6 +481,17 @@ async function seed(): Promise<SeedIds> {
   const futureTeacherAssignment = assignments.find(
     (row) => row.teacher_id === users.futureAssignmentTeacher
   )!.id;
+
+  await requireData(
+    "expire Friday-only teacher staff before the Saturday halaqa event",
+    admin
+      .from("masjid_staff_memberships")
+      .update({ ends_on: addDays(weekStart, 5) })
+      .eq("profile_id", users.fridayOnlyTeacher)
+      .eq("masjid_id", masjidA)
+      .eq("staff_role", "teacher")
+      .select("id")
+  );
 
   const submissionA = calculateDailySubmission(today, tasksForDate(today).map((task) => task.key));
   const submissionA2 = calculateDailySubmission(today, []);
@@ -716,6 +759,7 @@ async function seed(): Promise<SeedIds> {
     groupA,
     groupB,
     groupAdminTeacher,
+    groupFridayOnly,
     groupWriter,
     today,
     weekStart,
@@ -758,6 +802,7 @@ async function seed(): Promise<SeedIds> {
     assignmentA,
     assignmentAdminTeacher,
     assignmentB,
+    assignmentFridayOnly,
     assignmentWriter,
     expiredTeacherAssignment,
     futureTeacherAssignment,
@@ -821,6 +866,7 @@ async function runAssertions(ids: SeedIds) {
     adminB,
     teacherA,
     teacherB,
+    fridayOnlyTeacher,
     studentA,
     studentA2,
     studentWriter,
@@ -840,6 +886,7 @@ async function runAssertions(ids: SeedIds) {
     signIn("adminB"),
     signIn("teacherA"),
     signIn("teacherB"),
+    signIn("fridayOnlyTeacher"),
     signIn("studentA"),
     signIn("studentA2"),
     signIn("studentWriter"),
@@ -1981,6 +2028,74 @@ async function runAssertions(ids: SeedIds) {
     "balanced student moved away from the deterministic first group"
   );
 
+  const fridayOnlyAvailability = await service.from("teacher_rotation_availability").insert({
+    teacher_id: ids.users.fridayOnlyTeacher,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortWriter,
+    week_start: ids.weekStart,
+    available: true
+  });
+  assert.ok(fridayOnlyAvailability.error, "Friday-only teacher was accepted for the Saturday rotation event");
+
+  const fridayOnlyAssignment = await service.from("group_teacher_assignments").upsert(
+    {
+      group_id: ids.groupWriter,
+      teacher_id: ids.users.fridayOnlyTeacher,
+      week_start: ids.weekStart,
+      active: true,
+      assigned_by: ids.users.adminA
+    },
+    { onConflict: "group_id,week_start" }
+  );
+  assert.ok(fridayOnlyAssignment.error, "assignment trigger accepted a teacher whose staff access ends Friday");
+
+  const fridayOnlyAssignmentUpdate = await service
+    .from("group_teacher_assignments")
+    .update({ teacher_id: ids.users.fridayOnlyTeacher })
+    .eq("id", ids.assignmentWriter);
+  assert.ok(
+    fridayOnlyAssignmentUpdate.error,
+    "assignment trigger accepted an ineligible teacher through a direct service-role update"
+  );
+
+  const deactivateFridayOnlyAssignment = await service
+    .from("group_teacher_assignments")
+    .update({ active: false })
+    .eq("id", ids.assignmentFridayOnly);
+  assert.equal(
+    deactivateFridayOnlyAssignment.error,
+    null,
+    `service-role assignment deactivation failed: ${deactivateFridayOnlyAssignment.error?.message}`
+  );
+  const reactivateFridayOnlyAssignment = await service
+    .from("group_teacher_assignments")
+    .update({ active: true })
+    .eq("id", ids.assignmentFridayOnly);
+  assert.ok(
+    reactivateFridayOnlyAssignment.error,
+    "active-only service-role reactivation bypassed Saturday eligibility"
+  );
+
+  const fridayOnlyGeneration = await service.rpc("apply_teacher_rotation_generation", {
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: ids.weekStart,
+    input_generated_by: ids.users.adminA,
+    membership_closes: [],
+    membership_inserts: [],
+    membership_replaces: [],
+    assignment_upserts: [{
+      group_id: ids.groupWriter,
+      teacher_id: ids.users.fridayOnlyTeacher,
+      week_start: ids.weekStart
+    }],
+    assignment_deactivations: [],
+    available_teacher_count: 1,
+    group_count: 2,
+    assigned_count: 1,
+    warning_count: 0
+  });
+  assert.ok(fridayOnlyGeneration.error, "rotation RPC accepted a teacher whose staff access ends Friday");
+
   const { data: generatedRunId, error: generatedRunError } = await service.rpc(
     "apply_teacher_rotation_generation",
     {
@@ -2071,6 +2186,28 @@ async function runAssertions(ids: SeedIds) {
     await assertVisible(teacherA, table, ownId);
     await assertHidden(teacherA, table, crossId);
   }
+  await assertHidden(fridayOnlyTeacher, "group_teacher_assignments", ids.assignmentFridayOnly);
+  const { data: fridayOnlyTeacherAssignmentContexts, error: fridayOnlyTeacherAssignmentContextsError } =
+    await fridayOnlyTeacher.rpc("teacher_assignment_contexts");
+  assert.equal(
+    fridayOnlyTeacherAssignmentContextsError,
+    null,
+    fridayOnlyTeacherAssignmentContextsError?.message
+  );
+  assert.deepEqual(
+    fridayOnlyTeacherAssignmentContexts,
+    [],
+    "Friday-only teacher received an assignment context for a Saturday halaqa week"
+  );
+  const { data: fridayOnlyTeacherScope } = await fridayOnlyTeacher.rpc("is_teacher_for_group_week", {
+    input_group_id: ids.groupFridayOnly,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(fridayOnlyTeacherScope, false, "Friday-only teacher retained group-week authorization");
+  await assertRpcDenied(fridayOnlyTeacher, "teacher_group_roster_context", {
+    input_group_id: ids.groupFridayOnly,
+    input_week_start: ids.weekStart
+  });
   const { data: leakedTeacherProfile, error: leakedTeacherProfileError } = await teacherA
     .from("profiles")
     .select("id,name,email,phone")
@@ -2240,6 +2377,11 @@ async function runAssertions(ids: SeedIds) {
     [ids.previousWeekStart],
     "historical admin-teacher assignment was evaluated using today's membership instead of its week"
   );
+  assert.equal(
+    (historicalAdminTeacherContexts?.[0] as { roster_count?: number | null } | undefined)?.roster_count,
+    null,
+    "historical assignment navigation exposed a roster after operational staff access ended"
+  );
 
   const { data: futureAdminTeacherContexts, error: futureAdminTeacherContextsError } =
     await futureAssignmentTeacher.rpc("teacher_assignment_contexts");
@@ -2249,6 +2391,88 @@ async function runAssertions(ids: SeedIds) {
     [addDays(ids.weekStart, 7)],
     "future admin-teacher assignment was not exposed for capability-aware navigation"
   );
+  assert.equal(
+    (futureAdminTeacherContexts?.[0] as { roster_count?: number | null } | undefined)?.roster_count,
+    null,
+    "future assignment navigation exposed a roster before its Sunday week start"
+  );
+
+  // An open-ended current teacher retains historical operational access; a
+  // teacher whose staff membership ended on the prior Saturday does not.
+  const historicalOpenAssignment = await service
+    .from("group_teacher_assignments")
+    .insert({
+      group_id: ids.groupWriter,
+      teacher_id: ids.users.teacherA,
+      week_start: ids.previousWeekStart,
+      active: true,
+      assigned_by: ids.users.adminA
+    });
+  assert.equal(historicalOpenAssignment.error, null, historicalOpenAssignment.error?.message);
+  const { data: currentTeacherHistoricalScope } = await teacherA.rpc("is_teacher_for_group_week", {
+    input_group_id: ids.groupWriter,
+    input_week_start: ids.previousWeekStart
+  });
+  assert.equal(currentTeacherHistoricalScope, true, "current teacher lost historical assigned-week access");
+  const { data: saturdayEndScope } = await expiredAssignmentTeacher.rpc("is_teacher_for_group_week", {
+    input_group_id: ids.groupA,
+    input_week_start: ids.previousWeekStart
+  });
+  assert.equal(saturdayEndScope, false, "teacher ending on Saturday retained access after the event week");
+
+  // Upcoming assignment metadata may be listed, but no roster, plan, signed
+  // file, or grade authorization exists until its Sunday week_start.
+  const futureWeekStart = addDays(ids.weekStart, 7);
+  const { data: futureScope } = await futureAssignmentTeacher.rpc("is_teacher_for_group_week", {
+    input_group_id: ids.groupA,
+    input_week_start: futureWeekStart
+  });
+  assert.equal(futureScope, false, "future assignment granted teacher scope before its Sunday week_start");
+  await assertRpcDenied(futureAssignmentTeacher, "teacher_group_roster_context", {
+    input_group_id: ids.groupA,
+    input_week_start: futureWeekStart
+  });
+  const futurePlan = await requireData<Array<{ id: string }>>(
+    "insert future weekly plan",
+    service.from("weekly_plans").insert({
+      student_id: ids.users.studentA,
+      week_start: futureWeekStart,
+      file_path: `${ids.users.studentA}/${futureWeekStart}/plan.pdf`,
+      file_name: "future-plan.pdf",
+      file_type: "application/pdf",
+      file_size: 4
+    }).select("id")
+  );
+  const futurePlanPath = `${ids.users.studentA}/${futureWeekStart}/plan.pdf`;
+  const futurePlanUpload = await service.storage.from("weekly-plans").upload(
+    futurePlanPath,
+    new Blob(["future plan"], { type: "application/pdf" }),
+    { contentType: "application/pdf", upsert: true }
+  );
+  assert.equal(futurePlanUpload.error, null, futurePlanUpload.error?.message);
+  await assertHidden(futureAssignmentTeacher, "weekly_plans", futurePlan[0].id);
+  const futurePlanSigned = await futureAssignmentTeacher.storage
+    .from("weekly-plans")
+    .createSignedUrl(futurePlanPath, 60);
+  assert.ok(futurePlanSigned.error, "future assignment signed a weekly plan before Sunday");
+  const { data: futureGradeScope } = await futureAssignmentTeacher.rpc("can_grade_student_for_week", {
+    input_student_id: ids.users.studentA,
+    input_week_start: futureWeekStart
+  });
+  assert.equal(futureGradeScope, false, "future assignment granted grade access before Sunday");
+  await assertInsertBlocked(futureAssignmentTeacher, "halaqa_grades", {
+    student_id: ids.users.studentA,
+    week_start: futureWeekStart,
+    attended: true,
+    attendance_points: 100,
+    recitation_points: 40,
+    graded_by: ids.users.futureAssignmentTeacher
+  });
+  const { data: noExactAssignmentScope } = await teacherB.rpc("is_teacher_for_group_week", {
+    input_group_id: ids.groupA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(noExactAssignmentScope, false, "teacher without an exact assignment received scope");
 
   const { data: studentTeacherContexts, error: studentTeacherContextsError } = await studentA.rpc(
     "teacher_assignment_contexts"
@@ -2578,10 +2802,28 @@ async function runAssertions(ids: SeedIds) {
     input_student_id: ids.users.studentA,
     input_week_start: ids.weekStart
   });
-  await assertRpcDenied(studentA, "student_weekly_teacher", {
-    input_student_id: ids.users.studentA,
-    input_week_start: ids.weekStart
-  });
+  const { data: ownTeacherProjection, error: ownTeacherProjectionError } = await studentA.rpc(
+    "student_weekly_teacher",
+    {
+      input_student_id: ids.users.studentA,
+      input_week_start: ids.weekStart
+    }
+  );
+  assert.equal(ownTeacherProjectionError, null, ownTeacherProjectionError?.message);
+  assert.deepEqual(
+    ownTeacherProjection,
+    [{ teacher_id: ids.users.teacherA, teacher_name: "teacherA" }],
+    "student historical teacher projection did not remain limited to the caller's own identity"
+  );
+  const { data: crossStudentTeacherProjection, error: crossStudentTeacherProjectionError } = await studentA2.rpc(
+    "student_weekly_teacher",
+    {
+      input_student_id: ids.users.studentA,
+      input_week_start: ids.weekStart
+    }
+  );
+  assert.equal(crossStudentTeacherProjectionError, null, crossStudentTeacherProjectionError?.message);
+  assert.deepEqual(crossStudentTeacherProjection, [], "student historical teacher projection leaked another student");
   await assertRpcDenied(studentA, "set_student_scope_snapshot");
   await assertRpcDenied(studentA, "set_halaqa_grade_scope_snapshot");
   await assertRpcDenied(studentA, "enforce_student_accountability_attestation");
@@ -3261,6 +3503,35 @@ async function runAssertions(ids: SeedIds) {
   });
   assert.ok(superAuditInsert.error, "signed super-admin inserted an audit row directly");
 
+  // The current week's Saturday is the authorization event. A teacher who
+  // starts on that Saturday (and whose membership ends that day) is eligible
+  // for this Sunday-Saturday tracker week, even before their first civil day
+  // of staff access arrives.
+  const currentSaturday = addDays(ids.weekStart, 6);
+  const saturdayStartStaff = await service
+    .from("masjid_staff_memberships")
+    .update({ starts_on: currentSaturday, ends_on: currentSaturday })
+    .eq("profile_id", ids.users.futureTeacher)
+    .eq("masjid_id", ids.masjidA)
+    .eq("staff_role", "teacher");
+  assert.equal(saturdayStartStaff.error, null, saturdayStartStaff.error?.message);
+  const saturdayStartAssignment = await service
+    .from("group_teacher_assignments")
+    .update({ teacher_id: ids.users.futureTeacher })
+    .eq("id", ids.assignmentAdminTeacher);
+  assert.equal(saturdayStartAssignment.error, null, saturdayStartAssignment.error?.message);
+  const { data: saturdayStartScope, error: saturdayStartScopeError } = await futureTeacher.rpc(
+    "is_teacher_for_group_week",
+    { input_group_id: ids.groupAdminTeacher, input_week_start: ids.weekStart }
+  );
+  assert.equal(saturdayStartScopeError, null, saturdayStartScopeError?.message);
+  assert.equal(saturdayStartScope, true, "Saturday-starting teacher was denied during the tracker week");
+  const saturdayStartRoster = await futureTeacher.rpc("teacher_group_roster_context", {
+    input_group_id: ids.groupAdminTeacher,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(saturdayStartRoster.error, null, saturdayStartRoster.error?.message);
+
   for (const [table, id] of [
     ["halaqa_groups", ids.groupA],
     ["cohorts", ids.cohortA],
@@ -3282,61 +3553,81 @@ async function runAssertions(ids: SeedIds) {
     "completed assignment labels disappeared after hierarchy deactivation"
   );
 
-  const { data: inactiveHistoricalRoster, error: inactiveHistoricalRosterError } =
-    await expiredAssignmentTeacher.rpc("teacher_group_roster_context", {
-      input_group_id: ids.groupA,
-      input_week_start: ids.previousWeekStart
-    });
-  assert.equal(inactiveHistoricalRosterError, null, inactiveHistoricalRosterError?.message);
-  assert.ok(
-    (inactiveHistoricalRoster ?? []).some(
-      (row: { student_id: string }) => row.student_id === ids.users.studentA
-    ),
-    "completed assignment roster disappeared after hierarchy deactivation"
+  const { data: historicalTeacherName, error: historicalTeacherNameError } = await studentA.rpc(
+    "student_weekly_teacher_name",
+    { input_week_start: ids.previousWeekStart }
   );
-  assert.ok(
-    !(inactiveHistoricalRoster ?? []).some(
-      (row: { student_id: string }) => row.student_id === ids.users.studentB
-    ),
-    "completed assignment roster leaked a student from another group"
+  assert.equal(historicalTeacherNameError, null, historicalTeacherNameError?.message);
+  assert.deepEqual(
+    historicalTeacherName,
+    [{ teacher_name: "expiredAssignmentTeacher" }],
+    "student lost the historical teacher name after hierarchy deactivation"
   );
-  await assertVisible(expiredAssignmentTeacher, "weekly_plans", ids.historicalPlanA);
-  await assertVisible(expiredAssignmentTeacher, "halaqa_grades", ids.historicalGradeA);
-  const { data: updatedHistoricalGrade, error: updatedHistoricalGradeError } =
-    await expiredAssignmentTeacher
-      .from("halaqa_grades")
-      .update({
-        notes: "historical teacher update",
-        graded_by: ids.users.expiredAssignmentTeacher
-      })
-      .eq("id", ids.historicalGradeA)
-      .select("id,notes,graded_by")
-      .single();
-  assert.equal(updatedHistoricalGradeError, null, updatedHistoricalGradeError?.message);
-  assert.deepEqual(updatedHistoricalGrade, {
-    id: ids.historicalGradeA,
-    notes: "historical teacher update",
+  const { data: historicalTeacherProjection, error: historicalTeacherProjectionError } = await studentA.rpc(
+    "student_weekly_teacher",
+    { input_student_id: ids.users.studentA, input_week_start: ids.previousWeekStart }
+  );
+  assert.equal(historicalTeacherProjectionError, null, historicalTeacherProjectionError?.message);
+  assert.deepEqual(
+    historicalTeacherProjection,
+    [{ teacher_id: ids.users.expiredAssignmentTeacher, teacher_name: "expiredAssignmentTeacher" }],
+    "server-side historical teacher projection lost assignment identity"
+  );
+  const { data: adminHistoricalTeacherProjection, error: adminHistoricalTeacherProjectionError } = await adminA.rpc(
+    "student_weekly_teacher",
+    { input_student_id: ids.users.studentA, input_week_start: ids.previousWeekStart }
+  );
+  assert.equal(adminHistoricalTeacherProjectionError, null, adminHistoricalTeacherProjectionError?.message);
+  assert.deepEqual(
+    adminHistoricalTeacherProjection,
+    [{ teacher_id: ids.users.expiredAssignmentTeacher, teacher_name: "expiredAssignmentTeacher" }],
+    "scoped admin lost the historical teacher name after hierarchy deactivation"
+  );
+
+  const deactivateHistoricalTeacherProfile = await service
+    .from("profiles")
+    .update({ active: false })
+    .eq("id", ids.users.expiredAssignmentTeacher);
+  assert.equal(
+    deactivateHistoricalTeacherProfile.error,
+    null,
+    `deactivate historical teacher profile: ${deactivateHistoricalTeacherProfile.error?.message}`
+  );
+  const { data: inactiveProfileHistoricalTeacherName, error: inactiveProfileHistoricalTeacherNameError } =
+    await studentA.rpc("student_weekly_teacher_name", { input_week_start: ids.previousWeekStart });
+  assert.equal(
+    inactiveProfileHistoricalTeacherNameError,
+    null,
+    inactiveProfileHistoricalTeacherNameError?.message
+  );
+  assert.deepEqual(
+    inactiveProfileHistoricalTeacherName,
+    [{ teacher_name: "expiredAssignmentTeacher" }],
+    "student lost the historical teacher name after the teacher profile was deactivated"
+  );
+
+  // A Saturday-ended staff membership is historical display evidence only
+  // after that event. It must not leave roster, plan, signed-file, or grade
+  // authorization on the next Sunday (or any later request date).
+  await assertRpcDenied(expiredAssignmentTeacher, "teacher_group_roster_context", {
+    input_group_id: ids.groupA,
+    input_week_start: ids.previousWeekStart
+  });
+  await assertHidden(expiredAssignmentTeacher, "weekly_plans", ids.historicalPlanA);
+  await assertHidden(expiredAssignmentTeacher, "halaqa_grades", ids.historicalGradeA);
+  await assertUpdateBlocked(expiredAssignmentTeacher, "halaqa_grades", ids.historicalGradeA, {
+    notes: "offboarded historical teacher update",
     graded_by: ids.users.expiredAssignmentTeacher
   });
-
-  const { data: insertedHistoricalGrade, error: insertedHistoricalGradeError } =
-    await expiredAssignmentTeacher
-      .from("halaqa_grades")
-      .insert({
-        student_id: ids.users.studentA2,
-        week_start: ids.previousWeekStart,
-        attended: true,
-        attendance_points: 100,
-        recitation_points: 42,
-        notes: "historical teacher insert",
-        graded_by: ids.users.expiredAssignmentTeacher
-      })
-      .select("id,masjid_id,cohort_id,halaqa_group_id")
-      .single();
-  assert.equal(insertedHistoricalGradeError, null, insertedHistoricalGradeError?.message);
-  assert.equal(insertedHistoricalGrade?.masjid_id, ids.masjidA);
-  assert.equal(insertedHistoricalGrade?.cohort_id, ids.cohortA);
-  assert.equal(insertedHistoricalGrade?.halaqa_group_id, ids.groupA);
+  await assertInsertBlocked(expiredAssignmentTeacher, "halaqa_grades", {
+    student_id: ids.users.studentA2,
+    week_start: ids.previousWeekStart,
+    attended: true,
+    attendance_points: 100,
+    recitation_points: 42,
+    notes: "offboarded historical teacher insert",
+    graded_by: ids.users.expiredAssignmentTeacher
+  });
 
   await assertUpdateBlocked(teacherB, "halaqa_grades", ids.historicalGradeA, {
     notes: "wrong historical teacher",
@@ -3357,11 +3648,7 @@ async function runAssertions(ids: SeedIds) {
   const historicalPlanSigned = await expiredAssignmentTeacher.storage
     .from("weekly-plans")
     .createSignedUrl(`${ids.users.studentA}/${ids.previousWeekStart}/plan.pdf`, 60);
-  assert.equal(
-    historicalPlanSigned.error,
-    null,
-    `completed assignment plan signing failed after hierarchy deactivation: ${historicalPlanSigned.error?.message}`
-  );
+  assert.ok(historicalPlanSigned.error, "offboarded teacher signed a completed assignment plan");
 
   await assertRpcDenied(teacherB, "teacher_group_roster_context", {
     input_group_id: ids.groupA,
@@ -3386,7 +3673,15 @@ async function runAssertions(ids: SeedIds) {
     input_week_start: addDays(ids.weekStart, 7)
   });
   const { data: inactiveCurrentContexts } = await teacherA.rpc("teacher_assignment_contexts");
-  assert.deepEqual(inactiveCurrentContexts, [], "inactive hierarchy exposed a current assignment");
+  assert.deepEqual(
+    (inactiveCurrentContexts ?? []).map((row: { group_id: string; week_start: string; roster_count: number | null }) => ({
+      group_id: row.group_id,
+      week_start: row.week_start,
+      roster_count: row.roster_count
+    })),
+    [{ group_id: ids.groupWriter, week_start: ids.previousWeekStart, roster_count: null }],
+    "inactive hierarchy exposed a current assignment or roster instead of only the completed historical label"
+  );
   const { data: inactiveFutureContexts } = await futureAssignmentTeacher.rpc("teacher_assignment_contexts");
   assert.deepEqual(inactiveFutureContexts, [], "inactive hierarchy exposed a future assignment");
   await assertHidden(expiredAssignmentTeacher, "masajid", ids.masjidA);
@@ -3410,6 +3705,7 @@ async function runAssertions(ids: SeedIds) {
     ["is_active_super_admin"],
     ["current_effective_date"],
     ["current_partner_recitation_round"],
+    ["current_toronto_civil_date"],
     ["is_admin_for_masjid", { input_masjid_id: ids.masjidA }],
     ["is_staff_for_masjid", { input_masjid_id: ids.masjidA }],
     ["is_teacher_for_group_week", { input_group_id: ids.groupA, input_week_start: ids.weekStart }],

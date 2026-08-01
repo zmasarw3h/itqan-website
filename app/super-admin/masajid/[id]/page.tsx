@@ -16,7 +16,7 @@ import {
   type MasjidSetupDetailData,
   type MasjidSetupSearchParams
 } from "@/app/super-admin/masajid/data";
-import { todayDateString } from "@/lib/dates";
+import { torontoCivilDateString } from "@/lib/dates";
 import { requireSuperAdminAdminClient } from "@/lib/super-admin";
 import {
   masjidUpdateState,
@@ -186,7 +186,7 @@ function StaffAccess({ data }: { data: MasjidSetupDetailData }) {
           </label>
           <label className="block">
             <span className="text-sm font-medium text-ink">Starts on</span>
-            <input className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2" defaultValue={todayDateString()} name="starts_on" type="date" />
+            <input className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2" defaultValue={torontoCivilDateString()} name="starts_on" type="date" />
           </label>
           <label className="block">
             <span className="text-sm font-medium text-ink">Confirm masjid name</span>

@@ -3,7 +3,12 @@ import { notFound } from "next/navigation";
 import AppNav from "@/app/nav";
 import TeacherGradeForm from "@/app/teacher/groups/[groupId]/teacher-grade-form";
 import TeacherWeekSelector from "@/app/teacher/week-selector";
-import { formatDateTimeInAppTimeZone, formatWeekRange, todayDateString, weekStartForDate } from "@/lib/dates";
+import {
+  formatDateTimeInAppTimeZone,
+  formatWeekRange,
+  torontoCivilDateString,
+  weekStartForDate
+} from "@/lib/dates";
 import { isTrackerWeekStart, resolveTeacherWeekStart } from "@/lib/teacher-dashboard";
 import {
   loadTeacherGroupRoster,
@@ -26,7 +31,7 @@ export default async function TeacherGroupPage({
   searchParams: Promise<GroupSearchParams>;
 }) {
   const [{ groupId }, resolvedSearchParams] = await Promise.all([params, searchParams]);
-  const currentWeekStart = weekStartForDate(todayDateString());
+  const currentWeekStart = weekStartForDate(torontoCivilDateString());
   const requestedWeek = Array.isArray(resolvedSearchParams.week)
     ? resolvedSearchParams.week[0]
     : resolvedSearchParams.week;

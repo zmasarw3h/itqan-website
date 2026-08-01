@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { canAdminManageStudentForWeek, requireScopedAdmin } from "@/lib/admin-scope";
 import { isCanonicalScoringSunday, parseOfficialScoringChangePreview } from "@/lib/official-scoring";
-import { todayDateString, weekStartForDate } from "@/lib/dates";
+import { torontoCivilDateString, weekStartForDate } from "@/lib/dates";
 import type { Profile } from "@/lib/types";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -31,7 +31,7 @@ async function requireCurrentStudentScope(
   proposed?: string
 ) {
   const auth = await requireScopedAdmin();
-  const currentWeekStart = weekStartForDate(todayDateString());
+  const currentWeekStart = weekStartForDate(torontoCivilDateString());
   const canManage = await canAdminManageStudentForWeek(auth.supabase, studentId, currentWeekStart);
 
   if (!canManage) {

@@ -192,9 +192,22 @@ Uploading again during the same week replaces the existing weekly plan record. T
 
 Admins open `/admin/students/[id]` from the student list to view the student's current weekly plan. If a plan exists, the admin sees the file name, upload timestamp, and a signed view/download link. If no plan exists, the page shows `No plan uploaded for this week.`
 
-Teachers open `/teacher` and choose an assignment week. A weekly-plan link appears only for a student
+Teachers open `/teacher` and choose an assignment week. `week_start` remains the Sunday tracker-week
+storage key, while the halaqa event date is the following Saturday. Teacher staff eligibility for the
+assignment is evaluated on that Saturday, not on the Sunday storage key. Rotation navigation and
+request-time staff access use Toronto civil dates; the 1:00 AM effective date remains limited to daily
+check-ins, partner recitation, and reset-tied scoring. A weekly-plan link appears only for a student
 whose membership is effective in that teacher's assigned group for the exact week. The download route
 rechecks the assignment server-side and creates a five-minute signed URL with the signed-in session.
+
+Teacher operational access never begins before the assignment Sunday. From that Sunday through the
+Saturday halaqa event, an exact active assignment and staff coverage of that Saturday are required; a
+teacher whose staff membership begins on Saturday is therefore eligible for the whole tracker week.
+After Saturday, the exact assignment and historical Saturday coverage remain necessary, and the teacher
+must also have active teacher staff access for the same masjid on the Toronto civil request date. A
+teacher offboarded on Saturday cannot later open the roster, plans, signed files, or grades. Historical
+student and admin displays retain the assigned teacher's name even if that teacher or the hierarchy is
+later deactivated; displaying that history does not grant operational access.
 
 ## Weekly Scoring
 

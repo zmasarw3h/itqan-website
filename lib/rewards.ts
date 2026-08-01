@@ -1,4 +1,4 @@
-import { isValidDateString, todayDateString } from "@/lib/dates";
+import { isValidDateString, torontoCivilDateString } from "@/lib/dates";
 import type { BadgeAward, Profile } from "@/lib/types";
 
 export type RewardBadgeAward = Pick<
@@ -24,7 +24,7 @@ export type MonthlyBadgeLeaderboardRow = {
   recentAwards: RewardBadgeAward[];
 };
 
-export function monthStartForDate(dateString = todayDateString()) {
+export function monthStartForDate(dateString = torontoCivilDateString()) {
   if (!isValidDateString(dateString)) {
     throw new Error("Invalid date.");
   }

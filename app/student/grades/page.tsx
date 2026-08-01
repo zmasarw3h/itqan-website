@@ -1,6 +1,13 @@
 import AppNav from "@/app/nav";
 import { StudentSetupIncomplete, StudentWeekContextPanel } from "@/app/student/student-week-context";
-import { addDays, formatWeekRange, isValidDateString, todayDateString, weekDatesFromStart, weekStartForDate } from "@/lib/dates";
+import {
+  addDays,
+  checkInEffectiveDateString,
+  formatWeekRange,
+  isValidDateString,
+  weekDatesFromStart,
+  weekStartForDate
+} from "@/lib/dates";
 import {
   buildHalaqaFeedbackDisplay,
   buildStudentBelow70Streak,
@@ -34,7 +41,7 @@ export default async function StudentGradesPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["student"]);
-  const today = todayDateString();
+  const today = checkInEffectiveDateString();
   const currentWeekStart = weekStartForDate(today);
   const selectedWeekStart = validWeekStart(resolvedSearchParams.week, currentWeekStart);
   const selectedWeekDates = weekDatesFromStart(selectedWeekStart);
@@ -44,7 +51,7 @@ export default async function StudentGradesPage({
   const studentContext = await loadStudentWeekContext(supabase, profile.id, selectedWeekStart);
 
   if (!studentContext.scope) {
-    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={selectedWeekStart} />;
+    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={selectedWeekStart} teacher={studentContext.teacher} />;
   }
 
   const { data: checkinDates } = await supabase

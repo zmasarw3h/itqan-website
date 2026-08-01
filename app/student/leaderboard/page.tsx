@@ -31,7 +31,14 @@ export default async function StudentLeaderboardPage({
   const data = await loadStudentLeaderboardData(supabase, profile.id, resolvedSearchParams);
 
   if (!data.scope) {
-    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={data.selectedWeekStart} />;
+    return (
+      <StudentSetupIncomplete
+        name={profile.name}
+        role={profile.role}
+        teacher={data.teacher}
+        weekStart={data.selectedWeekStart}
+      />
+    );
   }
 
   const currentRow = data.currentStudentRow;

@@ -6,7 +6,7 @@ import AppNav from "@/app/nav";
 import { loadAdminCreateUserScopeOptions } from "@/lib/admin-scope";
 import { resolveStudentScope, resolveTeacherMasjidId } from "@/lib/admin-user-scope";
 import { preservedScopedUserSetupRequestId } from "@/lib/admin-users";
-import { addDays, todayDateString, weekStartForDate } from "@/lib/dates";
+import { addDays, torontoCivilDateString, weekStartForDate } from "@/lib/dates";
 import { requireSuperAdminAdminClient } from "@/lib/super-admin";
 import type { Role } from "@/lib/types";
 
@@ -61,7 +61,7 @@ export default async function NewSuperAdminPersonPage({
     ? params.teacher_masjid_id!
     : fallbackTeacherMasjidId;
   const message = statusMessage(params.status, createdRole);
-  const currentScoreWeekStart = weekStartForDate(todayDateString());
+  const currentScoreWeekStart = weekStartForDate(torontoCivilDateString());
   const defaultScoreStartsOn = preservedRequestId && params.score_starts_on
     ? params.score_starts_on
     : addDays(currentScoreWeekStart, 7);

@@ -1,5 +1,11 @@
 import "server-only";
-import { formatWeekRange, isValidDateString, todayDateString, weekStartForDate } from "@/lib/dates";
+import {
+  formatWeekRange,
+  halaqaSaturdayForWeek,
+  isValidDateString,
+  torontoCivilDateString,
+  weekStartForDate
+} from "@/lib/dates";
 import { loadAdminCreateUserScopeOptions } from "@/lib/admin-scope";
 import {
   buildRotationContexts,
@@ -131,8 +137,8 @@ export const ROTATION_STATUS_MESSAGES: Record<string, { text: string; className:
   }
 };
 
-export function defaultRotationWeekStart(today = todayDateString()) {
-  return weekStartForDate(today);
+export function defaultRotationWeekStart(civilDate = torontoCivilDateString()) {
+  return weekStartForDate(civilDate);
 }
 
 export function validRotationWeekStart(value: string | undefined, fallback = defaultRotationWeekStart()) {
@@ -281,14 +287,15 @@ export async function loadActiveRotationTeachers(input: {
   context: RotationContext;
   weekStart: string;
 }): Promise<RotationTeacherRow[]> {
+  const halaqaSaturday = halaqaSaturdayForWeek(input.weekStart);
   const { data: staffRows, error: staffError } = await input.adminSupabase
     .from("masjid_staff_memberships")
     .select("profile_id,starts_on")
     .eq("masjid_id", input.context.masjid.id)
     .eq("staff_role", "teacher")
     .eq("active", true)
-    .lte("starts_on", input.weekStart)
-    .or(`ends_on.is.null,ends_on.gte.${input.weekStart}`)
+    .lte("starts_on", halaqaSaturday)
+    .or(`ends_on.is.null,ends_on.gte.${halaqaSaturday}`)
     .order("starts_on", { ascending: true })
     .returns<Array<{ profile_id: string; starts_on: string }>>();
 
@@ -393,6 +400,7 @@ function buildAssignmentRows(input: {
   groups: HalaqaGroup[];
   teachers: RotationTeacherRow[];
   priorAssignments: PriorTeacherAssignment[];
+  historicalTeacherNames: Map<string, string>;
   weekStart: string;
 }) {
   const teacherById = new Map(input.teachers.map((teacher) => [teacher.id, teacher]));
@@ -410,10 +418,37 @@ function buildAssignmentRows(input: {
       group_id: group.id,
       group_name: group.name,
       teacher_id: assignment?.teacher_id ?? null,
-      teacher_name: teacher?.name ?? null,
+      // Assignment history remains attributable even after a teacher is
+      // offboarded and therefore no longer appears in the eligible roster.
+      teacher_name: teacher?.name ?? (
+        assignment ? input.historicalTeacherNames.get(assignment.teacher_id) ?? null : null
+      ),
       active: Boolean(assignment && teacher)
     };
   });
+}
+
+async function loadHistoricalTeacherNames(
+  adminSupabase: AdminSupabaseClient,
+  teacherIds: string[]
+) {
+  const uniqueTeacherIds = [...new Set(teacherIds)];
+
+  if (uniqueTeacherIds.length === 0) {
+    return new Map<string, string>();
+  }
+
+  const { data, error } = await adminSupabase
+    .from("profiles")
+    .select("id,name")
+    .in("id", uniqueTeacherIds)
+    .returns<Array<Pick<Profile, "id" | "name">>>();
+
+  if (error) {
+    throw new Error("Unable to load assigned teacher names.");
+  }
+
+  return new Map((data ?? []).map((profile) => [profile.id, profile.name]));
 }
 
 export async function loadRotationPageData(input: {
@@ -474,6 +509,10 @@ export async function loadRotationPageData(input: {
     loadRotationStudents({ adminSupabase, groups, weekStart: selectedWeekStart }),
     loadPriorTeacherAssignments({ adminSupabase, groupIds, weekStart: selectedWeekStart })
   ]);
+  const historicalTeacherNames = await loadHistoricalTeacherNames(
+    adminSupabase,
+    priorAssignments.map((assignment) => assignment.teacher_id)
+  );
   const setupIssues = [
     settings ? null : "Set a target group count before publishing assignments.",
     settings && groups.length > settings.target_group_count
@@ -513,7 +552,13 @@ export async function loadRotationPageData(input: {
     groups: buildGroupRows(groups, studentData.memberships),
     students: studentData.students,
     teachers,
-    assignments: buildAssignmentRows({ groups, teachers, priorAssignments, weekStart: selectedWeekStart }),
+    assignments: buildAssignmentRows({
+      groups,
+      teachers,
+      priorAssignments,
+      historicalTeacherNames,
+      weekStart: selectedWeekStart
+    }),
     rebalancePreview,
     persistencePlan,
     setupIssues

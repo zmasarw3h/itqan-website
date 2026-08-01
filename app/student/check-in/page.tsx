@@ -5,7 +5,13 @@ import CheckInChecklist from "@/app/student/check-in/check-in-checklist";
 import { StudentSetupIncomplete, StudentWeekContextPanel } from "@/app/student/student-week-context";
 import { attestAccountabilityPaid } from "@/app/student/actions";
 import { ACCOUNTABILITY_GATE_COPY } from "@/lib/accountability";
-import { friendlyDate, formatWeekRange, todayDateString, weekStartForDate } from "@/lib/dates";
+import {
+  checkInEffectiveDateString,
+  friendlyDate,
+  formatWeekRange,
+  torontoCivilDateString,
+  weekStartForDate
+} from "@/lib/dates";
 import { formatAmountCents } from "@/lib/incentives";
 import { calculateDailySubmission, tasksForDate } from "@/lib/scoring";
 import { loadStudentWeekContext, type StudentWeekScope, type StudentWeekTeacher } from "@/lib/student-scope";
@@ -160,15 +166,16 @@ export default async function StudentCheckInPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["student"]);
-  const today = todayDateString();
+  const today = checkInEffectiveDateString();
+  const civilToday = torontoCivilDateString();
   const currentWeekStart = weekStartForDate(today);
   const studentContext = await loadStudentWeekContext(supabase, profile.id, currentWeekStart);
 
   if (!studentContext.scope) {
-    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={currentWeekStart} />;
+    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={currentWeekStart} teacher={studentContext.teacher} />;
   }
 
-  const requiredWeeklyPlanWeekStart = weeklyPlanRequiredWeekStart(today);
+  const requiredWeeklyPlanWeekStart = weeklyPlanRequiredWeekStart(civilToday);
   const { data: currentWeeklyPlan } = await supabase
     .from("weekly_plans")
     .select("week_start")
@@ -176,7 +183,7 @@ export default async function StudentCheckInPage({
     .eq("week_start", requiredWeeklyPlanWeekStart)
     .maybeSingle<Pick<WeeklyPlan, "week_start">>();
 
-  if (weeklyPlanBlocksCheckIn(currentWeeklyPlan ?? null, today)) {
+  if (weeklyPlanBlocksCheckIn(currentWeeklyPlan ?? null, civilToday)) {
     return (
       <WeeklyPlanGate
         studentName={profile.name}
