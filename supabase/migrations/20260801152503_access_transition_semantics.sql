@@ -1713,12 +1713,10 @@ as $$
 declare
   existing_request private.workflow_mutation_requests%rowtype;
   request_payload jsonb;
-  target_profile public.profiles%rowtype;
   desired_staff_role text;
   desired_staff_roles text[];
   membership_id uuid;
   next_role text;
-  next_active boolean;
   result_payload jsonb;
 begin
   if input_request_id is null
@@ -1784,8 +1782,7 @@ begin
     raise exception using errcode = '42501', message = 'actor is not an active super admin.';
   end if;
 
-  select profiles.*
-  into target_profile
+  perform 1
   from public.profiles
   where profiles.id = input_target_profile_id
     and profiles.active = true
@@ -1900,8 +1897,8 @@ begin
 
   perform private.recompute_profile_access(input_target_profile_id, public.current_toronto_civil_date());
 
-  select projection.role, projection.active
-  into next_role, next_active
+  select projection.role
+  into next_role
   from private.raw_profile_access_projection(input_target_profile_id, public.current_toronto_civil_date()) as projection;
 
   result_payload := jsonb_build_object(
