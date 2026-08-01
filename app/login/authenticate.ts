@@ -18,6 +18,7 @@ async function resolveAuthEmail(identifier: string) {
       .from("profiles")
       .select("id,email,phone,role,active")
       .like("phone", `%${digits}`)
+      .eq("active", true)
       .returns<Pick<Profile, "id" | "email" | "phone" | "role" | "active">[]>();
 
     if (error) {
@@ -55,13 +56,6 @@ export async function authenticateWithPhone(
   if (!user) {
     await supabase.auth.signOut();
     return { error: "Unable to confirm the signed-in user." };
-  }
-
-  const { error: roleRefreshError } = await supabase.rpc("refresh_current_profile_role");
-
-  if (roleRefreshError) {
-    await supabase.auth.signOut();
-    return { error: "Unable to refresh your access. Please try again." };
   }
 
   const { data: profile, error: profileError } = await supabase

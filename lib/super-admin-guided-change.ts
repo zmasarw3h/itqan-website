@@ -67,6 +67,7 @@ export type GuidedAccessSnapshot = {
     name: string;
     role: Role;
     active: boolean;
+    access_deactivated_on?: string | null;
   };
   studentMemberships: GuidedStudentMembership[];
   staffMemberships: GuidedStaffMembership[];
@@ -296,6 +297,19 @@ function addPlanRows(input: {
     }
   }
 
+  for (const membershipId of plan.studentMembershipCancellations) {
+    const membership = snapshot.studentMemberships.find((row) => row.id === membershipId);
+
+    if (!membership) continue;
+    rows.push({
+      id: `student-cancel-${membership.id}`,
+      label: "Student placement",
+      current: membershipDescription(membership),
+      after: "Cancelled before becoming effective",
+      detail: `Cancelled on ${friendlyDate(draft.startsOn)}`
+    });
+  }
+
   for (const close of plan.staffMembershipCloses) {
     const membership = snapshot.staffMemberships.find((row) => row.id === close.id);
 
@@ -337,7 +351,11 @@ function unchangedImpact(input: {
     unchanged.push(`${masjidName}: ${accessLabelForRoles([...roles])} remains unchanged.`);
   }
 
-  if (input.plan.studentMembershipCloses.length === 0 && !input.plan.studentMembershipInsert) {
+  if (
+    input.plan.studentMembershipCloses.length === 0 &&
+    input.plan.studentMembershipCancellations.length === 0 &&
+    !input.plan.studentMembershipInsert
+  ) {
     unchanged.push("Student placement is unchanged.");
   }
 
@@ -422,6 +440,7 @@ export function buildGuidedChangeReview(input: {
     plan = buildSuperAdminAccessChangePlan({
       targetRole: snapshot.profile.role,
       targetActive: snapshot.profile.active,
+      targetAccessDeactivatedOn: snapshot.profile.access_deactivated_on,
       preset,
       startsOn: draft.startsOn,
       selectedMasjidId: selectedMasjid?.id,
@@ -455,7 +474,7 @@ export function buildGuidedChangeReview(input: {
       })
   );
 
-  if (closesTeacherAccess && teacherRemovalAffectsAssignment) {
+  if (draft.operation !== "deactivate_account" && closesTeacherAccess && teacherRemovalAffectsAssignment) {
     blockers.push(
       "Current or upcoming teacher assignments must be resolved before this operation can remove teacher access for their halaqa Saturday."
     );
@@ -466,6 +485,7 @@ export function buildGuidedChangeReview(input: {
       plan.nextRole !== snapshot.profile.role ||
       plan.nextActive !== snapshot.profile.active ||
       plan.studentMembershipCloses.length > 0 ||
+      plan.studentMembershipCancellations.length > 0 ||
       Boolean(plan.studentMembershipInsert) ||
       plan.staffMembershipCloses.length > 0 ||
       plan.staffMembershipInserts.length > 0;

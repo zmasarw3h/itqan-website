@@ -195,8 +195,8 @@ Admins open `/admin/students/[id]` from the student list to view the student's c
 Teachers open `/teacher` and choose an assignment week. `week_start` remains the Sunday tracker-week
 storage key, while the halaqa event date is the following Saturday. Teacher staff eligibility for the
 assignment is evaluated on that Saturday, not on the Sunday storage key. Rotation navigation uses Toronto civil
-dates; the 1:00 AM effective date is the canonical current-access date for
-role projection and daily operational scope. A weekly-plan link appears only for a student
+dates; all current staff/account-access decisions use the literal Toronto civil date. The 1:00 AM
+effective date is limited to daily check-ins, partner recitation, and reset-linked scoring. A weekly-plan link appears only for a student
 whose membership is effective in that teacher's assigned group for the exact week. The download route
 rechecks the assignment server-side and creates a five-minute signed URL with the signed-in session.
 

@@ -74,6 +74,10 @@ begin
     raise exception using errcode = '22023', message = 'starts_on is required.';
   end if;
 
+  if input_starts_on < public.current_toronto_civil_date() then
+    raise exception using errcode = '22023', message = 'staff grant date cannot be historical.';
+  end if;
+
   preparation_payload := jsonb_build_object(
     'actor_id', input_actor_id,
     'target_profile_id', input_target_profile_id,

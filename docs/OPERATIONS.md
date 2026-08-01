@@ -342,7 +342,11 @@ before the operator submits. An ambiguous response is retried with the same UUID
 grant inputs replay the stored result even when the current expected-state token has changed; actor,
 target, masjid, grant, and effective date remain part of replay identity. Active masajid must retain
 continuous future admin coverage through all scheduled handoffs and ultimately have open-ended admin
-coverage.
+coverage. Use the service-role-only, read-only `access_transition_rollout_diagnostic()` before rollout to
+list stored/projection mismatches, future membership transitions that violate the unchanged-role/active
+rule, assignments affected by immediate deactivation, and masjids at last-admin coverage risk.
+Coverage is evaluated at the current date and every future admin start or inclusive end boundary, so a
+reported risk identifies the exact civil date at which an active masjid would have no projected admin.
 
 Guided Change is the replacement workflow. `Set Teacher only`, `Set Admin only`, and `Set Admin + Teacher`
 operate on the explicitly selected masjid and leave every other masjid untouched. The projected global
@@ -354,7 +358,7 @@ future-dated deactivation is not supported.
 
 Masjid edits and active-state changes use one guarded transaction for the row update and audit event.
 Reactivation locks against concurrent admin-access changes and is rejected unless coverage is continuous
-from the current effective date through an open-ended administrator. An ambiguous update preserves its
+from the current Toronto civil date through an open-ended administrator. An ambiguous update preserves its
 validated request UUID in the form so the exact desired update can be replayed; changed inputs with that UUID are rejected.
 
 Setup changes are audited in `super_admin_audit_events`. The UI does not delete masajid, cohorts, groups,

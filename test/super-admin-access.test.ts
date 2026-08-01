@@ -174,8 +174,8 @@ describe("super-admin access planning", () => {
     expect(preview.noOp).toBe(false);
   });
 
-  it("keeps current role state while previewing a future additive capability", () => {
-    const preview = previewAdditiveStaffGrant({
+  it("rejects a future additive capability that changes the global projection", () => {
+    expect(() => previewAdditiveStaffGrant({
       targetRole: "student",
       targetActive: true,
       masjidId: "thunder-bay",
@@ -184,11 +184,22 @@ describe("super-admin access planning", () => {
       currentDate: "2026-07-07",
       studentMemberships,
       staffMemberships: []
+    })).toThrow(SuperAdminAccessPlanError);
+  });
+
+  it("allows a future additive capability when the global projection remains admin", () => {
+    const preview = previewAdditiveStaffGrant({
+      targetRole: "admin",
+      targetActive: true,
+      masjidId: "thunder-bay",
+      grant: "teacher",
+      startsOn: "2026-07-10",
+      currentDate: "2026-07-07",
+      staffMemberships
     });
 
-    expect(preview.resultingRole).toBe("student");
-    expect(preview.resultingActive).toBe(true);
-    expect(preview.effectiveRole).toBe("teacher");
+    expect(preview.resultingRole).toBe("admin");
+    expect(preview.effectiveRole).toBe("admin");
     expect(preview.effectiveActive).toBe(true);
   });
 

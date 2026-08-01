@@ -336,7 +336,7 @@ function DateStep({
           <p>Account deactivation is immediate. Future-dated global deactivation is not supported.</p>
         ) : (
           <p>
-            Future-dated access changes are allowed. The global default role stays projected from access that is effective today and changes only when the selected membership date arrives.
+            Future-dated access changes are allowed only when the global role and active state remain unchanged when the operation becomes effective. Role-changing future transitions must be applied today or redesigned as a same-role capability change.
           </p>
         )}
       </div>

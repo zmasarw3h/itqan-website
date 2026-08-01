@@ -7,7 +7,7 @@ import {
   loadMasjidSetupDetailData
 } from "@/app/super-admin/masajid/data";
 import { loadPersonDetailData } from "@/app/super-admin/data";
-import { checkInEffectiveDateString, isValidDateString } from "@/lib/dates";
+import { isValidDateString, torontoCivilDateString } from "@/lib/dates";
 import {
   previewAdditiveStaffGrant,
   SuperAdminAccessPlanError,
@@ -444,7 +444,7 @@ export async function previewMasjidStaffAccess(formData: FormData): Promise<Masj
   const masjidId = formString(formData, "masjid_id");
   const personQuery = formString(formData, "person_query");
   const grant = parseStaffAccessGrant(formData.get("staff_access"));
-  const startsOn = formString(formData, "starts_on") || checkInEffectiveDateString();
+  const startsOn = formString(formData, "starts_on") || torontoCivilDateString();
 
   if (!requireUuid(masjidId) || !personQuery || !grant || !isValidDateString(startsOn)) {
     return { ok: false, message: "Enter a person, access choice, and valid effective date." };
@@ -483,10 +483,11 @@ export async function previewMasjidStaffAccess(formData: FormData): Promise<Masj
     const preview = previewAdditiveStaffGrant({
       targetRole: canonical.profile.role,
       targetActive: canonical.profile.active,
+      targetAccessDeactivatedOn: canonical.profile.access_deactivated_on,
       masjidId,
       grant,
       startsOn,
-      currentDate: checkInEffectiveDateString(),
+      currentDate: torontoCivilDateString(),
       staffMemberships: canonical.staffMemberships,
       studentMemberships: canonical.studentMemberships
     });
@@ -513,7 +514,7 @@ export async function grantMasjidStaffAccess(formData: FormData) {
   const masjidId = formString(formData, "masjid_id");
   const personQuery = formString(formData, "person_query");
   const grant = parseStaffAccessGrant(formData.get("staff_access"));
-  const startsOn = formString(formData, "starts_on") || checkInEffectiveDateString();
+  const startsOn = formString(formData, "starts_on") || torontoCivilDateString();
   const requestId = formString(formData, "request_id");
 
   if (!requireUuid(masjidId) || !personQuery || !grant || !isValidDateString(startsOn) || !requireUuid(requestId)) {

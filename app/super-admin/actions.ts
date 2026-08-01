@@ -11,12 +11,13 @@ import {
   loadStaffMembershipsForPerson,
   loadStudentMembershipsForPerson
 } from "@/app/super-admin/data";
-import { checkInEffectiveDateString, isValidDateString } from "@/lib/dates";
+import { isValidDateString, torontoCivilDateString } from "@/lib/dates";
 import { reconcilePersonDetailWithAccessState } from "@/lib/person-access-state";
 import { validateNewPassword } from "@/lib/password";
 import {
   adminMasjidConfirmationNamesForPlan,
   adminMasjidConfirmationText,
+  assertFutureStaffMembershipEndDoesNotChangeProjection,
   buildSuperAdminAccessChangePlan,
   parseSuperAdminAccessPreset,
   SuperAdminAccessPlanError
@@ -159,7 +160,7 @@ export async function prepareGuidedPersonAccessChange(formData: FormData): Promi
   const review = buildGuidedChangeReview({
     snapshot,
     draft: { operation, startsOn, masjidId, groupId },
-    today: checkInEffectiveDateString()
+    today: torontoCivilDateString()
   });
 
   if (review.blockers.length > 0 || !review.plan || !review.preset) {
@@ -227,7 +228,7 @@ export async function savePersonAccess(formData: FormData) {
 
   let guidedOperation = null;
   let preset = isGuidedChange ? null : parseSuperAdminAccessPreset(formData.get("access_preset"));
-  let startsOn = isGuidedChange ? checkInEffectiveDateString() : formString(formData, "starts_on");
+  let startsOn = isGuidedChange ? torontoCivilDateString() : formString(formData, "starts_on");
 
   if ((!isGuidedChange && !preset) || (!isGuidedChange && !isValidDateString(startsOn))) {
     redirect(isGuidedChange ? personAccessPath(personId, "invalid") : personPath(personId, "invalid"));
@@ -360,7 +361,7 @@ export async function savePersonAccess(formData: FormData) {
           masjidId: selectedMasjidId,
           groupId: selectedGroupId
         },
-        today: checkInEffectiveDateString()
+        today: torontoCivilDateString()
       });
 
       if (guidedReview.blockers.length > 0 || !guidedReview.preset || !guidedReview.plan) {
@@ -377,13 +378,14 @@ export async function savePersonAccess(formData: FormData) {
     const plan = guidedReview?.plan ?? buildSuperAdminAccessChangePlan({
       targetRole: target.role,
       targetActive: target.active,
+      targetAccessDeactivatedOn: target.access_deactivated_on,
       preset,
       startsOn,
       selectedMasjidId,
       selectedGroupId,
       studentMemberships,
       staffMemberships,
-      currentDate: checkInEffectiveDateString()
+      currentDate: torontoCivilDateString()
     });
 
     assertProfileRoleTransition({
@@ -495,7 +497,7 @@ export async function savePersonAccess(formData: FormData) {
 export async function endStaffMembership(formData: FormData) {
   const personId = formString(formData, "person_id");
   const membershipId = formString(formData, "membership_id");
-  const endsOn = formString(formData, "ends_on") || checkInEffectiveDateString();
+  const endsOn = formString(formData, "ends_on") || torontoCivilDateString();
 
   if (!requireUuid(personId) || !requireUuid(membershipId) || !isValidDateString(endsOn)) {
     redirect(invalidPeoplePath());
@@ -515,7 +517,10 @@ export async function endStaffMembership(formData: FormData) {
   let failureStatus: string | null = null;
 
   try {
-    const staffMemberships = await loadStaffMembershipsForPerson(adminSupabase, target.id);
+    const [staffMemberships, studentMemberships] = await Promise.all([
+      loadStaffMembershipsForPerson(adminSupabase, target.id),
+      loadStudentMembershipsForPerson(adminSupabase, target.id)
+    ]);
     const membership = staffMemberships.find((row) => row.id === membershipId);
 
     if (!membership || membership.ends_on !== null || !membership.active || membership.starts_on > endsOn) {
@@ -525,6 +530,17 @@ export async function endStaffMembership(formData: FormData) {
     if (membership.staff_role === "admin" && formString(formData, "confirmation_masjid") !== membership.masjid_name) {
       throw new ConfirmationMismatchError();
     }
+
+    assertFutureStaffMembershipEndDoesNotChangeProjection({
+      targetRole: target.role,
+      targetActive: target.active,
+      membershipId: membership.id,
+      endsOn,
+      currentDate: torontoCivilDateString(),
+      staffMemberships,
+      studentMemberships,
+      targetAccessDeactivatedOn: target.access_deactivated_on
+    });
 
     const requestIdValue = optionalFormString(formData, "request_id");
     const requestId = requestIdValue && requireUuid(requestIdValue) ? requestIdValue : randomUUID();

@@ -63,6 +63,7 @@ type SeedIds = {
   groupAdminTeacher: string;
   groupFridayOnly: string;
   groupWriter: string;
+  civilToday: string;
   today: string;
   weekStart: string;
   startsOn: string;
@@ -324,6 +325,15 @@ async function seed(): Promise<SeedIds> {
   const yesterday = addDays(civilToday, -1);
   const tomorrow = addDays(civilToday, 1);
 
+  await requireData(
+    "mark intentionally inactive profile",
+    admin
+      .from("profiles")
+      .update({ access_deactivated_on: civilToday })
+      .eq("id", users.inactiveAdmin)
+      .select("id")
+  );
+
   const studentMemberships = await requireData<Array<{ id: string; student_id: string; group_id: string }>>(
     "insert student memberships",
     admin.from("student_group_memberships").insert([
@@ -333,7 +343,7 @@ async function seed(): Promise<SeedIds> {
       { student_id: users.studentB, group_id: groupB, starts_on: startsOn, assigned_by: users.superAdmin },
       {
         student_id: users.staffGrantTarget,
-        group_id: inactiveMasjidGroup,
+        group_id: groupA,
         starts_on: startsOn,
         assigned_by: users.superAdmin
       },
@@ -384,7 +394,15 @@ async function seed(): Promise<SeedIds> {
     .in("id", scoredStudentIds);
   assert.equal(scoredStudentUpdate.error, null, scoredStudentUpdate.error?.message);
 
-  const staffMemberships = await requireData<Array<{ id: string; profile_id: string }>>(
+  const staffMemberships = await requireData<Array<{
+    id: string;
+    profile_id: string;
+    masjid_id: string;
+    staff_role: "admin" | "teacher";
+    active: boolean;
+    starts_on: string;
+    ends_on: string | null;
+  }>>(
     "insert staff memberships",
     admin.from("masjid_staff_memberships").insert([
       { profile_id: users.adminA, masjid_id: masjidA, staff_role: "admin", active: true, starts_on: startsOn },
@@ -436,14 +454,55 @@ async function seed(): Promise<SeedIds> {
         starts_on: historicalStartsOn,
         ends_on: historicalEndsOn
       }
-    ]).select("id,profile_id")
+    ]).select("id,profile_id,masjid_id,staff_role,active,starts_on,ends_on")
   );
-  const staffMembershipA = staffMemberships.find((row) => row.profile_id === users.adminA)!.id;
-  const staffMembershipB = staffMemberships.find((row) => row.profile_id === users.adminB)!.id;
+  const staffMembershipA = staffMemberships.find(
+    (row) => row.profile_id === users.adminA && row.masjid_id === masjidA && row.staff_role === "admin"
+  )!.id;
+  const staffMembershipB = staffMemberships.find(
+    (row) => row.profile_id === users.adminB && row.masjid_id === masjidB && row.staff_role === "admin"
+  )!.id;
+
+  const adminABeforeMasjidActivation = await requireData<Array<{ role: string; active: boolean }>>(
+    "read Admin A projection before masjid activation",
+    admin.from("profiles").select("role,active").eq("id", users.adminA)
+  );
+  assert.deepEqual(adminABeforeMasjidActivation, [{ role: "admin", active: false }]);
+  const adminAStaffMembershipBeforeMasjidActivation = staffMemberships.find((row) => row.id === staffMembershipA)!;
+  assert.deepEqual(adminAStaffMembershipBeforeMasjidActivation, {
+    id: staffMembershipA,
+    profile_id: users.adminA,
+    masjid_id: masjidA,
+    staff_role: "admin",
+    active: true,
+    starts_on: startsOn,
+    ends_on: null
+  });
 
   await requireData(
     "activate seeded masajid after hierarchy and admin setup",
     admin.from("masajid").update({ active: true }).in("id", [masjidA, masjidB]).select("id")
+  );
+
+  const adminAAfterMasjidActivation = await requireData<Array<{ role: string; active: boolean }>>(
+    "read Admin A projection after masjid activation",
+    admin.from("profiles").select("role,active").eq("id", users.adminA)
+  );
+  assert.deepEqual(adminAAfterMasjidActivation, [{ role: "admin", active: true }]);
+  console.log(
+    JSON.stringify({
+      rlsProjectionFixture: {
+        membership_id: staffMembershipA,
+        profile_id: users.adminA,
+        masjid_id: masjidA,
+        staff_role: "admin",
+        starts_on: startsOn,
+        ends_on: null,
+        membership_active: true,
+        profile_before_hierarchy_activation: adminABeforeMasjidActivation[0],
+        profile_after_hierarchy_activation: adminAAfterMasjidActivation[0]
+      }
+    })
   );
 
   const assignments = await requireData<Array<{ id: string; group_id: string; teacher_id: string }>>(
@@ -761,6 +820,7 @@ async function seed(): Promise<SeedIds> {
     groupAdminTeacher,
     groupFridayOnly,
     groupWriter,
+    civilToday,
     today,
     weekStart,
     startsOn,
@@ -880,7 +940,8 @@ async function runAssertions(ids: SeedIds) {
     futureAssignmentTeacher,
     expiredMembershipStudent,
     futureMembershipStudent,
-    superAdmin
+    superAdmin,
+    profileTarget
   ] = await Promise.all([
     signIn("adminA"),
     signIn("adminB"),
@@ -900,7 +961,8 @@ async function runAssertions(ids: SeedIds) {
     signIn("futureAssignmentTeacher"),
     signIn("expiredMembershipStudent"),
     signIn("futureMembershipStudent"),
-    signIn("superAdmin")
+    signIn("superAdmin"),
+    signIn("profileTarget")
   ]);
 
   const adminScopedTables: Array<[string, string, string]> = [
@@ -1250,6 +1312,43 @@ async function runAssertions(ids: SeedIds) {
   // The guarded server-only RPC remains the sole positive mutation route.
   const service = localClient(serviceRoleKey);
 
+  await requireData(
+    "create access-transition target profile",
+    service
+      .from("profiles")
+      .insert({
+        id: ids.users.profileTarget,
+        name: "profileTarget",
+        email: "profiletarget@rls.local",
+        phone: null,
+        role: "student",
+        active: true
+      })
+      .select("id")
+  );
+
+  const inactiveProfileRefresh = await inactiveAdmin.rpc("refresh_current_profile_role");
+  assert.equal(inactiveProfileRefresh.error, null, inactiveProfileRefresh.error?.message);
+  assert.equal((inactiveProfileRefresh.data as { active?: boolean } | null)?.active, false);
+  const inactiveProfileAfterRefresh = await requireData<{ role: string; active: boolean }>(
+    "read intentionally inactive profile after repair RPC",
+    service.from("profiles").select("role,active").eq("id", ids.users.inactiveAdmin).single()
+  );
+  assert.deepEqual(inactiveProfileAfterRefresh, { role: "admin", active: false });
+
+  const rolloutDiagnostic = await service.rpc("access_transition_rollout_diagnostic");
+  assert.equal(rolloutDiagnostic.error, null, rolloutDiagnostic.error?.message);
+  const rolloutDiagnosticData = rolloutDiagnostic.data as Record<string, unknown> | null;
+  assert.ok(rolloutDiagnosticData, "rollout diagnostic returned no report");
+  for (const key of [
+    "projection_changes",
+    "future_memberships_rejected",
+    "assignments_affected_by_immediate_deactivation",
+    "last_admin_coverage_risks"
+  ]) {
+    assert.ok(Array.isArray(rolloutDiagnosticData?.[key]), `rollout diagnostic omitted ${key}`);
+  }
+
   const setupStudentRequestId = randomUUID();
   const setupStudentArgs = {
     input_request_id: setupStudentRequestId,
@@ -1358,6 +1457,7 @@ async function runAssertions(ids: SeedIds) {
     input_grant: "admin",
     input_starts_on: ids.weekStart
   });
+  await assertRpcDenied(superAdmin, "access_transition_rollout_diagnostic");
   await assertRpcDenied(superAdmin, "apply_super_admin_masjid_staff_grant", {
     input_request_id: randomUUID(),
     input_actor_id: ids.users.superAdmin,
@@ -1372,7 +1472,7 @@ async function runAssertions(ids: SeedIds) {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminB,
     input_membership_id: ids.staffMembershipB,
-    input_ends_on: ids.today,
+    input_ends_on: ids.civilToday,
     input_expected_state: {}
   });
 
@@ -1546,7 +1646,7 @@ async function runAssertions(ids: SeedIds) {
     input_target_profile_id: ids.users.staffGrantTarget,
     input_masjid_id: ids.masjidA,
     input_grant: "admin_teacher",
-    input_starts_on: ids.weekStart,
+    input_starts_on: ids.civilToday,
     input_expected_state: grantStateWithFutureMembership.data
   });
   assert.equal(partialAdminTeacherGrant.error?.code, "22023", "partial admin-teacher grant unexpectedly succeeded");
@@ -1591,7 +1691,7 @@ async function runAssertions(ids: SeedIds) {
     input_target_profile_id: ids.users.staffGrantTarget,
     input_masjid_id: ids.masjidA,
     input_grant: "admin",
-    input_starts_on: ids.weekStart
+    input_starts_on: ids.civilToday
   };
   const preparedGrantState = await service.rpc(
     "prepare_super_admin_masjid_staff_grant",
@@ -1665,12 +1765,289 @@ async function runAssertions(ids: SeedIds) {
     .is("ends_on", null)
     .order("staff_role");
   assert.deepEqual(grantedRoles, [{ staff_role: "admin" }, { staff_role: "teacher" }]);
+  const noOpGrantState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.staffGrantTarget
+  });
+  assert.equal(noOpGrantState.error, null, noOpGrantState.error?.message);
+  const { count: noOpMembershipCountBefore } = await service
+    .from("masjid_staff_memberships")
+    .select("id", { count: "exact", head: true })
+    .eq("profile_id", ids.users.staffGrantTarget)
+    .eq("masjid_id", ids.masjidA);
+  const { count: noOpAuditCountBefore } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.users.staffGrantTarget);
+  const noOpGrant = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    ...adminGrantArgs,
+    input_request_id: randomUUID(),
+    input_grant: "admin_teacher",
+    input_expected_state: noOpGrantState.data
+  });
+  assert.equal(noOpGrant.error, null, noOpGrant.error?.message);
+  const { count: noOpMembershipCountAfter } = await service
+    .from("masjid_staff_memberships")
+    .select("id", { count: "exact", head: true })
+    .eq("profile_id", ids.users.staffGrantTarget)
+    .eq("masjid_id", ids.masjidA);
+  const { count: noOpAuditCountAfter } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.users.staffGrantTarget);
+  assert.equal(noOpMembershipCountAfter, noOpMembershipCountBefore, "additive no-op changed staff memberships");
+  assert.equal(noOpAuditCountAfter, noOpAuditCountBefore, "additive no-op wrote an audit mutation");
+
   const staleGrant = await service.rpc("apply_super_admin_masjid_staff_grant", {
     ...adminGrantArgs,
     input_request_id: randomUUID(),
     input_expected_state: grantState.data
   });
   assert.equal(staleGrant.error?.code, "P0001", "stale staff grant was accepted");
+
+  const replacementState = async () => {
+    const result = await service.rpc("get_person_access_state", {
+      input_actor_id: ids.users.superAdmin,
+      input_target_profile_id: ids.users.profileTarget
+    });
+    assert.equal(result.error, null, result.error?.message);
+    assert.ok(result.data, "replacement target access state was missing");
+    return result.data;
+  };
+  const soleAdminGrant = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_masjid_id: ids.masjidA,
+    input_grant: "admin",
+    input_starts_on: ids.civilToday,
+    input_expected_state: await replacementState()
+  });
+  assert.equal(soleAdminGrant.error, null, soleAdminGrant.error?.message);
+  const futureSoleAdminTeacherOnly = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_preset: "teacher",
+    input_starts_on: addDays(ids.civilToday, 1),
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: null,
+    input_expected_state: await replacementState()
+  });
+  assert.equal(futureSoleAdminTeacherOnly.error?.code, "23514", "future sole-admin replacement was accepted");
+  const futureDeactivation = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_preset: "inactive",
+    input_starts_on: addDays(ids.civilToday, 1),
+    input_selected_masjid_id: null,
+    input_selected_group_id: null,
+    input_expected_state: await replacementState()
+  });
+  assert.equal(futureDeactivation.error?.code, "23514", "future account deactivation was accepted");
+  const futureSameRoleTeacherGrant = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_masjid_id: ids.masjidB,
+    input_grant: "teacher",
+    input_starts_on: addDays(ids.civilToday, 2),
+    input_expected_state: await replacementState()
+  });
+  assert.equal(futureSameRoleTeacherGrant.error, null, futureSameRoleTeacherGrant.error?.message);
+  const futureSameRoleTeacherMembership = await requireData<{ id: string }>(
+    "read future same-role teacher grant",
+    service
+      .from("masjid_staff_memberships")
+      .select("id")
+      .eq("profile_id", ids.users.profileTarget)
+      .eq("masjid_id", ids.masjidB)
+      .eq("staff_role", "teacher")
+      .eq("active", true)
+      .eq("starts_on", addDays(ids.civilToday, 2))
+      .single()
+  );
+  const futureSameRoleTeacherPreview = await service.rpc("prepare_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_masjid_id: ids.masjidB,
+    input_grant: "teacher",
+    input_starts_on: addDays(ids.civilToday, 2)
+  });
+  assert.equal(futureSameRoleTeacherPreview.error, null, futureSameRoleTeacherPreview.error?.message);
+  const currentStudentState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.studentA
+  });
+  assert.equal(currentStudentState.error, null, currentStudentState.error?.message);
+  const futureStudentTeacherPreview = await service.rpc("prepare_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.studentA,
+    input_masjid_id: ids.masjidA,
+    input_grant: "teacher",
+    input_starts_on: addDays(ids.civilToday, 2)
+  });
+  assert.equal(
+    futureStudentTeacherPreview.error?.code,
+    "23514",
+    "future student-to-teacher grant preview was accepted"
+  );
+  const futureStudentTeacherGrant = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.studentA,
+    input_masjid_id: ids.masjidA,
+    input_grant: "teacher",
+    input_starts_on: addDays(ids.civilToday, 2),
+    input_expected_state: currentStudentState.data
+  });
+  assert.equal(futureStudentTeacherGrant.error?.code, "23514", "future student-to-teacher conversion was accepted");
+  const teacherState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherA
+  });
+  assert.equal(teacherState.error, null, teacherState.error?.message);
+  const futureTeacherAdminGrant = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherA,
+    input_masjid_id: ids.masjidB,
+    input_grant: "admin",
+    input_starts_on: addDays(ids.civilToday, 2),
+    input_expected_state: teacherState.data
+  });
+  assert.equal(futureTeacherAdminGrant.error?.code, "23514", "future teacher-to-admin conversion was accepted");
+  const futureStaffStudent = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.teacherA,
+    input_target_profile_id: ids.users.teacherA,
+    input_preset: "student",
+    input_starts_on: addDays(ids.civilToday, 2),
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: ids.groupA,
+    input_expected_state: teacherState.data
+  });
+  assert.equal(futureStaffStudent.error?.code, "42501", "non-super-admin future staff-to-student RPC was not denied");
+  const futureStaffStudentBySuperAdmin = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherA,
+    input_preset: "student",
+    input_starts_on: addDays(ids.civilToday, 2),
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: ids.groupA,
+    input_expected_state: teacherState.data
+  });
+  assert.equal(futureStaffStudentBySuperAdmin.error?.code, "23514", "future staff-to-student conversion was accepted");
+  const soleAdminTeacherOnly = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_preset: "teacher",
+    input_starts_on: ids.civilToday,
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: null,
+    input_expected_state: await replacementState()
+  });
+  assert.equal(soleAdminTeacherOnly.error, null, soleAdminTeacherOnly.error?.message);
+  const soleAdminTeacherOnlyProfile = await requireData<{ role: string; active: boolean }>(
+    "read sole-admin teacher-only projection",
+    service.from("profiles").select("role,active").eq("id", ids.users.profileTarget).single()
+  );
+  assert.deepEqual(soleAdminTeacherOnlyProfile, { role: "teacher", active: true });
+  const soleAdminTeacherOnlyMemberships = await requireData<Array<{ masjid_id: string; staff_role: string; ends_on: string | null }>>(
+    "read sole-admin teacher-only memberships",
+    service
+      .from("masjid_staff_memberships")
+      .select("masjid_id,staff_role,ends_on")
+      .eq("profile_id", ids.users.profileTarget)
+      .eq("active", true)
+      .eq("masjid_id", ids.masjidA)
+      .gte("starts_on", ids.civilToday)
+      .order("staff_role")
+  );
+  assert.deepEqual(soleAdminTeacherOnlyMemberships, [{ masjid_id: ids.masjidA, staff_role: "teacher", ends_on: null }]);
+
+  const secondMasjidAdminGrant = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_masjid_id: ids.masjidB,
+    input_grant: "admin",
+    input_starts_on: ids.civilToday,
+    input_expected_state: await replacementState()
+  });
+  assert.equal(secondMasjidAdminGrant.error, null, secondMasjidAdminGrant.error?.message);
+  const restoreAdminAtA = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_masjid_id: ids.masjidA,
+    input_grant: "admin",
+    input_starts_on: ids.civilToday,
+    input_expected_state: await replacementState()
+  });
+  assert.equal(restoreAdminAtA.error, null, restoreAdminAtA.error?.message);
+  const crossMasjidTeacherOnly = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_preset: "teacher",
+    input_starts_on: ids.civilToday,
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: null,
+    input_expected_state: await replacementState()
+  });
+  assert.equal(crossMasjidTeacherOnly.error, null, crossMasjidTeacherOnly.error?.message);
+  const crossMasjidTeacherOnlyRows = await requireData<Array<{ masjid_id: string; staff_role: string; ends_on: string | null }>>(
+    "read cross-masjid replacement memberships",
+    service
+      .from("masjid_staff_memberships")
+      .select("masjid_id,staff_role,ends_on")
+      .eq("profile_id", ids.users.profileTarget)
+      .eq("active", true)
+      .lte("starts_on", ids.civilToday)
+      .gte("starts_on", ids.civilToday)
+      .order("masjid_id,staff_role")
+  );
+  assert.deepEqual(
+    crossMasjidTeacherOnlyRows,
+    [
+      { masjid_id: ids.masjidA, staff_role: "teacher", ends_on: null },
+      { masjid_id: ids.masjidB, staff_role: "admin", ends_on: null }
+    ].sort((a, b) => a.masjid_id.localeCompare(b.masjid_id)),
+    "selected-masjid replacement removed access at another masjid"
+  );
+  const crossMasjidAdminOnly = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_preset: "admin",
+    input_starts_on: ids.civilToday,
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: null,
+    input_expected_state: await replacementState()
+  });
+  assert.equal(crossMasjidAdminOnly.error, null, crossMasjidAdminOnly.error?.message);
+  const crossMasjidAdminTeacher = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_preset: "admin_teacher",
+    input_starts_on: ids.civilToday,
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: null,
+    input_expected_state: await replacementState()
+  });
+  assert.equal(crossMasjidAdminTeacher.error, null, crossMasjidAdminTeacher.error?.message);
+  const replacementProfile = await requireData<{ role: string; active: boolean }>(
+    "read final selected-masjid replacement projection",
+    service.from("profiles").select("role,active").eq("id", ids.users.profileTarget).single()
+  );
+  assert.deepEqual(replacementProfile, { role: "admin", active: true });
 
   const setupTeacherArgs = {
     input_request_id: randomUUID(),
@@ -1752,7 +2129,7 @@ async function runAssertions(ids: SeedIds) {
   const staleExpectedState = accessStateResult.data;
   const { error: staleSetupError } = await service
     .from("profiles")
-    .update({ active: false })
+    .update({ role: "admin" })
     .eq("id", ids.users.teacherAccessTarget);
   assert.equal(staleSetupError, null, staleSetupError?.message);
   const staleAccessChange = await service.rpc("apply_super_admin_access_change", {
@@ -1760,7 +2137,7 @@ async function runAssertions(ids: SeedIds) {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.teacherAccessTarget,
     input_preset: "admin_teacher",
-    input_starts_on: ids.weekStart,
+    input_starts_on: ids.civilToday,
     input_selected_masjid_id: ids.masjidA,
     input_selected_group_id: null,
     input_expected_state: staleExpectedState
@@ -1774,7 +2151,7 @@ async function runAssertions(ids: SeedIds) {
   );
   const { error: restoreAccessTargetError } = await service
     .from("profiles")
-    .update({ active: true })
+    .update({ role: "teacher" })
     .eq("id", ids.users.teacherAccessTarget);
   assert.equal(restoreAccessTargetError, null, restoreAccessTargetError?.message);
 
@@ -1789,7 +2166,7 @@ async function runAssertions(ids: SeedIds) {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.teacherAccessTarget,
     input_preset: "admin_teacher",
-    input_starts_on: ids.weekStart,
+    input_starts_on: ids.civilToday,
     input_selected_masjid_id: ids.masjidA,
     input_selected_group_id: null,
     input_expected_state: refreshedAccessState.data
@@ -1815,7 +2192,7 @@ async function runAssertions(ids: SeedIds) {
   const nonSundayAccessChange = await service.rpc("apply_super_admin_access_change", {
     ...accessChangeArgs,
     input_request_id: randomUUID(),
-    input_starts_on: addDays(ids.weekStart, 2),
+    input_starts_on: addDays(ids.civilToday, 2),
     input_expected_state: accessStateAfterChange
   });
   assert.equal(
@@ -1852,7 +2229,7 @@ async function runAssertions(ids: SeedIds) {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.teacherAccessTarget,
     input_membership_id: targetTeacherMembership!.id,
-    input_ends_on: ids.today,
+    input_ends_on: ids.civilToday,
     input_expected_state: membershipEndState.data
   };
   const concurrentMembershipEnds = await Promise.all([
@@ -1877,7 +2254,7 @@ async function runAssertions(ids: SeedIds) {
 
   const changedMembershipEndRequest = await service.rpc("apply_super_admin_staff_membership_end", {
     ...membershipEndArgs,
-    input_ends_on: addDays(ids.today, 1)
+    input_ends_on: addDays(ids.civilToday, 1)
   });
   assert.equal(
     changedMembershipEndRequest.error?.code,
@@ -1891,6 +2268,61 @@ async function runAssertions(ids: SeedIds) {
   assert.equal(staleMembershipEnd.error?.code, "P0001", "stale membership close was not rejected");
   assert.match(staleMembershipEnd.error?.message ?? "", /access state changed/i);
 
+  const isolatedLastAdminMasjid = await requireData<{ id: string }>(
+    "create isolated last-admin masjid",
+    service
+      .from("masajid")
+      .insert({ name: "RLS Isolated Last Admin", slug: "rls-isolated-last-admin", active: false })
+      .select("id")
+      .single()
+  );
+  const isolatedLastAdminCohort = await requireData<{ id: string }>(
+    "create isolated last-admin cohort",
+    service
+      .from("cohorts")
+      .insert({
+        masjid_id: isolatedLastAdminMasjid.id,
+        kind: "brothers",
+        name: "Isolated Last Admin Cohort",
+        active: true,
+        sort_order: 10
+      })
+      .select("id")
+      .single()
+  );
+  await requireData(
+    "create isolated last-admin group",
+    service
+      .from("halaqa_groups")
+      .insert({
+        cohort_id: isolatedLastAdminCohort.id,
+        name: "Isolated Last Admin Group",
+        active: true,
+        sort_order: 10
+      })
+      .select("id")
+  );
+  const isolatedLastAdminMembership = await requireData<{ id: string }>(
+    "create isolated last-admin membership",
+    service
+      .from("masjid_staff_memberships")
+      .insert({
+        profile_id: ids.users.adminB,
+        masjid_id: isolatedLastAdminMasjid.id,
+        staff_role: "admin",
+        active: true,
+        starts_on: ids.startsOn,
+        created_by: ids.users.superAdmin
+      })
+      .select("id")
+      .single()
+  );
+  const isolatedLastAdminActivation = await service
+    .from("masajid")
+    .update({ active: true })
+    .eq("id", isolatedLastAdminMasjid.id);
+  assert.equal(isolatedLastAdminActivation.error, null, isolatedLastAdminActivation.error?.message);
+
   const soleAdminEndState = await service.rpc("get_person_access_state", {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminB
@@ -1899,27 +2331,27 @@ async function runAssertions(ids: SeedIds) {
   const { count: soleAdminEndAuditBefore } = await service
     .from("super_admin_audit_events")
     .select("id", { count: "exact", head: true })
-    .eq("target_id", ids.staffMembershipB)
+    .eq("target_id", isolatedLastAdminMembership.id)
     .eq("action", "staff_membership_ended");
   const soleAdminEnd = await service.rpc("apply_super_admin_staff_membership_end", {
     input_request_id: randomUUID(),
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminB,
-    input_membership_id: ids.staffMembershipB,
-    input_ends_on: ids.today,
+    input_membership_id: isolatedLastAdminMembership.id,
+    input_ends_on: ids.civilToday,
     input_expected_state: soleAdminEndState.data
   });
   assert.equal(soleAdminEnd.error?.code, "23514", "sole masjid admin close was not denied");
   const { data: soleAdminMembershipAfter } = await service
     .from("masjid_staff_memberships")
     .select("ends_on")
-    .eq("id", ids.staffMembershipB)
+    .eq("id", isolatedLastAdminMembership.id)
     .single<{ ends_on: string | null }>();
   assert.equal(soleAdminMembershipAfter?.ends_on, null, "denied membership close was not rolled back");
   const { count: soleAdminEndAuditAfter } = await service
     .from("super_admin_audit_events")
     .select("id", { count: "exact", head: true })
-    .eq("target_id", ids.staffMembershipB)
+    .eq("target_id", isolatedLastAdminMembership.id)
     .eq("action", "staff_membership_ended");
   assert.equal(soleAdminEndAuditAfter, soleAdminEndAuditBefore, "denied membership close left an audit row");
 
@@ -1937,8 +2369,8 @@ async function runAssertions(ids: SeedIds) {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminB,
     input_preset: "teacher",
-    input_starts_on: ids.weekStart,
-    input_selected_masjid_id: ids.masjidB,
+    input_starts_on: ids.civilToday,
+    input_selected_masjid_id: isolatedLastAdminMasjid.id,
     input_selected_group_id: null,
     input_expected_state: lastAdminState.data
   });
@@ -1954,7 +2386,7 @@ async function runAssertions(ids: SeedIds) {
     .from("masjid_staff_memberships")
     .select("staff_role,ends_on")
     .eq("profile_id", ids.users.adminB)
-    .eq("masjid_id", ids.masjidB)
+    .eq("masjid_id", isolatedLastAdminMasjid.id)
     .order("staff_role");
   assert.deepEqual(
     adminBStaffAfterRollback,
@@ -1977,7 +2409,7 @@ async function runAssertions(ids: SeedIds) {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.superAdmin,
     input_preset: "inactive",
-    input_starts_on: ids.weekStart,
+    input_starts_on: ids.civilToday,
     input_selected_masjid_id: null,
     input_selected_group_id: null,
     input_expected_state: superAdminState.data
@@ -2146,12 +2578,12 @@ async function runAssertions(ids: SeedIds) {
   assert.equal(membershipIdentity?.group_id, ids.groupA);
   const { data: closedMembership, error: closeMembershipError } = await adminA
     .from("student_group_memberships")
-    .update({ ends_on: ids.today })
+    .update({ ends_on: ids.civilToday })
     .eq("id", ids.studentMembershipA)
     .select("id,ends_on")
     .single();
   assert.equal(closeMembershipError, null, `deliberate membership closure failed: ${closeMembershipError?.message}`);
-  assert.equal(closedMembership?.ends_on, ids.today);
+  assert.equal(closedMembership?.ends_on, ids.civilToday);
   await assertUpdateBlocked(adminA, "student_group_memberships", ids.studentMembershipA, { ends_on: null });
 
   for (const payload of [
@@ -2937,9 +3369,10 @@ async function runAssertions(ids: SeedIds) {
     ["expired student", expiredMembershipStudent, ids.users.expiredMembershipStudent, ids.expiredStudentMembership],
     ["future student", futureMembershipStudent, ids.users.futureMembershipStudent, ids.futureStudentMembership]
   ] as const) {
-    // Students retain their own authorization history, but a non-current
-    // relationship to an otherwise active group cannot expose its hierarchy.
-    await assertVisible(client, "student_group_memberships", membershipId);
+    // A profile with no currently effective placement is projected inactive,
+    // so it cannot authenticate to read even its historical membership row.
+    // Super-admin/service-role history reads remain available for operations.
+    await assertHidden(client, "student_group_memberships", membershipId);
     await assertHidden(client, "masajid", ids.masjidA);
     await assertHidden(client, "cohorts", ids.cohortA);
     await assertHidden(client, "halaqa_groups", ids.groupA);
@@ -2971,15 +3404,63 @@ async function runAssertions(ids: SeedIds) {
   }
 
   // Future admin coverage must be gap-free and eventually open-ended.
+  const { data: coverageMasjid, error: coverageMasjidError } = await service
+    .from("masajid")
+    .insert({ name: "RLS Coverage Masjid", slug: "rls-coverage-masjid", active: false })
+    .select("id")
+    .single<{ id: string }>();
+  assert.equal(coverageMasjidError, null, coverageMasjidError?.message);
+  assert.ok(coverageMasjid);
+  const { data: coverageCohort, error: coverageCohortError } = await service
+    .from("cohorts")
+    .insert({
+      masjid_id: coverageMasjid!.id,
+      kind: "brothers",
+      name: "RLS Coverage Cohort",
+      active: true,
+      sort_order: 10
+    })
+    .select("id")
+    .single<{ id: string }>();
+  assert.equal(coverageCohortError, null, coverageCohortError?.message);
+  assert.ok(coverageCohort);
+  const { error: coverageGroupError } = await service
+    .from("halaqa_groups")
+    .insert({
+      cohort_id: coverageCohort!.id,
+      name: "RLS Coverage Group",
+      active: true,
+      sort_order: 10
+    });
+  assert.equal(coverageGroupError, null, coverageGroupError?.message);
+  const { data: coverageMembership, error: coverageMembershipError } = await service
+    .from("masjid_staff_memberships")
+    .insert({
+      profile_id: ids.users.adminB,
+      masjid_id: coverageMasjid!.id,
+      staff_role: "admin",
+      active: true,
+      starts_on: ids.civilToday,
+      created_by: ids.users.superAdmin
+    })
+    .select("id")
+    .single<{ id: string }>();
+  assert.equal(coverageMembershipError, null, coverageMembershipError?.message);
+  assert.ok(coverageMembership);
+  const { error: coverageActivationError } = await service
+    .from("masajid")
+    .update({ active: true })
+    .eq("id", coverageMasjid!.id);
+  assert.equal(coverageActivationError, null, coverageActivationError?.message);
   const { data: finiteReplacement, error: finiteReplacementError } = await service
     .from("masjid_staff_memberships")
     .insert({
       profile_id: ids.users.adminA,
-      masjid_id: ids.masjidB,
+      masjid_id: coverageMasjid!.id,
       staff_role: "admin",
       active: true,
-      starts_on: addDays(ids.today, 1),
-      ends_on: addDays(ids.today, 7),
+      starts_on: addDays(ids.civilToday, 1),
+      ends_on: addDays(ids.civilToday, 7),
       created_by: ids.users.superAdmin
     })
     .select("id")
@@ -2994,8 +3475,8 @@ async function runAssertions(ids: SeedIds) {
     input_request_id: randomUUID(),
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminB,
-    input_membership_id: ids.staffMembershipB,
-    input_ends_on: ids.today,
+    input_membership_id: coverageMembership!.id,
+    input_ends_on: ids.civilToday,
     input_expected_state: adminBCoverageState.data
   });
   assert.equal(noTerminalCoverage.error?.code, "23514", "finite-only coverage was accepted");
@@ -3004,10 +3485,10 @@ async function runAssertions(ids: SeedIds) {
     .from("masjid_staff_memberships")
     .insert({
       profile_id: ids.users.futureAdmin,
-      masjid_id: ids.masjidB,
+      masjid_id: coverageMasjid!.id,
       staff_role: "admin",
       active: true,
-      starts_on: addDays(ids.today, 9),
+      starts_on: addDays(ids.civilToday, 9),
       created_by: ids.users.superAdmin
     })
     .select("id")
@@ -3021,14 +3502,14 @@ async function runAssertions(ids: SeedIds) {
     input_request_id: randomUUID(),
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminB,
-    input_membership_id: ids.staffMembershipB,
-    input_ends_on: ids.today,
+    input_membership_id: coverageMembership!.id,
+    input_ends_on: ids.civilToday,
     input_expected_state: laterGapState.data
   });
   assert.equal(laterGap.error?.code, "23514", "later future coverage gap was accepted");
   const { error: closeGapError } = await service
     .from("masjid_staff_memberships")
-    .update({ starts_on: addDays(ids.today, 8) })
+    .update({ starts_on: addDays(ids.civilToday, 8) })
     .eq("id", openReplacement!.id);
   assert.equal(closeGapError, null, closeGapError?.message);
   const validHandoffState = await service.rpc("get_person_access_state", {
@@ -3039,8 +3520,8 @@ async function runAssertions(ids: SeedIds) {
     input_request_id: randomUUID(),
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminB,
-    input_membership_id: ids.staffMembershipB,
-    input_ends_on: ids.today,
+    input_membership_id: coverageMembership!.id,
+    input_ends_on: ids.civilToday,
     input_expected_state: validHandoffState.data
   });
   assert.equal(validFutureHandoff.error, null, validFutureHandoff.error?.message);
@@ -3079,7 +3560,7 @@ async function runAssertions(ids: SeedIds) {
       masjid_id: concurrencyMasjid!.id,
       staff_role: "admin",
       active: true,
-      starts_on: addDays(ids.today, -1),
+      starts_on: addDays(ids.civilToday, -1),
       created_by: ids.users.superAdmin
     })
     .select("id")
@@ -3104,7 +3585,7 @@ async function runAssertions(ids: SeedIds) {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminB,
     input_membership_id: concurrencyAdminMembership!.id,
-    input_ends_on: ids.today,
+    input_ends_on: ids.civilToday,
     input_expected_state: concurrentEndState.data
   };
   const concurrentGrantArgs = {
@@ -3113,7 +3594,7 @@ async function runAssertions(ids: SeedIds) {
     input_target_profile_id: ids.users.adminA,
     input_masjid_id: concurrencyMasjid!.id,
     input_grant: "admin",
-    input_starts_on: addDays(ids.today, 1),
+    input_starts_on: addDays(ids.civilToday, 1),
     input_expected_state: concurrentGrantState.data
   };
   const [concurrentEnd, concurrentGrant] = await Promise.all([
@@ -3147,7 +3628,7 @@ async function runAssertions(ids: SeedIds) {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminA,
     input_membership_id: inactiveMasjidAdminMembership!.id,
-    input_ends_on: ids.today,
+    input_ends_on: ids.civilToday,
     input_expected_state: inactiveMasjidAdminState.data
   });
   assert.equal(inactiveMasjidEnd.error, null, "inactive masjid incorrectly required future admin coverage");
@@ -3305,7 +3786,7 @@ async function runAssertions(ids: SeedIds) {
         masjid_id: validCoverageMasjid.id,
         staff_role: "admin",
         active: true,
-        starts_on: addDays(ids.today, -1),
+        starts_on: addDays(ids.civilToday, -1),
         created_by: ids.users.superAdmin
       })
       .select("id")
@@ -3375,7 +3856,7 @@ async function runAssertions(ids: SeedIds) {
         masjid_id: concurrencyMasjidClosure.id,
         staff_role: "admin",
         active: true,
-        starts_on: addDays(ids.today, -1),
+        starts_on: addDays(ids.civilToday, -1),
         created_by: ids.users.superAdmin
       })
       .select("id")
@@ -3403,7 +3884,7 @@ async function runAssertions(ids: SeedIds) {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminA,
     input_membership_id: concurrencyCoverageMembership.id,
-    input_ends_on: ids.today,
+    input_ends_on: ids.civilToday,
     input_expected_state: concurrencyCoverageState.data
   };
   const [concurrentReactivationResult, concurrentCoverageEndResult] = await Promise.all([
@@ -3459,7 +3940,7 @@ async function runAssertions(ids: SeedIds) {
     assigned_by: ids.users.superAdmin
   });
   await assertUpdateBlocked(superAdmin, "student_group_memberships", ids.studentMembershipB, {
-    ends_on: ids.today
+    ends_on: ids.civilToday
   });
   await assertDeleteBlocked(superAdmin, "student_group_memberships", ids.studentMembershipB);
   await assertInsertBlocked(superAdmin, "masjid_staff_memberships", {
@@ -3472,7 +3953,7 @@ async function runAssertions(ids: SeedIds) {
     created_by: ids.users.superAdmin
   });
   await assertUpdateBlocked(superAdmin, "masjid_staff_memberships", ids.staffMembershipB, {
-    ends_on: ids.today
+    ends_on: ids.civilToday
   });
   await assertDeleteBlocked(superAdmin, "masjid_staff_memberships", ids.staffMembershipB);
   const { data: superAccountabilityUpdate, error: superAccountabilityError } = await superAdmin
@@ -3503,6 +3984,240 @@ async function runAssertions(ids: SeedIds) {
   });
   assert.ok(superAuditInsert.error, "signed super-admin inserted an audit row directly");
 
+  const deactivationCurrentGroup = await requireData<{ id: string }>(
+    "create immediate-deactivation current group",
+    service
+      .from("halaqa_groups")
+      .insert({
+        cohort_id: ids.cohortA,
+        name: "Immediate Deactivation Current Group",
+        active: true,
+        sort_order: 90
+      })
+      .select("id")
+      .single()
+  );
+  const deactivationFutureGroup = await requireData<{ id: string }>(
+    "create immediate-deactivation future group",
+    service
+      .from("halaqa_groups")
+      .insert({
+        cohort_id: ids.cohortB,
+        name: "Immediate Deactivation Future Group",
+        active: true,
+        sort_order: 90
+      })
+      .select("id")
+      .single()
+  );
+  const deactivationCurrentStudentMembership = await requireData<{ id: string }>(
+    "create current membership for immediate deactivation",
+    service
+      .from("student_group_memberships")
+      .insert({
+        student_id: ids.users.profileTarget,
+        group_id: deactivationCurrentGroup.id,
+        starts_on: ids.startsOn,
+        ends_on: addDays(ids.civilToday, 1),
+        assigned_by: ids.users.superAdmin
+      })
+      .select("id")
+      .single()
+  );
+  const deactivationFutureStudentMembership = await requireData<{ id: string }>(
+    "create future membership for immediate deactivation",
+    service
+      .from("student_group_memberships")
+      .insert({
+        student_id: ids.users.profileTarget,
+        group_id: deactivationFutureGroup.id,
+        starts_on: addDays(ids.civilToday, 2),
+        assigned_by: ids.users.superAdmin
+      })
+      .select("id")
+      .single()
+  );
+  await requireData<{ id: string }>(
+    "create historical student display membership for immediate deactivation",
+    service
+      .from("student_group_memberships")
+      .insert({
+        student_id: ids.users.studentNoMembership,
+        group_id: deactivationCurrentGroup.id,
+        starts_on: ids.previousWeekStart,
+        ends_on: ids.previousWeekStart,
+        assigned_by: ids.users.superAdmin
+      })
+      .select("id")
+      .single()
+  );
+  const deactivationCurrentStaffMembership = await requireData<{ id: string }>(
+    "backdate current staff membership for immediate deactivation",
+    service
+      .from("masjid_staff_memberships")
+      .update({ starts_on: ids.startsOn })
+      .eq("profile_id", ids.users.profileTarget)
+      .eq("masjid_id", ids.masjidA)
+      .eq("staff_role", "teacher")
+      .eq("active", true)
+      .is("ends_on", null)
+      .select("id")
+      .single()
+  );
+  const deactivationSameDayStaffMemberships = await requireData<Array<{ id: string; masjid_id: string }>>(
+    "read same-day staff memberships for immediate deactivation",
+    service
+      .from("masjid_staff_memberships")
+      .select("id,masjid_id")
+      .eq("profile_id", ids.users.profileTarget)
+      .eq("active", true)
+      .eq("starts_on", ids.civilToday)
+  );
+  const deactivationFutureStaffMembership = futureSameRoleTeacherMembership;
+  const deactivationAssignments = await requireData<Array<{ id: string; week_start: string }>>(
+    "create immediate-deactivation assignments",
+    service
+      .from("group_teacher_assignments")
+      .insert([
+        {
+          group_id: deactivationCurrentGroup.id,
+          teacher_id: ids.users.profileTarget,
+          week_start: ids.previousWeekStart,
+          active: true,
+          assigned_by: ids.users.superAdmin
+        },
+        {
+          group_id: deactivationCurrentGroup.id,
+          teacher_id: ids.users.profileTarget,
+          week_start: ids.weekStart,
+          active: true,
+          assigned_by: ids.users.superAdmin
+        },
+        {
+          group_id: deactivationFutureGroup.id,
+          teacher_id: ids.users.profileTarget,
+          week_start: addDays(ids.weekStart, 7),
+          active: true,
+          assigned_by: ids.users.superAdmin
+        }
+      ])
+      .select("id,week_start")
+  );
+  const deactivationState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget
+  });
+  assert.equal(deactivationState.error, null, deactivationState.error?.message);
+  const immediateDeactivation = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_preset: "inactive",
+    input_starts_on: ids.civilToday,
+    input_selected_masjid_id: null,
+    input_selected_group_id: null,
+    input_expected_state: deactivationState.data
+  });
+  assert.equal(immediateDeactivation.error, null, immediateDeactivation.error?.message);
+  const deactivationResult = immediateDeactivation.data as {
+    deactivation?: { affected_assignment_count?: number; affected_assignment_ids?: string[] };
+  } | null;
+  const expectedDeactivatedAssignmentIds = deactivationAssignments
+    .filter(({ week_start }) => week_start >= ids.weekStart)
+    .map(({ id }) => id)
+    .sort();
+  assert.deepEqual(
+    {
+      count: deactivationResult?.deactivation?.affected_assignment_count,
+      ids: [...(deactivationResult?.deactivation?.affected_assignment_ids ?? [])].sort()
+    },
+    { count: expectedDeactivatedAssignmentIds.length, ids: expectedDeactivatedAssignmentIds },
+    "immediate deactivation did not return affected assignment identifiers"
+  );
+  const deactivatedProfile = await requireData<{ role: string; active: boolean }>(
+    "read profile after immediate deactivation",
+    service.from("profiles").select("role,active").eq("id", ids.users.profileTarget).single()
+  );
+  assert.deepEqual(deactivatedProfile, { role: "admin", active: false });
+  const deactivatedCurrentStudent = await requireData<{ ends_on: string | null }>(
+    "read closed current student membership after deactivation",
+    service.from("student_group_memberships").select("ends_on").eq("id", deactivationCurrentStudentMembership.id).single()
+  );
+  assert.equal(deactivatedCurrentStudent.ends_on, addDays(ids.civilToday, -1));
+  const { data: cancelledFutureStudent, error: cancelledFutureStudentError } = await service
+    .from("student_group_memberships")
+    .select("id")
+    .eq("id", deactivationFutureStudentMembership.id);
+  assert.equal(cancelledFutureStudentError, null, cancelledFutureStudentError?.message);
+  assert.deepEqual(cancelledFutureStudent, [], "future student membership survived deactivation");
+  const deactivatedCurrentStaff = await requireData<{ active: boolean; ends_on: string | null }>(
+    "read closed current staff membership after deactivation",
+    service.from("masjid_staff_memberships").select("active,ends_on").eq("id", deactivationCurrentStaffMembership.id).single()
+  );
+  assert.deepEqual(deactivatedCurrentStaff, { active: true, ends_on: addDays(ids.civilToday, -1) });
+  const deactivatedFutureStaff = await requireData<{ active: boolean; ends_on: string | null }>(
+    "read cancelled future staff membership after deactivation",
+    service.from("masjid_staff_memberships").select("active,ends_on").eq("id", deactivationFutureStaffMembership.id).single()
+  );
+  assert.deepEqual(deactivatedFutureStaff, { active: false, ends_on: addDays(ids.civilToday, 2) });
+  const deactivationAssignmentStates = await requireData<Array<{ id: string; active: boolean }>>(
+    "read assignment states after immediate deactivation",
+    service
+      .from("group_teacher_assignments")
+      .select("id,active")
+      .in("id", deactivationAssignments.map(({ id }) => id))
+      .order("id")
+  );
+  assert.deepEqual(
+    deactivationAssignmentStates,
+    deactivationAssignments.map(({ id, week_start }) => ({ id, active: week_start < ids.weekStart })).sort((a, b) => a.id.localeCompare(b.id)),
+    "deactivation did not preserve past or disable current/future assignments"
+  );
+  const historicalDeactivationTeacher = await adminA.rpc("student_weekly_teacher", {
+    input_student_id: ids.users.studentNoMembership,
+    input_week_start: ids.previousWeekStart
+  });
+  assert.equal(historicalDeactivationTeacher.error, null, historicalDeactivationTeacher.error?.message);
+  assert.deepEqual(
+    historicalDeactivationTeacher.data,
+    [{ teacher_id: ids.users.profileTarget, teacher_name: "profileTarget" }],
+    "immediate deactivation removed historical teacher identity"
+  );
+  const deactivationAuditRows = await requireData<Array<{ action: string; target_id: string }>>(
+    "read immediate deactivation audit rows",
+    service
+      .from("super_admin_audit_events")
+      .select("action,target_id")
+      .in("target_id", [
+        deactivationCurrentStudentMembership.id,
+        deactivationFutureStudentMembership.id,
+        deactivationCurrentStaffMembership.id,
+        deactivationFutureStaffMembership.id,
+        ...deactivationSameDayStaffMemberships.map(({ id }) => id),
+        ...deactivationAssignments.map(({ id }) => id)
+      ])
+      .in("action", [
+        "student_membership_cancelled",
+        "student_membership_closed",
+        "staff_membership_cancelled",
+        "staff_membership_closed",
+        "teacher_assignment_deactivated"
+      ])
+  );
+  assert.equal(
+    deactivationAuditRows.length,
+    8,
+    "immediate deactivation did not audit every affected membership and assignment"
+  );
+  const preservedAuthUser = await service.auth.admin.getUserById(ids.users.profileTarget);
+  assert.equal(preservedAuthUser.error, null, preservedAuthUser.error?.message);
+  assert.equal(preservedAuthUser.data.user?.id, ids.users.profileTarget);
+  const deactivatedProfileRefresh = await profileTarget.rpc("refresh_current_profile_role");
+  assert.equal(deactivatedProfileRefresh.error, null, deactivatedProfileRefresh.error?.message);
+  assert.equal((deactivatedProfileRefresh.data as { active?: boolean } | null)?.active, false);
+  await assertHidden(profileTarget, "masjid_staff_memberships", deactivationCurrentStaffMembership.id);
+  await assertHidden(profileTarget, "student_group_memberships", deactivationCurrentStudentMembership.id);
+
   // The current week's Saturday is the authorization event. A teacher who
   // starts on that Saturday (and whose membership ends that day) is eligible
   // for this Sunday-Saturday tracker week, even before their first civil day
@@ -3531,27 +4246,6 @@ async function runAssertions(ids: SeedIds) {
     input_week_start: ids.weekStart
   });
   assert.equal(saturdayStartRoster.error, null, saturdayStartRoster.error?.message);
-
-  for (const [table, id] of [
-    ["halaqa_groups", ids.groupA],
-    ["cohorts", ids.cohortA],
-    ["masajid", ids.masjidA]
-  ] as const) {
-    const { error } = await service.from(table).update({ active: false }).eq("id", id);
-    assert.equal(error, null, `deactivate ${table} historical fixture: ${error?.message}`);
-  }
-
-  const { data: inactiveHistoricalContexts, error: inactiveHistoricalContextsError } =
-    await expiredAssignmentTeacher.rpc("teacher_assignment_contexts");
-  assert.equal(inactiveHistoricalContextsError, null, inactiveHistoricalContextsError?.message);
-  assert.deepEqual(
-    (inactiveHistoricalContexts ?? []).map((row: { group_id: string; week_start: string }) => ({
-      group_id: row.group_id,
-      week_start: row.week_start
-    })),
-    [{ group_id: ids.groupA, week_start: ids.previousWeekStart }],
-    "completed assignment labels disappeared after hierarchy deactivation"
-  );
 
   const { data: historicalTeacherName, error: historicalTeacherNameError } = await studentA.rpc(
     "student_weekly_teacher_name",
@@ -3604,6 +4298,34 @@ async function runAssertions(ids: SeedIds) {
     inactiveProfileHistoricalTeacherName,
     [{ teacher_name: "expiredAssignmentTeacher" }],
     "student lost the historical teacher name after the teacher profile was deactivated"
+  );
+
+  for (const [table, id] of [
+    ["halaqa_groups", ids.groupA],
+    ["cohorts", ids.cohortA],
+    ["masajid", ids.masjidA]
+  ] as const) {
+    const { error } = await service.from(table).update({ active: false }).eq("id", id);
+    assert.equal(error, null, `deactivate ${table} historical fixture: ${error?.message}`);
+  }
+  const studentAfterHierarchyDeactivation = await requireData<{ role: string; active: boolean }>(
+    "read student projection after hierarchy deactivation",
+    service.from("profiles").select("role,active").eq("id", ids.users.studentA).single()
+  );
+  assert.deepEqual(studentAfterHierarchyDeactivation, { role: "student", active: false });
+  await assertHidden(studentA, "profiles", ids.users.studentA);
+  await assertHidden(studentA, "student_group_memberships", ids.studentMembershipA);
+
+  const { data: inactiveHistoricalContexts, error: inactiveHistoricalContextsError } =
+    await expiredAssignmentTeacher.rpc("teacher_assignment_contexts");
+  assert.equal(inactiveHistoricalContextsError, null, inactiveHistoricalContextsError?.message);
+  assert.deepEqual(
+    (inactiveHistoricalContexts ?? []).map((row: { group_id: string; week_start: string }) => ({
+      group_id: row.group_id,
+      week_start: row.week_start
+    })),
+    [{ group_id: ids.groupA, week_start: ids.previousWeekStart }],
+    "completed assignment labels disappeared after hierarchy deactivation"
   );
 
   // A Saturday-ended staff membership is historical display evidence only
@@ -3696,6 +4418,11 @@ async function runAssertions(ids: SeedIds) {
     const { error } = await service.from(table).update({ active: true }).eq("id", id);
     assert.equal(error, null, `restore ${table} historical fixture: ${error?.message}`);
   }
+  const studentAfterHierarchyReactivation = await requireData<{ role: string; active: boolean }>(
+    "read student projection after hierarchy reactivation",
+    service.from("profiles").select("role,active").eq("id", ids.users.studentA).single()
+  );
+  assert.deepEqual(studentAfterHierarchyReactivation, { role: "student", active: true });
 
   const anon = localClient(anonKey);
   const authenticatedDefinerProbes: Array<[string, Record<string, unknown>?]> = [

@@ -29,7 +29,7 @@ teacher-assignment rules are maintained in [`ACCESS_TRANSITION_SEMANTICS.md`](AC
 - At planning time there was no `/super-admin` route; the people and masjid setup routes now exist.
 - Teacher role routing still falls back to the account/password page until the teacher dashboard is implemented.
 - `profiles.role` is the cached current primary/default experience for non-super-admins. The database
-  projects it from current effective admin, teacher, and student memberships in that precedence order.
+  projects it from currently effective Toronto-civil-date admin, teacher, and student memberships in that precedence order.
 - Actual scoped access comes from:
   - `student_group_memberships`
   - `masjid_staff_memberships`

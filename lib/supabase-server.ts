@@ -40,12 +40,6 @@ export async function getCurrentProfile() {
     return { supabase, user: null, profile: null };
   }
 
-  const { error: roleRefreshError } = await supabase.rpc("refresh_current_profile_role");
-
-  if (roleRefreshError) {
-    return { supabase, user, profile: null };
-  }
-
   const { data: profile, error } = await supabase
     .from("profiles")
     .select("id,name,email,phone,role,active,score_starts_on,created_at")

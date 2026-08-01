@@ -437,12 +437,12 @@ begin
       select (
         (select count(*) from public.student_group_memberships as memberships
           where memberships.group_id = changed_group.id
-            and (memberships.ends_on is null or memberships.ends_on >= public.current_effective_date()))
+            and (memberships.ends_on is null or memberships.ends_on >= public.current_toronto_civil_date()))
         +
         (select count(*) from public.group_teacher_assignments as assignments
           where assignments.group_id = changed_group.id and assignments.active
             and assignments.week_start >= (
-              public.current_effective_date() - extract(dow from public.current_effective_date())::integer
+              public.current_toronto_civil_date() - extract(dow from public.current_toronto_civil_date())::integer
             ))
       ) into dependency_count;
       if dependency_count > 0 then

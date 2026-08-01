@@ -87,12 +87,17 @@ Ending teacher membership must evaluate current and future assignments in the sa
 
 ### 2.6 Effective dates
 
-All date rules use the configured Toronto application date and 1:00 AM rollover.
+Staff access, profile projection, membership boundaries, administration
+authorization, and account activation use the literal Toronto civil date.
+Only daily check-ins, partner recitation, and reset-linked scoring use the
+separate 1:00 AM effective-date rollover.
 
 An operation that accepts a future effective date must be future-effective in every authorization dimension. It must not
-change `profiles.role` or `profiles.active` before the selected date. Staff replacement may therefore schedule
-membership changes while preserving the current projected role; the database recomputes the global role when the
-membership becomes effective and on authenticated session refresh.
+change `profiles.role` or `profiles.active` before the selected date. It must
+also be rejected when the simulated transition date would change either field;
+there is no scheduler in this slice. The database enforces that invariant in
+the guarded RPCs, and hierarchy activity triggers invalidate the cached
+projection atomically.
 
 Account deactivation is the exception: it is an immediate current-date operation and cannot be future-dated. A
 selected-masjid staff replacement is allowed to be future-dated when current routing and authorization remain

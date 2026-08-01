@@ -225,6 +225,7 @@ begin
       ('apply_super_admin_masjid_update(uuid,uuid,uuid,text,text,boolean,jsonb)'),
       ('apply_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date,jsonb)'),
       ('apply_super_admin_staff_membership_end(uuid,uuid,uuid,uuid,date,jsonb)'),
+      ('access_transition_rollout_diagnostic()'),
       ('apply_teacher_rotation_generation(uuid,date,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,integer,integer,integer,integer)'),
       ('get_person_access_state(uuid,uuid)'),
       ('prepare_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date)'),
@@ -318,6 +319,10 @@ begin
   ) or not has_function_privilege(
     'service_role',
     'public.get_person_access_state(uuid,uuid)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.access_transition_rollout_diagnostic()',
     'EXECUTE'
   ) then
     raise exception 'service_role lacks transactional workflow RPC EXECUTE';

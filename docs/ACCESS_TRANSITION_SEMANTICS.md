@@ -37,8 +37,9 @@ new effective-dated row would otherwise overlap it.
 ## Current role projection
 
 For non-super-admin profiles, `profiles.role` is the cached current
-primary/default application experience. The authoritative projection uses
-`public.current_effective_date()` and the effective, active membership windows:
+primary/default application experience. The authoritative projection uses the
+literal Toronto civil date from `public.current_toronto_civil_date()` and the
+effective, active membership windows:
 
 1. `admin` when any active admin staff membership exists at an active masjid;
 2. otherwise `teacher` when any active teacher staff membership exists;
@@ -49,8 +50,11 @@ An admin-teacher keeps `profiles.role = 'admin'`; the teacher capability is
 still proved by the scoped teacher membership and, for teacher workflows, the
 exact group/week assignment. A future membership does not change the current
 role or current active flag before its `starts_on` date. The projection is
-recomputed by membership triggers, guarded mutations, and the authenticated
-session refresh used when loading a profile.
+recomputed by membership and hierarchy-activity triggers plus guarded
+mutations. Normal login and profile reads do not mutate role or active state;
+the guarded `refresh_current_profile_role()` RPC is a self-only repair tool and
+never reactivates an intentionally inactive profile. The 1:00 AM effective date
+is reserved for daily check-ins, partner recitation, and reset-linked scoring.
 
 The role is a routing/default-experience value, not authorization by itself.
 RLS and server-side checks continue to require the relevant masjid, cohort,
@@ -65,22 +69,29 @@ Saturday halaqa event.
 
 Account deactivation is immediate on the current application date. It removes
 current access on that date, closes effective memberships at the preceding
-date, and marks same-day not-yet-started rows inactive when needed to preserve
-the date constraints. Future-dated global deactivation is rejected. A later
-future membership that cannot be cancelled without rewriting its history is
-reported as a guarded dependency and must be resolved through a separate
-future-cancellation workflow.
+date, marks unstarted future staff rows inactive, and cancels unstarted future
+student rows through audited deletion. A row starting on the deactivation date
+is treated as unstarted for this immediate operation as well: it is canceled or
+marked inactive rather than being assigned the impossible inclusive end date
+of D - 1. Future-dated global deactivation is rejected. Active assignments
+whose halaqa Saturday is on or after the deactivation date are atomically
+deactivated, while earlier historical assignments remain available for
+identity display and audit.
 
 ## Teacher assignment safety
 
-Every guarded teacher-membership closure checks active assignments for the same
-masjid. A teacher capability cannot end before an assigned week's Saturday
-halaqa event. This check is enforced in PostgreSQL for:
+Every ordinary guarded teacher-membership closure checks active assignments for
+the same masjid. A teacher capability cannot end before an assigned week's
+Saturday halaqa event. This check is enforced in PostgreSQL for:
 
 - Set Admin only;
 - student conversion;
-- account deactivation; and
+- staff-to-student conversion; and
 - direct membership-ending.
+
+Immediate account deactivation is the deliberate exception: it disables every
+current/future assignment on or after the deactivation date in the same
+transaction and returns the affected assignment identifiers for follow-up.
 
 Set Teacher only retains or creates teacher capability; it does not remove a
 teacher membership, so existing teacher assignments remain valid.

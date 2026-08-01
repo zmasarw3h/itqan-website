@@ -267,7 +267,7 @@ describe("buildGuidedChangeReview", () => {
     );
   });
 
-  it("blocks removal of teacher access while assignments remain", () => {
+  it("allows immediate account deactivation while returning assignment follow-up data", () => {
     const review = buildGuidedChangeReview({
       snapshot: snapshot({
         profile: { id: "person-1", name: "Amina Rahman", role: "teacher", active: true },
@@ -287,12 +287,13 @@ describe("buildGuidedChangeReview", () => {
       today: TODAY
     });
 
-    expect(review.blockers).toContain(
+    expect(review.blockers).not.toContain(
       "Current or upcoming teacher assignments must be resolved before this operation can remove teacher access for their halaqa Saturday."
     );
+    expect(review.plan).not.toBeNull();
   });
 
-  it("keeps the current global role until a future replacement starts", () => {
+  it("rejects a future replacement that changes the global role", () => {
     const review = buildGuidedChangeReview({
       snapshot: snapshot({
         profile: { id: "person-1", name: "Amina Rahman", role: "teacher", active: true },
@@ -306,11 +307,10 @@ describe("buildGuidedChangeReview", () => {
       today: TODAY
     });
 
-    expect(review.blockers).not.toContain(
-      "This change would update the global account before the selected date. Choose today, or use a membership-only change that preserves the current role."
+    expect(review.blockers).toContain(
+      "This future access change would change the global role or active state when it starts. Choose today or preserve the current projection."
     );
-    expect(review.plan?.nextRole).toBe("teacher");
-    expect(review.plan?.effectiveRole).toBe("admin");
+    expect(review.plan).toBeNull();
   });
 
   it("rejects a guided change that produces no mutations", () => {

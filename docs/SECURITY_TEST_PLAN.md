@@ -378,11 +378,15 @@ Phase 1 is not mergeable until a local disposable Supabase harness:
   affects only the selected masjid, preserves capabilities at other masajid, and projects the global role from
   all currently effective capabilities rather than from the selected operation label.
 - Proves future staff memberships do not change the current `profiles.role` or `profiles.active` state before
-  their start date, while the session refresh and date-boundary projection activate them when effective.
+  their start date, rejects any future transition that would change either field, and proves hierarchy
+  activation/deactivation triggers invalidate the cached projection without relying on login or reads.
 - Proves every teacher capability removal path rejects active assignments whose halaqa Saturday is after the
   inclusive membership end date, and that direct membership-ending recomputes the global role atomically.
 - Proves immediate account deactivation closes current access consistently, rejects future-dated deactivation,
-  and does not leave a current or future teacher assignment that the person can no longer fulfil.
+  atomically deactivates assignments on/after the civil deactivation date, preserves historical assignments,
+  cancels unstarted future memberships through audited paths, and treats a same-day start as unstarted so
+  the inclusive membership constraint is never violated by a D - 1 close.
+
 - Proves super-admin access changes reject stale snapshots and request-ID reuse with changed input.
 - Proves standalone staff-membership closure serializes concurrent retries, rejects stale state and sole
   active-masjid-admin removal, and rolls membership plus audit writes back together when a guard fails.
@@ -394,6 +398,14 @@ Phase 1 is not mergeable until a local disposable Supabase harness:
   idempotent, stale-safe, and atomic with their audit events; group deactivation is blocked while
   current/future student memberships or teacher assignments depend on it.
 - Runs through a documented opt-in command with disposable credentials only. It must never target production.
+
+### Civil-date midnight boundary
+
+At Toronto 00:00–00:59, staff membership visibility, role projection, and
+account activation use that literal civil date. Daily check-ins, partner
+recitation, and reset-linked scoring continue to use the preceding
+`public.current_effective_date()` until 01:00. The disposable suite and date
+unit tests must cover both sides of this boundary.
 
 Keep `npm run check` deterministic. The Docker-backed RLS integration command runs as a separate GitHub
 Actions job and is a required Phase 1 merge gate.

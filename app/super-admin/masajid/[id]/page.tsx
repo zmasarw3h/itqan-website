@@ -16,7 +16,7 @@ import {
   type MasjidSetupDetailData,
   type MasjidSetupSearchParams
 } from "@/app/super-admin/masajid/data";
-import { checkInEffectiveDateString } from "@/lib/dates";
+import { torontoCivilDateString } from "@/lib/dates";
 import { requireSuperAdminAdminClient } from "@/lib/super-admin";
 import {
   masjidUpdateState,
@@ -168,7 +168,7 @@ function StaffAccess({ data }: { data: MasjidSetupDetailData }) {
           <span className="hidden text-sm font-semibold text-moss group-open:inline">Close</span>
         </summary>
       <MasjidStaffGrantForm
-        defaultStartsOn={checkInEffectiveDateString()}
+        defaultStartsOn={torontoCivilDateString()}
         masjidId={data.masjid.id}
         masjidName={data.masjid.name}
         requestId={randomUUID()}
