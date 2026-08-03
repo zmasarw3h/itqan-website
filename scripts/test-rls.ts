@@ -4700,6 +4700,12 @@ async function runAssertions(ids: SeedIds) {
   await assertHidden(profileTarget, "masjid_staff_memberships", deactivationCurrentStaffMembership.id);
   await assertHidden(profileTarget, "student_group_memberships", deactivationCurrentStudentMembership.id);
 
+  const temporaryGroupCleanup = await service
+    .from("halaqa_groups")
+    .update({ active: false })
+    .in("id", [deactivationCurrentGroup.id, deactivationFutureGroup.id]);
+  assert.equal(temporaryGroupCleanup.error, null, temporaryGroupCleanup.error?.message);
+
   // The current week's Saturday is the authorization event. A teacher who
   // starts on that Saturday (and whose membership ends that day) is eligible
   // for this Sunday-Saturday tracker week, even before their first civil day
@@ -5231,7 +5237,11 @@ async function testRotationPublicationIntegrity(ids: SeedIds) {
     input_expected_state: stalePrepared.data,
     input_desired_assignments: desiredAssignments
   });
-  assert.ok(staleApply.error?.message.includes("rotation_publication_stale_state"), "availability change did not stale the prepared publication");
+  assert.deepEqual(
+    { code: staleApply.error?.code, message: staleApply.error?.message },
+    { code: "PT412", message: "rotation_publication_stale_state" },
+    "availability change did not stale the prepared publication"
+  );
 
   const restoreAvailability = await service
     .from("teacher_rotation_availability")

@@ -498,7 +498,7 @@ begin
   end if;
 
   if input_expected_state is not null and current_state is distinct from input_expected_state then
-    raise exception using errcode = '40001', message = 'rotation_publication_stale_state';
+    raise exception using errcode = 'PT412', message = 'rotation_publication_stale_state';
   end if;
 
   if exists (
@@ -894,7 +894,7 @@ begin
     or existing_snapshot.actor_id <> input_actor_id
     or existing_snapshot.target_id <> input_cohort_id
     or existing_snapshot.expected_state is distinct from input_expected_state then
-    raise exception using errcode = '40001', message = 'rotation_publication_stale_state';
+    raise exception using errcode = 'PT412', message = 'rotation_publication_stale_state';
   end if;
 
   select requests.*
