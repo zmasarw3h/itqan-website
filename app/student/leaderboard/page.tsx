@@ -1,4 +1,6 @@
 import AppNav from "@/app/nav";
+import { arabicFont } from "@/app/arabic-font";
+import { StudentPage } from "@/app/student/student-ui";
 import { StudentSetupIncomplete } from "@/app/student/student-week-context";
 import { formatWeekRange } from "@/lib/dates";
 import { requireProfile } from "@/lib/supabase-server";
@@ -50,12 +52,12 @@ export default async function StudentLeaderboardPage({
   return (
     <>
       <AppNav role={profile.role} name={profile.name} />
-      <main className="mx-auto max-w-6xl px-4 py-8">
+      <StudentPage width="wide">
         <section className="overflow-hidden rounded-lg border border-stone-200 bg-ink text-white shadow-sm">
           <div className="grid gap-5 p-6 md:grid-cols-[1.2fr_0.8fr] md:items-end">
             <div>
               <p className="mb-2 text-sm font-semibold uppercase text-gold">Quran 83:26</p>
-              <p className="text-right text-4xl font-semibold leading-relaxed text-stone-50 md:text-5xl" dir="rtl" lang="ar">
+              <p className={`${arabicFont.className} text-right text-4xl leading-relaxed text-stone-50 md:text-5xl`} dir="rtl" lang="ar">
                 وَفِي ذَٰلِكَ فَلْيَتَنَافَسِ ٱلْمُتَنَـٰفِسُونَ
               </p>
               <p className="mt-3 text-lg text-stone-200">
@@ -161,7 +163,7 @@ export default async function StudentLeaderboardPage({
             </table>
           </div>
         </section>
-      </main>
+      </StudentPage>
     </>
   );
 }

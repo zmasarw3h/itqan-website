@@ -136,7 +136,7 @@ export default function LoginForm() {
 
       <button
         aria-busy={isLoading}
-        className="h-14 w-full rounded-lg bg-[#294a39] px-4 text-base font-semibold text-white transition hover:bg-ink disabled:cursor-not-allowed disabled:opacity-60 sm:h-16 lg:h-[4.5rem]"
+        className="h-14 w-full rounded-lg bg-action px-4 text-base font-semibold text-white transition hover:bg-ink disabled:cursor-not-allowed disabled:opacity-60 sm:h-16 lg:h-[4.5rem]"
         type="submit"
         disabled={isLoading}
       >

@@ -1,5 +1,6 @@
 import AppNav from "@/app/nav";
 import { submitPartnerRecitation } from "@/app/student/actions";
+import { StudentPage } from "@/app/student/student-ui";
 import { StudentSetupIncomplete, StudentWeekContextPanel } from "@/app/student/student-week-context";
 import { checkInEffectiveDateString, formatDateTimeInAppTimeZone, friendlyDate, weekStartForDate } from "@/lib/dates";
 import { buildPartnerRecitationView } from "@/lib/partner-recitations";
@@ -42,7 +43,7 @@ export default async function PartnerRecitationPage({
   return (
     <>
       <AppNav role={profile.role} name={profile.name} />
-      <main className="mx-auto max-w-4xl px-4 py-8">
+      <StudentPage width="focused">
         <section className="rounded-lg border border-stone-200 bg-white p-6 shadow-sm">
           <div>
             <h1 className="text-2xl font-semibold text-ink">Partner Recitation</h1>
@@ -130,7 +131,7 @@ export default async function PartnerRecitationPage({
             ))}
           </div>
         </section>
-      </main>
+      </StudentPage>
     </>
   );
 }

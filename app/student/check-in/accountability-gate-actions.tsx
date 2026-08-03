@@ -11,7 +11,7 @@ export default function AccountabilityGateActions({ children }: { children: Reac
       <div className="mt-4 flex flex-wrap gap-3">
         {children}
         <button
-          className="rounded-md border border-stone-300 bg-white px-4 py-2.5 text-sm font-medium text-ink hover:bg-stone-50"
+          className="min-h-12 rounded-md border border-stone-300 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:bg-stone-50"
           onClick={() => setShowNotYetMessage(true)}
           type="button"
         >

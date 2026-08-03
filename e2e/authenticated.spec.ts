@@ -85,9 +85,60 @@ test.describe("authenticated student flow", () => {
     await expect(
       page.getByRole("heading", {
         level: 1,
-        name: /Today's Check-In|Confirm your sadaqa to unlock today's checklist|Upload this week's plan to unlock today's checklist/
+        name: /Check-In|Today's Check-In|Confirm your sadaqa to unlock today's checklist|Upload this week's plan to unlock today's checklist/
       })
     ).toBeVisible();
+
+    await revealResponsiveNavigation(page);
+    const expectedStudentLinks = [
+      "Check-In",
+      "Partner Recitation",
+      "Grades",
+      "Leaderboard",
+      "Weekly Plan",
+      "Rewards",
+      "History",
+      "Password"
+    ];
+
+    for (const label of expectedStudentLinks) {
+      await expect(page.getByRole("link", { name: label, exact: true })).toBeVisible();
+    }
+
+    const activeCheckInLink = page.getByRole("link", { name: "Check-In", exact: true });
+    await expect(activeCheckInLink).toHaveAttribute("aria-current", "page");
+    expect(await activeCheckInLink.evaluate((link) => link.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+
+    const checklist = page.getByRole("group", { name: "Today's checklist" });
+    if ((await checklist.count()) === 1) {
+      await expect(checklist).toBeVisible();
+      const checklistItems = checklist.getByRole("checkbox");
+      const checklistItemCount = await checklistItems.count();
+      expect(checklistItemCount).toBeGreaterThan(0);
+      expect(
+        await checklistItems.first().evaluate((checkbox) => checkbox.closest("label")?.getBoundingClientRect().height ?? 0)
+      ).toBeGreaterThanOrEqual(64);
+      await expect(page.getByLabel("Optional note")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Save note" })).toBeVisible();
+      await expect(page.getByRole("complementary", { name: "Halaqa and Quran guidance" })).toBeVisible();
+
+      const viewport = page.viewportSize();
+      if (viewport && viewport.width < 1024) {
+        const mobileGuidanceVerse = page.locator(
+          '[aria-labelledby="check-in-guidance-verse-title-mobile"]'
+        );
+        await expect(mobileGuidanceVerse).toBeVisible();
+
+        const verseBox = await mobileGuidanceVerse.boundingBox();
+        const checklistBox = await checklist.boundingBox();
+        expect(verseBox).not.toBeNull();
+        expect(checklistBox).not.toBeNull();
+        expect((verseBox?.y ?? 0) + (verseBox?.height ?? 0)).toBeLessThanOrEqual(viewport.height);
+        expect((verseBox?.y ?? 0) + (verseBox?.height ?? 0)).toBeLessThan(checklistBox?.y ?? 0);
+      }
+    }
+
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 });
 

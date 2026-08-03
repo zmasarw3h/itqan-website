@@ -110,6 +110,19 @@ describe("access rules", () => {
     expect(navigationLinksForRole("teacher").map((link) => link.href)).toContain("/teacher");
   });
 
+  it("keeps the complete student workflow navigation in product order", () => {
+    expect(navigationLinksForRole("student")).toEqual([
+      { href: "/student/check-in", label: "Check-In" },
+      { href: "/student/partner-recitation", label: "Partner Recitation" },
+      { href: "/student/grades", label: "Grades" },
+      { href: "/student/leaderboard", label: "Leaderboard" },
+      { href: "/student/weekly-plan", label: "Weekly Plan" },
+      { href: "/student/rewards", label: "Rewards" },
+      { href: "/student/history", label: "History" },
+      { href: "/account/change-password", label: "Password" }
+    ]);
+  });
+
   it("exposes the complete super-admin console navigation", () => {
     expect(navigationLinksForRole("super_admin").map((link) => link.href)).toEqual([
       "/super-admin",
