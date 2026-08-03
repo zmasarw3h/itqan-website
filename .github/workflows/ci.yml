@@ -41,3 +41,4 @@ jobs:
 
       - run: npm ci
       - run: npm run test:rls
+      - run: npm run test:rls:upgrade

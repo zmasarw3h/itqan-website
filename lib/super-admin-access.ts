@@ -1,4 +1,4 @@
-import { addDays } from "@/lib/dates";
+import { addDays, torontoCivilDateString } from "@/lib/dates";
 import type { Role, StaffRole } from "@/lib/types";
 
 export type SuperAdminAccessPreset = "student" | "teacher" | "admin" | "admin_teacher" | "inactive";
@@ -31,6 +31,8 @@ export type StaffMembershipWindow = {
 export type MembershipClosePlan = {
   id: string;
   endsOn: string;
+  /** A same-day replacement deactivates the row because dates are inclusive. */
+  inactive?: boolean;
 };
 
 export type StaffMembershipInsertPlan = {
@@ -47,11 +49,29 @@ export type StudentMembershipInsertPlan = {
 export type SuperAdminAccessChangePlan = {
   nextRole: Role;
   nextActive: boolean;
+  effectiveRole: Role;
+  effectiveActive: boolean;
   studentMembershipCloses: MembershipClosePlan[];
+  studentMembershipCancellations: string[];
   studentMembershipInsert: StudentMembershipInsertPlan | null;
   staffMembershipCloses: MembershipClosePlan[];
   staffMembershipInserts: StaffMembershipInsertPlan[];
   requiresAdminMasjidConfirmation: boolean;
+};
+
+export type AdditiveStaffGrant = "admin" | "teacher" | "admin_teacher";
+
+export type AdditiveStaffGrantPreview = {
+  currentMasjidAccess: string;
+  resultingMasjidAccess: string;
+  currentRole: Role;
+  currentActive: boolean;
+  resultingRole: Role;
+  resultingActive: boolean;
+  effectiveRole: Role;
+  effectiveActive: boolean;
+  addedRoles: StaffRole[];
+  noOp: boolean;
 };
 
 export class SuperAdminAccessPlanError extends Error {
@@ -132,11 +152,15 @@ function closeOpenMembership(
   membership: Pick<StudentMembershipWindow, "id" | "starts_on" | "ends_on">,
   endsOn: string
 ): MembershipClosePlan | null {
-  if (membership.ends_on !== null) {
+  if (membership.ends_on !== null && membership.ends_on <= endsOn) {
     return null;
   }
 
   if (membership.starts_on > endsOn) {
+    if (membership.starts_on === addDays(endsOn, 1)) {
+      return { id: membership.id, endsOn: membership.starts_on, inactive: true };
+    }
+
     throw new SuperAdminAccessPlanError(
       `Choose an effective date on or after ${membership.starts_on} before replacing this membership.`
     );
@@ -151,6 +175,35 @@ function closeOpenMemberships(
 ) {
   return memberships
     .map((membership) => closeOpenMembership(membership, endsOn))
+    .filter((membership): membership is MembershipClosePlan => membership !== null);
+}
+
+function deactivationMembershipPlan(
+  membership: Pick<StudentMembershipWindow, "id" | "starts_on" | "ends_on">,
+  deactivationDate: string
+): MembershipClosePlan | null {
+  if (membership.ends_on !== null && membership.ends_on < deactivationDate) {
+    return null;
+  }
+
+  if (membership.starts_on >= deactivationDate) {
+    return { id: membership.id, endsOn: membership.starts_on, inactive: true } satisfies MembershipClosePlan;
+  }
+
+  const endsOn = addDays(deactivationDate, -1);
+  if (membership.ends_on !== null && membership.ends_on <= endsOn) {
+    return null;
+  }
+
+  return { id: membership.id, endsOn } satisfies MembershipClosePlan;
+}
+
+function deactivationMembershipPlans(
+  memberships: Array<Pick<StudentMembershipWindow, "id" | "starts_on" | "ends_on">>,
+  deactivationDate: string
+) {
+  return memberships
+    .map((membership) => deactivationMembershipPlan(membership, deactivationDate))
     .filter((membership): membership is MembershipClosePlan => membership !== null);
 }
 
@@ -174,18 +227,17 @@ function assertNoFutureOpenStaffOverlap(input: {
   staffRole: StaffRole;
   startsOn: string;
 }) {
-  const futureOpenMembership = input.staffMemberships.find(
+  const futureMembership = input.staffMemberships.find(
     (membership) =>
       membership.masjid_id === input.masjidId &&
       membership.staff_role === input.staffRole &&
       membership.active &&
-      membership.ends_on === null &&
       membership.starts_on > input.startsOn
   );
 
-  if (futureOpenMembership) {
+  if (futureMembership) {
     throw new SuperAdminAccessPlanError(
-      `Choose an effective date on or after ${futureOpenMembership.starts_on} before replacing this staff membership.`
+      `Choose an effective date on or after ${futureMembership.starts_on} before replacing this staff membership.`
     );
   }
 }
@@ -236,24 +288,168 @@ function closeOpenStaffByRole(input: {
   );
 }
 
-function activeAdminStaffExistsAfterPlan(input: {
-  staffMemberships: StaffMembershipWindow[];
-  staffMembershipCloses: MembershipClosePlan[];
-  staffMembershipInserts: StaffMembershipInsertPlan[];
-  startsOn: string;
-}) {
-  if (input.staffMembershipInserts.some((membership) => membership.staffRole === "admin")) {
-    return true;
+function staffRolesAtDate(
+  memberships: StaffMembershipWindow[],
+  date: string,
+  closes: MembershipClosePlan[] = [],
+  inserts: StaffMembershipInsertPlan[] = []
+) {
+  const closed = new Map(closes.map((membership) => [membership.id, membership]));
+  const roles = new Set<StaffRole>();
+
+  for (const membership of memberships) {
+    const close = closed.get(membership.id);
+    if (close?.inactive || (close && close.endsOn < date)) continue;
+
+    if (staffMembershipIsActiveOn(membership, date)) {
+      roles.add(membership.staff_role);
+    }
   }
 
-  const closedMembershipIds = new Set(input.staffMembershipCloses.map((membership) => membership.id));
+  for (const membership of inserts) {
+    if (membership.startsOn <= date) {
+      roles.add(membership.staffRole);
+    }
+  }
 
-  return input.staffMemberships.some(
-    (membership) =>
-      membership.staff_role === "admin" &&
-      !closedMembershipIds.has(membership.id) &&
-      staffMembershipIsActiveOn(membership, input.startsOn)
+  return roles;
+}
+
+function projectAccessAtDate(input: {
+  targetRole: Role;
+  targetActive: boolean;
+  targetAccessDeactivatedOn?: string | null;
+  date: string;
+  preset: SuperAdminAccessPreset;
+  startsOn: string;
+  studentMemberships: StudentMembershipWindow[];
+  staffMemberships: StaffMembershipWindow[];
+  plan: Pick<SuperAdminAccessChangePlan, "studentMembershipCloses" | "studentMembershipCancellations" | "studentMembershipInsert" | "staffMembershipCloses" | "staffMembershipInserts">;
+}) {
+  if (input.targetRole === "super_admin") {
+    return { role: "super_admin" as Role, active: input.targetActive };
+  }
+
+  if (input.targetAccessDeactivatedOn && input.targetAccessDeactivatedOn <= input.date) {
+    return { role: input.targetRole, active: false };
+  }
+
+  if (input.preset === "inactive" && input.date >= input.startsOn) {
+    return { role: input.targetRole, active: false };
+  }
+
+  const staffRoles = staffRolesAtDate(
+    input.staffMemberships,
+    input.date,
+    input.plan.staffMembershipCloses,
+    input.plan.staffMembershipInserts
   );
+
+  if (staffRoles.has("admin")) return { role: "admin" as Role, active: true };
+  if (staffRoles.has("teacher")) return { role: "teacher" as Role, active: true };
+
+  const closedStudents = new Map(input.plan.studentMembershipCloses.map((membership) => [membership.id, membership]));
+  const cancelledStudents = new Set(input.plan.studentMembershipCancellations);
+  const hasStudent = input.studentMemberships.some((membership) => {
+    const close = closedStudents.get(membership.id);
+    return !cancelledStudents.has(membership.id) && !close?.inactive && membershipIsActiveOn(membership, input.date) && (!close || close.endsOn >= input.date);
+  }) || Boolean(
+    input.plan.studentMembershipInsert && input.plan.studentMembershipInsert.startsOn <= input.date
+  );
+
+  if (hasStudent) return { role: "student" as Role, active: true };
+  return { role: input.targetRole, active: false };
+}
+
+function grantRoles(grant: AdditiveStaffGrant): StaffRole[] {
+  return grant === "admin_teacher" ? ["admin", "teacher"] : [grant];
+}
+
+export function previewAdditiveStaffGrant(input: {
+  targetRole: Role;
+  targetActive: boolean;
+  targetAccessDeactivatedOn?: string | null;
+  masjidId: string;
+  grant: AdditiveStaffGrant;
+  startsOn: string;
+  currentDate: string;
+  staffMemberships: StaffMembershipWindow[];
+  studentMemberships?: StudentMembershipWindow[];
+}): AdditiveStaffGrantPreview {
+  const desiredRoles = grantRoles(input.grant);
+  const currentMasjidRoles = [...staffRolesAtDate(
+    input.staffMemberships.filter((membership) => membership.masjid_id === input.masjidId),
+    input.currentDate
+  )];
+  const rolesAtStart = staffRolesAtDate(
+    input.staffMemberships.filter((membership) => membership.masjid_id === input.masjidId),
+    input.startsOn
+  );
+  const inserted = staffInsertPlans({
+    staffMemberships: input.staffMemberships,
+    masjidId: input.masjidId,
+    startsOn: input.startsOn,
+    desiredRoles
+  });
+  const addedRoles = inserted.map((membership) => membership.staffRole);
+  const resultingMasjidRoles = new Set(rolesAtStart);
+  for (const staffRole of addedRoles) resultingMasjidRoles.add(staffRole);
+  const currentProjection = projectAccessAtDate({
+    targetRole: input.targetRole,
+    targetActive: input.targetActive,
+    targetAccessDeactivatedOn: input.targetAccessDeactivatedOn,
+    date: input.currentDate,
+    preset: "admin_teacher",
+    startsOn: input.startsOn,
+    studentMemberships: input.studentMemberships ?? [],
+    staffMemberships: input.staffMemberships,
+    plan: { studentMembershipCloses: [], studentMembershipCancellations: [], studentMembershipInsert: null, staffMembershipCloses: [], staffMembershipInserts: [] }
+  });
+  const effectiveProjection = projectAccessAtDate({
+    targetRole: input.targetRole,
+    targetActive: input.targetActive,
+    targetAccessDeactivatedOn: input.targetAccessDeactivatedOn,
+    date: input.startsOn,
+    preset: "admin_teacher",
+    startsOn: input.startsOn,
+    studentMemberships: input.studentMemberships ?? [],
+    staffMemberships: input.staffMemberships,
+    plan: { studentMembershipCloses: [], studentMembershipCancellations: [], studentMembershipInsert: null, staffMembershipCloses: [], staffMembershipInserts: inserted }
+  });
+
+  const resultingCurrentProjection = projectAccessAtDate({
+    targetRole: input.targetRole,
+    targetActive: input.targetActive,
+    targetAccessDeactivatedOn: input.targetAccessDeactivatedOn,
+    date: input.currentDate,
+    preset: "admin_teacher",
+    startsOn: input.startsOn,
+    studentMemberships: input.studentMemberships ?? [],
+    staffMemberships: input.staffMemberships,
+    plan: { studentMembershipCloses: [], studentMembershipCancellations: [], studentMembershipInsert: null, staffMembershipCloses: [], staffMembershipInserts: inserted }
+  });
+
+  if (
+    input.startsOn > input.currentDate &&
+    (currentProjection.role !== effectiveProjection.role || currentProjection.active !== effectiveProjection.active)
+  ) {
+    throw new SuperAdminAccessPlanError(
+      "This future grant would change the global role or active state when it starts. Choose today or preserve the current projection."
+    );
+  }
+
+  return {
+    currentMasjidAccess: staffAccessLabel({ hasAdmin: currentMasjidRoles.includes("admin"), hasTeacher: currentMasjidRoles.includes("teacher") }),
+    resultingMasjidAccess: staffAccessLabel({ hasAdmin: resultingMasjidRoles.has("admin"), hasTeacher: resultingMasjidRoles.has("teacher") }),
+    currentRole: currentProjection.role,
+    currentActive: currentProjection.active,
+    resultingRole: resultingCurrentProjection.role,
+    resultingActive: resultingCurrentProjection.active,
+    effectiveRole: effectiveProjection.role,
+    effectiveActive: effectiveProjection.active,
+    addedRoles,
+    noOp: addedRoles.length === 0
+  };
 }
 
 function selectedMasjidIdOrThrow(selectedMasjidId: string | null | undefined) {
@@ -267,18 +463,24 @@ function selectedMasjidIdOrThrow(selectedMasjidId: string | null | undefined) {
 export function buildSuperAdminAccessChangePlan(input: {
   targetRole: Role;
   targetActive: boolean;
+  targetAccessDeactivatedOn?: string | null;
   preset: SuperAdminAccessPreset;
   startsOn: string;
   selectedMasjidId?: string | null;
   selectedGroupId?: string | null;
   studentMemberships: StudentMembershipWindow[];
   staffMemberships: StaffMembershipWindow[];
+  currentDate?: string;
 }): SuperAdminAccessChangePlan {
   const endBeforeStart = addDays(input.startsOn, -1);
+  const currentDate = input.currentDate ?? torontoCivilDateString();
   const base = {
     nextRole: input.targetRole,
     nextActive: input.targetActive,
+    effectiveRole: input.targetRole,
+    effectiveActive: input.targetActive,
     studentMembershipCloses: [],
+    studentMembershipCancellations: [],
     studentMembershipInsert: null,
     staffMembershipCloses: [],
     staffMembershipInserts: [],
@@ -286,11 +488,22 @@ export function buildSuperAdminAccessChangePlan(input: {
   } satisfies SuperAdminAccessChangePlan;
 
   if (input.preset === "inactive") {
-    return {
+    if (input.startsOn > currentDate) {
+      throw new SuperAdminAccessPlanError(
+        "Future account deactivation is not supported because no scheduled role transition service is available."
+      );
+    }
+
+    const plan = {
       ...base,
       nextActive: false,
-      studentMembershipCloses: closeOpenMemberships(input.studentMemberships, input.startsOn),
-      staffMembershipCloses: closeOpenMemberships(
+      studentMembershipCloses: deactivationMembershipPlans(input.studentMemberships, input.startsOn).filter(
+        (membership) => !membership.inactive
+      ),
+      studentMembershipCancellations: input.studentMemberships
+        .filter((membership) => membership.starts_on >= input.startsOn)
+        .map((membership) => membership.id),
+      staffMembershipCloses: deactivationMembershipPlans(
         input.staffMemberships.filter((membership) => membership.active),
         input.startsOn
       ),
@@ -298,6 +511,27 @@ export function buildSuperAdminAccessChangePlan(input: {
         (membership) => membership.active && membership.staff_role === "admin" && membership.ends_on === null
       )
     };
+    const currentProjection = projectAccessAtDate({
+      ...input,
+      targetAccessDeactivatedOn: input.startsOn > currentDate ? input.targetAccessDeactivatedOn : null,
+      date: currentDate,
+      plan
+    });
+    const effectiveProjection = projectAccessAtDate({
+      ...input,
+      targetAccessDeactivatedOn: input.preset === "inactive" ? input.targetAccessDeactivatedOn : null,
+      date: input.startsOn,
+      plan
+    });
+    if (
+      input.startsOn > currentDate &&
+      (currentProjection.role !== effectiveProjection.role || currentProjection.active !== effectiveProjection.active)
+    ) {
+      throw new SuperAdminAccessPlanError(
+        "This future student conversion would change the global role or active state when it starts. Choose today or preserve the current projection."
+      );
+    }
+    return { ...plan, nextRole: currentProjection.role, nextActive: currentProjection.active, effectiveRole: effectiveProjection.role, effectiveActive: effectiveProjection.active };
   }
 
   if (input.preset === "student") {
@@ -307,16 +541,16 @@ export function buildSuperAdminAccessChangePlan(input: {
 
     const existingSelectedMembership = input.studentMemberships.find(
       (membership) =>
-        membership.group_id === input.selectedGroupId && membership.ends_on === null && membership.starts_on <= input.startsOn
+        membership.group_id === input.selectedGroupId && membershipIsActiveOn(membership, input.startsOn)
     );
     const studentMembershipsToClose = input.studentMemberships.filter(
-      (membership) => membership.ends_on === null && membership.id !== existingSelectedMembership?.id
+      (membership) =>
+        (membership.ends_on === null || membership.ends_on > endBeforeStart) &&
+        membership.id !== existingSelectedMembership?.id
     );
 
-    return {
+    const plan = {
       ...base,
-      nextRole: "student",
-      nextActive: true,
       studentMembershipCloses: closeOpenMemberships(studentMembershipsToClose, endBeforeStart),
       studentMembershipInsert: existingSelectedMembership
         ? null
@@ -329,6 +563,27 @@ export function buildSuperAdminAccessChangePlan(input: {
         (membership) => membership.active && membership.staff_role === "admin" && membership.ends_on === null
       )
     };
+    const currentProjection = projectAccessAtDate({
+      ...input,
+      targetAccessDeactivatedOn: input.startsOn > currentDate ? input.targetAccessDeactivatedOn : null,
+      date: currentDate,
+      plan
+    });
+    const effectiveProjection = projectAccessAtDate({
+      ...input,
+      targetAccessDeactivatedOn: null,
+      date: input.startsOn,
+      plan
+    });
+    if (
+      input.startsOn > currentDate &&
+      (currentProjection.role !== effectiveProjection.role || currentProjection.active !== effectiveProjection.active)
+    ) {
+      throw new SuperAdminAccessPlanError(
+        "This future student conversion would change the global role or active state when it starts. Choose today or preserve the current projection."
+      );
+    }
+    return { ...plan, nextRole: currentProjection.role, nextActive: currentProjection.active, effectiveRole: effectiveProjection.role, effectiveActive: effectiveProjection.active };
   }
 
   const masjidId = selectedMasjidIdOrThrow(input.selectedMasjidId);
@@ -348,22 +603,8 @@ export function buildSuperAdminAccessChangePlan(input: {
     staffRoles: undesiredRoles,
     endsOn: endBeforeStart
   });
-  const nextRole: Role =
-    input.preset === "teacher" &&
-    !activeAdminStaffExistsAfterPlan({
-      staffMemberships: input.staffMemberships,
-      staffMembershipCloses,
-      staffMembershipInserts,
-      startsOn: input.startsOn
-    })
-      ? "teacher"
-      : "admin";
-
-  return {
+  const plan = {
     ...base,
-    nextRole,
-    nextActive: true,
-    studentMembershipCloses: closeOpenMemberships(input.studentMemberships, endBeforeStart),
     staffMembershipCloses,
     staffMembershipInserts,
     requiresAdminMasjidConfirmation:
@@ -372,4 +613,82 @@ export function buildSuperAdminAccessChangePlan(input: {
         input.staffMemberships.some((membership) => membership.id === close.id && membership.staff_role === "admin")
       )
   };
+  const currentProjection = projectAccessAtDate({
+    ...input,
+    targetAccessDeactivatedOn: input.startsOn > currentDate ? input.targetAccessDeactivatedOn : null,
+    date: currentDate,
+    plan
+  });
+  const effectiveProjection = projectAccessAtDate({
+    ...input,
+    targetAccessDeactivatedOn: null,
+    date: input.startsOn,
+    plan
+  });
+  if (
+    input.startsOn > currentDate &&
+    (currentProjection.role !== effectiveProjection.role || currentProjection.active !== effectiveProjection.active)
+  ) {
+    throw new SuperAdminAccessPlanError(
+      "This future access change would change the global role or active state when it starts. Choose today or preserve the current projection."
+    );
+  }
+  return { ...plan, nextRole: currentProjection.role, nextActive: currentProjection.active, effectiveRole: effectiveProjection.role, effectiveActive: effectiveProjection.active };
+}
+
+export function assertFutureStaffMembershipEndDoesNotChangeProjection(input: {
+  targetRole: Role;
+  targetActive: boolean;
+  targetAccessDeactivatedOn?: string | null;
+  membershipId: string;
+  endsOn: string;
+  currentDate: string;
+  staffMemberships: StaffMembershipWindow[];
+  studentMemberships?: StudentMembershipWindow[];
+}) {
+  const transitionDate = addDays(input.endsOn, 1);
+  if (transitionDate <= input.currentDate) return;
+
+  const currentPlan = {
+    studentMembershipCloses: [],
+    studentMembershipCancellations: [],
+    studentMembershipInsert: null,
+    staffMembershipCloses: [],
+    staffMembershipInserts: []
+  } satisfies Pick<SuperAdminAccessChangePlan, "studentMembershipCloses" | "studentMembershipCancellations" | "studentMembershipInsert" | "staffMembershipCloses" | "staffMembershipInserts">;
+  const futurePlan = {
+    ...currentPlan,
+    staffMembershipCloses: [{ id: input.membershipId, endsOn: input.endsOn }]
+  };
+  const currentProjection = projectAccessAtDate({
+    targetRole: input.targetRole,
+    targetActive: input.targetActive,
+    targetAccessDeactivatedOn: input.targetAccessDeactivatedOn,
+    date: input.currentDate,
+    preset: "admin_teacher",
+    startsOn: input.endsOn,
+    studentMemberships: input.studentMemberships ?? [],
+    staffMemberships: input.staffMemberships,
+    plan: currentPlan
+  });
+  const futureProjection = projectAccessAtDate({
+    targetRole: input.targetRole,
+    targetActive: input.targetActive,
+    targetAccessDeactivatedOn: input.targetAccessDeactivatedOn,
+    date: transitionDate,
+    preset: "admin_teacher",
+    startsOn: transitionDate,
+    studentMemberships: input.studentMemberships ?? [],
+    staffMemberships: input.staffMemberships,
+    plan: futurePlan
+  });
+
+  if (
+    currentProjection.role !== futureProjection.role ||
+    currentProjection.active !== futureProjection.active
+  ) {
+    throw new SuperAdminAccessPlanError(
+      "This membership end would change the global role or active state after its inclusive end date. Preserve the current projection or use Guided Change."
+    );
+  }
 }

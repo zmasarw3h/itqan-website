@@ -53,7 +53,9 @@ Super-admin promotion and removal are dedicated high-risk operations. They must 
 - `ends_on` is inclusive: access remains effective through that day.
 - A move closes the previous placement on the day before the new placement begins.
 - Historical corrections are distinct from planned moves and must state which historical records and derived experiences they affect.
-- Student and staff access remain mutually exclusive for normal non-super-admin accounts unless a future product requirement explicitly changes the data and authorization model.
+- Student placement and staff capabilities are separate scopes. A selected-masjid staff replacement preserves an
+  existing student placement; converting an account to student access is an explicit account-wide operation with its
+  own impact summary.
 
 ### 2.4 Masjid staff capabilities
 
@@ -85,11 +87,21 @@ Ending teacher membership must evaluate current and future assignments in the sa
 
 ### 2.6 Effective dates
 
-All date rules use the configured Toronto application date and 1:00 AM rollover.
+Staff access, profile projection, membership boundaries, administration
+authorization, and account activation use the literal Toronto civil date.
+Only daily check-ins, partner recitation, and reset-linked scoring use the
+separate 1:00 AM effective-date rollover.
 
-An operation that accepts a future effective date must be future-effective in every authorization dimension. It must not change `profiles.role` or `profiles.active` before the selected date.
+An operation that accepts a future effective date must be future-effective in every authorization dimension. It must not
+change `profiles.role` or `profiles.active` before the selected date. It must
+also be rejected when the simulated transition date would change either field;
+there is no scheduler in this slice. The database enforces that invariant in
+the guarded RPCs, and hierarchy activity triggers invalidate the cached
+projection atomically.
 
-Until fully scheduled global profile transitions exist, V2 must reject future dates for any operation that changes profile role or active state. Membership-only scheduling is allowed only when current routing and authorization remain coherent.
+Account deactivation is the exception: it is an immediate current-date operation and cannot be future-dated. A
+selected-masjid staff replacement is allowed to be future-dated when current routing and authorization remain
+coherent, and its review must show both the current projection and the projected state at the selected date.
 
 User-facing behavior must consistently distinguish:
 
@@ -149,7 +161,7 @@ Access changes are operation-specific, not a single global “preset.” Support
 - end admin capability at one masjid;
 - add teacher capability at one masjid;
 - end teacher capability at one masjid;
-- convert between mutually exclusive student and staff account modes;
+- convert an account to an explicit student placement while closing incompatible account-wide staff access;
 - deactivate or reactivate the account;
 - grant or remove super-admin privilege.
 
@@ -208,7 +220,10 @@ The operator must be able to create, rename, order, activate, and deactivate coh
 
 Before hierarchy deactivation, the system must calculate affected current/future student memberships and teacher assignments. The operation must resolve them atomically or block with actionable dependencies. No destructive delete UI is introduced.
 
-Masjid staff management supports Admin and Teacher independently, including teacher-only grants. Candidate selection must resolve to one visible person before confirmation; ambiguous or inactive matches require explicit resolution.
+Masjid staff management supports Admin and Teacher independently. The masjid-level form uses the additive choices
+`Add admin access`, `Add teacher access`, and `Add admin + teacher access`; selected-masjid replacement is a separate
+Guided Change operation. Candidate selection must resolve to one visible person before confirmation; ambiguous or
+inactive matches require explicit resolution.
 
 ### 3.9 Repair inconsistent state
 
@@ -313,9 +328,11 @@ Before V2 is complete:
 This proposal resolves the current contradictions with the following product decisions:
 
 1. Staff capability edits are relationship-specific; the global preset editor is not retained.
-2. Student and staff access remain mutually exclusive for normal accounts.
+2. Student placement and staff capabilities are separate scopes; selected-masjid staff replacement preserves an
+   existing student placement, while account-wide student conversion is explicit.
 3. Student moves use Sunday tracker boundaries; historical correction is a separate operation.
-4. Future dates are rejected for role/active changes until those changes can be scheduled coherently.
+4. Future staff membership dates are allowed when current role/active routing remains coherent; the global projection
+   changes when the membership becomes effective. Deactivation remains immediate.
 5. Super-admin privilege is independent of masjid capabilities and receives a dedicated guarded workflow.
 6. A new masjid starts inactive; activation always means ready and continuously administered.
 7. Person creation, first-admin provisioning, repair, audit review, and uncertain-operation verification belong in the console.

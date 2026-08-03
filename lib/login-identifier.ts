@@ -12,7 +12,7 @@ export type LoginPhoneProfileLookup = (digits: string) => Promise<LoginPhoneProf
 
 export async function resolveLoginIdentifierToAuthEmail(
   identifier: string,
-  lookupActiveProfilesByPhoneDigits: LoginPhoneProfileLookup
+  lookupProfilesByPhoneDigits: LoginPhoneProfileLookup
 ) {
   const trimmedIdentifier = identifier.trim();
 
@@ -39,9 +39,9 @@ export async function resolveLoginIdentifierToAuthEmail(
     fallbackError = error instanceof Error ? error : new Error("Enter a valid phone number.");
   }
 
-  const profiles = await lookupActiveProfilesByPhoneDigits(digits);
+  const profiles = await lookupProfilesByPhoneDigits(digits);
   const matchingProfiles = profiles.filter((profile) => {
-    if (!profile.active || !profile.phone) {
+    if (!profile.phone) {
       return false;
     }
 

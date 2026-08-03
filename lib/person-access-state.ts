@@ -6,6 +6,7 @@ type CanonicalProfile = {
   id: string;
   role: Role;
   active: boolean;
+  access_deactivated_on?: string | null;
 };
 
 type CanonicalStudentMembership = Pick<
@@ -66,7 +67,8 @@ export function reconcilePersonDetailWithAccessState(
       ...data.profile,
       id: state.profile.id,
       role: state.profile.role,
-      active: state.profile.active
+      active: state.profile.active,
+      access_deactivated_on: state.profile.access_deactivated_on ?? null
     },
     studentMemberships,
     staffMemberships

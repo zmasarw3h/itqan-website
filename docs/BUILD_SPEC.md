@@ -413,6 +413,6 @@ Use these assumptions:
 
 - One masjid only.
 - Timezone is configured in one app constant.
-- Students work against the current effective calendar date.
+- Students' daily check-in work uses the 1:00 AM effective calendar date; staff/access and profile projection use the literal Toronto civil date.
 - Admin correction is allowed.
 - Existing weekly plan, partner recitation, grades, halaqa, leaderboard, import, backup, and CSV functionality must be preserved unless explicitly removed.

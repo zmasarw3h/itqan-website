@@ -17,8 +17,8 @@ async function resolveAuthEmail(identifier: string) {
     const { data: profiles, error } = await adminSupabase
       .from("profiles")
       .select("id,email,phone,role,active")
-      .eq("active", true)
       .like("phone", `%${digits}`)
+      .eq("active", true)
       .returns<Pick<Profile, "id" | "email" | "phone" | "role" | "active">[]>();
 
     if (error) {
