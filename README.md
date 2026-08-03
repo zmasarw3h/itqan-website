@@ -132,11 +132,14 @@ E2E_TEST_ADMIN_TEACHER_PHONE=
 E2E_TEST_ADMIN_TEACHER_PASSWORD=
 E2E_TEST_PURE_ADMIN_PHONE=
 E2E_TEST_PURE_ADMIN_PASSWORD=
+E2E_TEST_SUPER_ADMIN_PHONE=
+E2E_TEST_SUPER_ADMIN_PASSWORD=
 ```
 
 Each role fixture is independently optional. Teacher coverage verifies available-week canonicalization,
 assigned groups, roster scoring context, plan downloads when present, and desktop/mobile overflow.
-Admin-teacher and pure-admin fixtures verify capability-aware routing and navigation. To exercise grade
+Admin-teacher and pure-admin fixtures verify capability-aware routing and navigation. The super-admin
+fixture verifies the guarded `/super-admin` redirect and console entry. To exercise grade
 submission against disposable local or staging data, also set `E2E_TEST_DATA_MUTATIONS_ENABLED=true`;
 only the desktop project submits. The suite refuses an `E2E_TEST_ENVIRONMENT=production` or an
 `itqan.website`/`itqan.app` target.

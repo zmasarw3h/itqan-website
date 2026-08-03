@@ -4,11 +4,27 @@ import {
   phoneDigits,
   phoneNumberToAuthEmail
 } from "@/lib/phone-auth";
+import { loginErrorMessage, type LoginErrorCode } from "@/lib/login-contract";
 import type { Profile } from "@/lib/types";
 
 export type LoginPhoneProfile = Pick<Profile, "id" | "email" | "phone" | "role" | "active">;
 
 export type LoginPhoneProfileLookup = (digits: string) => Promise<LoginPhoneProfile[]>;
+
+export type LoginIdentifierErrorCode = Extract<
+  LoginErrorCode,
+  "invalid_identifier" | "ambiguous_identifier" | "service_unavailable"
+>;
+
+export class LoginIdentifierError extends Error {
+  readonly code: LoginIdentifierErrorCode;
+
+  constructor(code: LoginIdentifierErrorCode) {
+    super(loginErrorMessage(code));
+    this.name = "LoginIdentifierError";
+    this.code = code;
+  }
+}
 
 export async function resolveLoginIdentifierToAuthEmail(
   identifier: string,
@@ -27,16 +43,16 @@ export async function resolveLoginIdentifierToAuthEmail(
   const digits = phoneDigits(trimmedIdentifier);
 
   if (digits.length < 7) {
-    throw new Error("Enter a valid phone number.");
+    throw new LoginIdentifierError("invalid_identifier");
   }
 
   let fallbackAuthEmail: string | null = null;
-  let fallbackError: Error | null = null;
+  let fallbackError: LoginIdentifierError | null = null;
 
   try {
     fallbackAuthEmail = phoneNumberToAuthEmail(trimmedIdentifier);
-  } catch (error) {
-    fallbackError = error instanceof Error ? error : new Error("Enter a valid phone number.");
+  } catch {
+    fallbackError = new LoginIdentifierError("invalid_identifier");
   }
 
   const profiles = await lookupActiveProfilesByPhoneDigits(digits);
@@ -49,7 +65,7 @@ export async function resolveLoginIdentifierToAuthEmail(
   });
 
   if (matchingProfiles.length > 1) {
-    throw new Error("Multiple accounts match that phone number. Include + and country code.");
+    throw new LoginIdentifierError("ambiguous_identifier");
   }
 
   if (matchingProfiles.length === 1) {
@@ -63,5 +79,5 @@ export async function resolveLoginIdentifierToAuthEmail(
     return fallbackAuthEmail;
   }
 
-  throw fallbackError ?? new Error("Enter a valid phone number.");
+  throw fallbackError ?? new LoginIdentifierError("invalid_identifier");
 }

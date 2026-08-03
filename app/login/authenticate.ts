@@ -3,13 +3,17 @@ import "server-only";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { defaultPathForRole } from "@/lib/access";
-import { resolveLoginIdentifierToAuthEmail } from "@/lib/login-identifier";
+import {
+  LoginIdentifierError,
+  resolveLoginIdentifierToAuthEmail
+} from "@/lib/login-identifier";
+import {
+  loginErrorCodeForAuthError,
+  loginFailure,
+  type LoginErrorCode,
+  type SignInResult
+} from "@/lib/login-contract";
 import type { Profile } from "@/lib/types";
-
-export type SignInResult = {
-  error?: string;
-  redirectTo?: string;
-};
 
 async function resolveAuthEmail(identifier: string) {
   return resolveLoginIdentifierToAuthEmail(identifier, async (digits) => {
@@ -22,11 +26,24 @@ async function resolveAuthEmail(identifier: string) {
       .returns<Pick<Profile, "id" | "email" | "phone" | "role" | "active">[]>();
 
     if (error) {
-      throw new Error("Unable to look up that phone number.");
+      throw new LoginIdentifierError("service_unavailable");
     }
 
     return profiles ?? [];
   });
+}
+
+async function signOutAndFail(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  code: LoginErrorCode
+) {
+  try {
+    await supabase.auth.signOut();
+  } catch {
+    // The original failure remains the actionable result. Route guards still reject inactive profiles.
+  }
+
+  return loginFailure(code);
 }
 
 export async function authenticateWithPhone(
@@ -38,24 +55,39 @@ export async function authenticateWithPhone(
   try {
     authEmail = await resolveAuthEmail(identifier);
   } catch (error) {
-    return { error: error instanceof Error ? error.message : "Enter a valid phone number." };
+    return loginFailure(error instanceof LoginIdentifierError ? error.code : "service_unavailable");
   }
 
-  const supabase = await createServerSupabaseClient();
-  const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-    email: authEmail,
-    password
-  });
+  let supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>;
+
+  try {
+    supabase = await createServerSupabaseClient();
+  } catch {
+    return loginFailure("service_unavailable");
+  }
+
+  let signInData: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>["data"];
+  let signInError: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>["error"];
+
+  try {
+    const result = await supabase.auth.signInWithPassword({
+      email: authEmail,
+      password
+    });
+    signInData = result.data;
+    signInError = result.error;
+  } catch {
+    return loginFailure("service_unavailable");
+  }
 
   if (signInError) {
-    return { error: signInError.message };
+    return loginFailure(loginErrorCodeForAuthError(signInError));
   }
 
   const user = signInData.user;
 
   if (!user) {
-    await supabase.auth.signOut();
-    return { error: "Unable to confirm the signed-in user." };
+    return signOutAndFail(supabase, "service_unavailable");
   }
 
   const { data: profile, error: profileError } = await supabase
@@ -65,14 +97,12 @@ export async function authenticateWithPhone(
     .single<Profile>();
 
   if (profileError && profileError.code !== "PGRST116") {
-    await supabase.auth.signOut();
-    return { error: "Unable to load your profile. Please try again." };
+    return signOutAndFail(supabase, "service_unavailable");
   }
 
   if (!profile || !profile.active) {
-    await supabase.auth.signOut();
-    return { error: "This account is not active." };
+    return signOutAndFail(supabase, "inactive_account");
   }
 
-  return { redirectTo: defaultPathForRole(profile.role) };
+  return { ok: true, redirectTo: defaultPathForRole(profile.role) };
 }
