@@ -76,19 +76,40 @@ printf '  %s\n' "${base_migrations[@]}"
 echo "Forward migrations selected (${#forward_migrations[@]}):"
 printf '  %s\n' "${forward_migrations[@]}"
 
-# Assert the deployed base contract that Phase A must preserve. The current
-# application performs server-side direct inserts and both pending and
-# auto-waive recalculations through the service-role client.
-base_accountability_source="$(git show "${base_commit}:lib/weekly-incentives.ts")"
-if [[ "$base_accountability_source" != *'.from("accountability_obligations")'* ]] \
-  || [[ "$base_accountability_source" != *'.insert({'* ]] \
-  || [[ "$base_accountability_source" != *'.update({'* ]] \
-  || [[ "$base_accountability_source" != *'status: "waived"'* ]] \
-  || [[ "$base_accountability_source" != *'Auto-waived after automatic score recalculation >= 70'* ]]; then
-  echo "Configured base no longer has the expected legacy accountability write contract." >&2
-  exit 1
+slice4_migration="supabase/migrations/20260803013447_historical_report_populations.sql"
+slice4_in_base=false
+slice4_is_forward=false
+git cat-file -e "${base_commit}:${slice4_migration}" 2>/dev/null && slice4_in_base=true
+for migration_path in "${forward_migrations[@]}"; do
+  [[ "$migration_path" == "$slice4_migration" ]] && slice4_is_forward=true
+done
+
+rollout_compatibility_mode=false
+if [[ "$slice4_in_base" == false && "$slice4_is_forward" == true ]]; then
+  rollout_compatibility_mode=true
 fi
-echo "Verified legacy direct insert/update application contract at ${base_commit}."
+
+echo "Slice 4 in configured base: ${slice4_in_base}"
+echo "Slice 4 selected as forward migration: ${slice4_is_forward}"
+echo "Legacy rollout compatibility mode: ${rollout_compatibility_mode}"
+
+if [[ "$rollout_compatibility_mode" == true ]]; then
+  # Phase A must preserve the deployed pre-Slice-4 application's direct-write
+  # contract. This check is intentionally temporary and only applies when the
+  # configured base predates Slice 4 and Slice 4 is actually under test.
+  base_accountability_source="$(git show "${base_commit}:lib/weekly-incentives.ts")"
+  if [[ "$base_accountability_source" != *'.from("accountability_obligations")'* ]] \
+    || [[ "$base_accountability_source" != *'.insert({'* ]] \
+    || [[ "$base_accountability_source" != *'.update({'* ]] \
+    || [[ "$base_accountability_source" != *'status: "waived"'* ]] \
+    || [[ "$base_accountability_source" != *'Auto-waived after automatic score recalculation >= 70'* ]]; then
+    echo "Configured pre-Slice-4 base no longer has the expected legacy accountability write contract." >&2
+    exit 1
+  fi
+  echo "Verified legacy direct insert/update application contract at ${base_commit}."
+else
+  echo "Skipping Slice-4-only legacy application compatibility assertions."
+fi
 
 temp_root="$(mktemp -d -t itqan-access-upgrade.XXXXXX)"
 base_root="$temp_root/base"
@@ -124,12 +145,13 @@ for migration_path in "${forward_migrations[@]}"; do
   cp "$repo_root/$migration_path" "$upgrade_root/$migration_path"
 done
 
-# Build the exact deployed application source against the installed dependency
-# tree before applying Slice 4. This proves the compatibility fixture is tied
-# to a buildable current-main contract, not only to matching source snippets.
-ln -s "$repo_root/node_modules" "$base_root/node_modules"
-(cd "$base_root" && npm run build >/dev/null)
-echo "Built exact base application contract at ${base_commit}."
+if [[ "$rollout_compatibility_mode" == true ]]; then
+  # Build the exact deployed application source before applying Slice 4. This
+  # proves the compatibility fixture is tied to a buildable base contract.
+  ln -s "$repo_root/node_modules" "$base_root/node_modules"
+  (cd "$base_root" && npm run build >/dev/null)
+  echo "Built exact pre-Slice-4 application contract at ${base_commit}."
+fi
 
 active_project_root=""
 start_stack() {
@@ -170,6 +192,7 @@ from unnest(array[
   'private.raw_historical_activity_scope_matches(uuid,date,uuid,uuid,uuid)',
   'private.raw_can_open_current_student_profile(uuid,uuid)',
   'private.raw_historical_report_week_scopes()',
+  'private.raw_student_reporting_week_is_allowed(uuid,date)',
   'private.raw_historical_weekly_percentage(uuid,date)'
 ]::text[]) as signatures(signature)
 join pg_proc as procedures on procedures.oid = to_regprocedure(signatures.signature)
@@ -226,6 +249,7 @@ from unnest(array[
   'private.raw_historical_activity_scope_matches(uuid,date,uuid,uuid,uuid)',
   'private.raw_can_open_current_student_profile(uuid,uuid)',
   'private.raw_historical_report_week_scopes()',
+  'private.raw_student_reporting_week_is_allowed(uuid,date)',
   'private.raw_historical_weekly_percentage(uuid,date)'
 ]::text[]) as signatures(signature)
 join pg_proc as procedures on procedures.oid = to_regprocedure(signatures.signature)
@@ -263,7 +287,11 @@ eval "$(cd "$upgrade_root" && "$supabase_cli" status -o env)"
   export RLS_SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY"
   cd "$repo_root"
   npx --no-install tsx scripts/test-rls.ts
-  npx --no-install tsx scripts/test-historical-report-rollout-compatibility.ts
+  if [[ "$rollout_compatibility_mode" == true ]]; then
+    npx --no-install tsx scripts/test-historical-report-rollout-compatibility.ts
+  else
+    echo "Skipped legacy rollout compatibility fixture for a base that already contains Slice 4."
+  fi
 )
 upgrade_snapshot="$temp_root/upgrade-schema.snapshot"
 capture_schema_snapshot "$upgrade_snapshot"

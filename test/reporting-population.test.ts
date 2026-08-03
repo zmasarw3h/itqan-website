@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   activityMatchesHistoricalPopulation,
   historicalPopulationByStudentWeek,
@@ -33,6 +34,21 @@ function population(overrides: Partial<HistoricalReportingStudent> = {}): Histor
 }
 
 describe("historical reporting population", () => {
+  it("keeps SQL report weeks on the same 1am Toronto tracker boundary as the app", () => {
+    const migration = readFileSync(
+      "supabase/migrations/20260803013447_historical_report_populations.sql",
+      "utf8"
+    );
+
+    expect(migration).toContain("week_start_for_date(public.current_effective_date())");
+    expect(migration).not.toContain(
+      "week_start_for_date(public.current_toronto_civil_date())"
+    );
+    expect(migration).toContain(
+      "public.current_toronto_civil_date()\n      )"
+    );
+  });
+
   it("accepts activity only when its immutable scope matches that student-week population", () => {
     const byWeek = historicalPopulationByStudentWeek([population()]);
 

@@ -195,6 +195,16 @@ Do not include Phase C in the Slice 4 rollout. Existing authenticated-admin
 writes remain constrained by RLS and by trigger validation of canonical weeks,
 historical scope, scores, amounts, and immutable obligation identity.
 
+The upgrade harness discovers the immutable migration base from
+`UPGRADE_BASE_REF`. Its legacy accountability source/build/compatibility checks
+run only when that base does not contain Slice 4 and Slice 4 is one of the
+forward migrations. For later slices whose base already contains Slice 4, the
+harness skips that temporary application-contract assertion while continuing
+base migration byte checks, clean/upgrade schema parity, RLS, policies, grants,
+triggers, lint, and audit checks. Run `npm run test:rls:upgrade:self-test` to
+exercise the post-Slice-4 mode and the invalid-ref, no-forward, edited-base, and
+deleted/renamed-base fail-closed cases.
+
 After `20260724130111_add_scoped_official_scoring_workflow.sql` is applied, admins
 use the student's **Official scoring** page to preview and activate or move the
 boundary forward. A normal admin is rejected if any affected membership or

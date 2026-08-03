@@ -942,6 +942,7 @@ async function runAssertions(ids: SeedIds) {
     futureAssignmentTeacher,
     expiredMembershipStudent,
     futureMembershipStudent,
+    sentinelStudent,
     superAdmin,
     profileTarget
   ] = await Promise.all([
@@ -963,6 +964,7 @@ async function runAssertions(ids: SeedIds) {
     signIn("futureAssignmentTeacher"),
     signIn("expiredMembershipStudent"),
     signIn("futureMembershipStudent"),
+    signIn("sentinelStudent"),
     signIn("superAdmin"),
     signIn("profileTarget")
   ]);
@@ -3139,6 +3141,11 @@ async function runAssertions(ids: SeedIds) {
     { input_week_start: ids.weekStart }
   );
   assert.equal(leaderboardError, null, leaderboardError?.message);
+  const currentHistoricalScope = await studentA.rpc("student_historical_reporting_scope_for_week", {
+    input_week_start: ids.weekStart
+  });
+  assert.equal(currentHistoricalScope.error, null, currentHistoricalScope.error?.message);
+  assert.equal(currentHistoricalScope.data?.[0]?.group_id, ids.groupA);
   assert.ok(Array.isArray(leaderboard) && leaderboard.length === 4, "leaderboard should contain the historical cohort A population");
   assert.ok(
     leaderboard?.some((row: { student_name?: string }) => row.student_name === "staffGrantTarget"),
@@ -3241,6 +3248,17 @@ async function runAssertions(ids: SeedIds) {
       graded_by: ids.users.adminB
     }).select("id")
   );
+  const transferBoundarySelectedGrade = await requireData<Array<{ id: string }>>(
+    "insert transfer-boundary selected-week activity",
+    service.from("halaqa_grades").insert({
+      student_id: ids.users.studentA,
+      week_start: ids.startsOn,
+      attended: true,
+      attendance_points: 100,
+      recitation_points: 50,
+      graded_by: ids.users.adminA
+    }).select("id")
+  );
   const transferBoundaryLeaderboard = await studentA.rpc("student_cohort_leaderboard_for_week", {
     input_week_start: ids.startsOn
   });
@@ -3254,6 +3272,15 @@ async function runAssertions(ids: SeedIds) {
   );
   const deletePreviousCohortGrade = await service.from("halaqa_grades").delete().eq("id", previousCohortGrade[0].id);
   assert.equal(deletePreviousCohortGrade.error, null, deletePreviousCohortGrade.error?.message);
+  const deleteTransferBoundarySelectedGrade = await service
+    .from("halaqa_grades")
+    .delete()
+    .eq("id", transferBoundarySelectedGrade[0].id);
+  assert.equal(
+    deleteTransferBoundarySelectedGrade.error,
+    null,
+    deleteTransferBoundarySelectedGrade.error?.message
+  );
   const restoreStudentAScoreStart = await service
     .from("profiles")
     .update({ score_starts_on: ids.startsOn })
@@ -3506,11 +3533,27 @@ async function runAssertions(ids: SeedIds) {
     [{ group_id: ids.groupB, masjid_id: ids.masjidB }],
     "student historical scope used current placement"
   );
+  const historicalLeaderboard = await studentA.rpc("student_cohort_leaderboard_for_week", {
+    input_week_start: transferredWeek
+  });
+  assert.equal(historicalLeaderboard.error, null, historicalLeaderboard.error?.message);
+  assert.ok(
+    (historicalLeaderboard.data ?? []).some(
+      (row: { is_current_student?: boolean }) => row.is_current_student
+    ),
+    "evidence-backed historical leaderboard omitted the current student"
+  );
   const deleteTransferredWeekEvidence = await service
     .from("checkins")
     .delete()
     .eq("id", transferredWeekEvidence[0].id);
   assert.equal(deleteTransferredWeekEvidence.error, null, deleteTransferredWeekEvidence.error?.message);
+  await assertRpcDenied(studentA, "student_historical_reporting_scope_for_week", {
+    input_week_start: transferredWeek
+  });
+  await assertRpcDenied(studentA, "student_cohort_leaderboard_for_week", {
+    input_week_start: transferredWeek
+  });
   const restoreTransferredScoreStart = await service
     .from("profiles")
     .update({ score_starts_on: ids.startsOn })
@@ -3569,6 +3612,30 @@ async function runAssertions(ids: SeedIds) {
   });
   assert.equal(sentinelOnlyWeek.error, null, sentinelOnlyWeek.error?.message);
   assert.deepEqual(sentinelOnlyWeek.data, [], "a sentinel-only empty week expanded the reporting population");
+  const sentinelAvailableWeeks = await sentinelStudent.rpc("student_leaderboard_available_weeks");
+  assert.equal(sentinelAvailableWeeks.error, null, sentinelAvailableWeeks.error?.message);
+  assert.ok(
+    !(sentinelAvailableWeeks.data ?? []).some(
+      (row: { week_start?: string }) => row.week_start === "1900-01-07"
+    ),
+    "student available weeks exposed a sentinel-only 1900 Sunday"
+  );
+  await assertRpcDenied(sentinelStudent, "student_historical_reporting_scope_for_week", {
+    input_week_start: "1900-01-07"
+  });
+  await assertRpcDenied(sentinelStudent, "student_cohort_leaderboard_for_week", {
+    input_week_start: "1900-01-07"
+  });
+  const nextTrackerWeek = addDays(ids.weekStart, 7);
+  const distantFutureWeek = addDays(ids.weekStart, 364);
+  for (const futureWeek of [nextTrackerWeek, distantFutureWeek]) {
+    await assertRpcDenied(studentA, "student_historical_reporting_scope_for_week", {
+      input_week_start: futureWeek
+    });
+    await assertRpcDenied(studentA, "student_cohort_leaderboard_for_week", {
+      input_week_start: futureWeek
+    });
+  }
   const deletePreAppointmentEvidence = await service
     .from("checkins")
     .delete()
@@ -4841,6 +4908,99 @@ async function runAssertions(ids: SeedIds) {
     .update({ role: "student", active: true })
     .eq("id", ids.users.studentA);
   assert.equal(restoreStudentRole.error, null, restoreStudentRole.error?.message);
+
+  // Even report evidence in a scheduled future transfer scope must not reveal
+  // the future masjid/cohort/group or future peers through either student RPC.
+  const futureMasjid = await requireData<Array<{ id: string }>>(
+    "insert future-transfer masjid",
+    service.from("masajid").insert({
+      name: "Future Transfer Masjid",
+      slug: `future-transfer-${Date.now()}`,
+      active: false
+    }).select("id")
+  );
+  const futureCohort = await requireData<Array<{ id: string }>>(
+    "insert future-transfer cohort",
+    service.from("cohorts").insert({
+      masjid_id: futureMasjid[0].id,
+      kind: "brothers",
+      name: "Future Transfer Cohort",
+      active: true,
+      sort_order: 10
+    }).select("id")
+  );
+  const futureGroup = await requireData<Array<{ id: string }>>(
+    "insert future-transfer group",
+    service.from("halaqa_groups").insert({
+      cohort_id: futureCohort[0].id,
+      name: "Future Transfer Group",
+      active: true,
+      sort_order: 10
+    }).select("id")
+  );
+  const closeCurrentMembership = await service
+    .from("student_group_memberships")
+    .update({ ends_on: addDays(nextTrackerWeek, -1) })
+    .eq("id", ids.studentMembershipA);
+  assert.equal(closeCurrentMembership.error, null, closeCurrentMembership.error?.message);
+  const futureMemberships = await requireData<Array<{ id: string }>>(
+    "insert scheduled future transfer and peer",
+    service.from("student_group_memberships").insert([
+      {
+        student_id: ids.users.studentA,
+        group_id: futureGroup[0].id,
+        starts_on: nextTrackerWeek,
+        assigned_by: ids.users.superAdmin
+      },
+      {
+        student_id: ids.users.profileTarget,
+        group_id: futureGroup[0].id,
+        starts_on: nextTrackerWeek,
+        assigned_by: ids.users.superAdmin
+      }
+    ]).select("id")
+  );
+  const futureBadges = await requireData<Array<{ id: string }>>(
+    "insert future report evidence",
+    service.from("badge_awards").insert([
+      {
+        student_id: ids.users.studentA,
+        week_start: nextTrackerWeek,
+        weekly_percentage: 95,
+        badges_awarded: 1
+      },
+      {
+        student_id: ids.users.profileTarget,
+        week_start: nextTrackerWeek,
+        weekly_percentage: 95,
+        badges_awarded: 1
+      }
+    ]).select("id")
+  );
+  await assertRpcDenied(studentA, "student_historical_reporting_scope_for_week", {
+    input_week_start: nextTrackerWeek
+  });
+  await assertRpcDenied(studentA, "student_cohort_leaderboard_for_week", {
+    input_week_start: nextTrackerWeek
+  });
+  const futureTransferWeeks = await studentA.rpc("student_leaderboard_available_weeks");
+  assert.equal(futureTransferWeeks.error, null, futureTransferWeeks.error?.message);
+  assert.ok(
+    !(futureTransferWeeks.data ?? []).some(
+      (row: { week_start?: string }) => row.week_start === nextTrackerWeek
+    ),
+    "future evidence exposed a scheduled transfer week"
+  );
+  await service.from("badge_awards").delete().in("id", futureBadges.map((row) => row.id));
+  await service.from("student_group_memberships").delete().in("id", futureMemberships.map((row) => row.id));
+  const reopenCurrentMembership = await service
+    .from("student_group_memberships")
+    .update({ ends_on: null })
+    .eq("id", ids.studentMembershipA);
+  assert.equal(reopenCurrentMembership.error, null, reopenCurrentMembership.error?.message);
+  await service.from("halaqa_groups").delete().eq("id", futureGroup[0].id);
+  await service.from("cohorts").delete().eq("id", futureCohort[0].id);
+  await service.from("masajid").delete().eq("id", futureMasjid[0].id);
 
   const anon = localClient(anonKey);
   const authenticatedDefinerProbes: Array<[string, Record<string, unknown>?]> = [

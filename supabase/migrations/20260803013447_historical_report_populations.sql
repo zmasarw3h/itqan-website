@@ -140,20 +140,20 @@ as $$
       )
   ),
   current_week_scopes as (
-    select public.week_start_for_date(public.current_toronto_civil_date()) as week_start,
+    select public.week_start_for_date(public.current_effective_date()) as week_start,
            cohorts.masjid_id,
            cohorts.id as cohort_id
     from public.student_group_memberships as memberships
     join public.halaqa_groups as groups on groups.id = memberships.group_id
     join public.cohorts on cohorts.id = groups.cohort_id
     join public.profiles on profiles.id = memberships.student_id
-    where memberships.starts_on <= public.week_start_for_date(public.current_toronto_civil_date())
+    where memberships.starts_on <= public.week_start_for_date(public.current_effective_date())
       and (
         memberships.ends_on is null
-        or memberships.ends_on >= public.week_start_for_date(public.current_toronto_civil_date())
+        or memberships.ends_on >= public.week_start_for_date(public.current_effective_date())
       )
       and profiles.score_starts_on is not null
-      and profiles.score_starts_on <= public.week_start_for_date(public.current_toronto_civil_date())
+      and profiles.score_starts_on <= public.week_start_for_date(public.current_effective_date())
   )
   select distinct evidence.week_start, evidence.masjid_id, evidence.cohort_id
   from (
@@ -165,6 +165,50 @@ as $$
   ) as evidence
   where evidence.masjid_id is not null
     and evidence.cohort_id is not null;
+$$;
+
+-- Student-facing report RPCs must not turn a long-lived (including sentinel)
+-- membership into an implicit reporting calendar. Keep this predicate private
+-- so both public RPCs share the same non-recursive, evidence-bounded rule.
+create or replace function private.raw_student_reporting_week_is_allowed(
+  input_student_id uuid,
+  input_week_start date
+)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select input_week_start is not null
+    and input_week_start = public.week_start_for_date(input_week_start)
+    and input_week_start <= public.week_start_for_date(public.current_effective_date())
+    and exists (
+      select 1
+      from public.profiles
+      join lateral (
+        select memberships.group_id
+        from public.student_group_memberships as memberships
+        where memberships.student_id = profiles.id
+          and memberships.starts_on <= input_week_start
+          and (memberships.ends_on is null or memberships.ends_on >= input_week_start)
+        order by memberships.starts_on desc, memberships.id desc
+        limit 1
+      ) as effective_membership on true
+      join public.halaqa_groups as groups on groups.id = effective_membership.group_id
+      join public.cohorts on cohorts.id = groups.cohort_id
+      where profiles.id = input_student_id
+        and profiles.role = 'student'
+        and profiles.active = true
+        and profiles.score_starts_on is not null
+        and profiles.score_starts_on <= input_week_start
+        and exists (
+          select 1
+          from private.raw_historical_report_week_scopes() as scopes
+          where scopes.week_start = input_week_start
+            and scopes.masjid_id = cohorts.masjid_id
+            and scopes.cohort_id = cohorts.id
+        )
+    );
 $$;
 
 create or replace function public.historical_reporting_students_for_weeks(
@@ -330,16 +374,18 @@ begin
   return query
   select distinct scopes.week_start
   from private.raw_historical_report_week_scopes() as scopes
-  where actor_role = 'super_admin'
-    or (
+  where scopes.week_start <= public.week_start_for_date(public.current_effective_date())
+    and (
+      actor_role = 'super_admin'
+      or (
       actor_role = 'admin'
       and private.raw_is_admin_for_masjid(
         actor_id,
         scopes.masjid_id,
         public.current_toronto_civil_date()
       )
-    )
-    or (
+      )
+      or (
       actor_role = 'student'
       and exists (
         select 1
@@ -352,6 +398,7 @@ begin
           and (memberships.ends_on is null or memberships.ends_on >= scopes.week_start)
           and profiles.score_starts_on is not null
           and profiles.score_starts_on <= scopes.week_start
+      )
       )
     )
   order by scopes.week_start desc;
@@ -390,6 +437,11 @@ begin
       and profiles.active = true
   ) then
     raise exception using errcode = '42501', message = 'Active student access is required.';
+  end if;
+
+  if not private.raw_student_reporting_week_is_allowed((select auth.uid()), input_week_start) then
+    raise exception using errcode = '22023',
+      message = 'Requested student leaderboard week is not available.';
   end if;
 
   return query
@@ -456,6 +508,11 @@ begin
       and profiles.active = true
   ) then
     raise exception using errcode = '42501', message = 'Active student access is required.';
+  end if;
+
+  if not private.raw_student_reporting_week_is_allowed((select auth.uid()), input_week_start) then
+    raise exception using errcode = '22023',
+      message = 'Requested student leaderboard week is not available.';
   end if;
 
   return query
@@ -1139,6 +1196,8 @@ revoke all on function private.raw_can_open_current_student_profile(uuid, uuid)
   from public, anon, authenticated, service_role;
 revoke all on function private.raw_historical_report_week_scopes()
   from public, anon, authenticated, service_role;
+revoke all on function private.raw_student_reporting_week_is_allowed(uuid, date)
+  from public, anon, authenticated, service_role;
 revoke all on function private.raw_historical_weekly_percentage(uuid, date)
   from public, anon, authenticated, service_role;
 
@@ -1170,6 +1229,8 @@ comment on function public.historical_reporting_students_for_weeks(date[]) is
   'Batch historical student population by canonical Sunday; current authorization and contact visibility are evaluated at request time.';
 comment on function public.historical_reporting_available_weeks() is
   'Bounded canonical report weeks from report-bearing evidence plus the current tracker week, intersected with historical membership, scoring eligibility, and current viewer scope.';
+comment on function public.student_leaderboard_available_weeks() is
+  'Student-selectable canonical Sundays, bounded to evidence-backed historical cohort scopes plus the current tracker week; never returns future weeks.';
 
 create or replace function private.application_security_definer_oids()
 returns table (function_oid oid)

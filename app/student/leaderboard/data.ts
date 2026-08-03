@@ -4,7 +4,6 @@ import { weekIsComplete } from "@/lib/leaderboard";
 import {
   addDays,
   formatWeekRange,
-  isValidDateString,
   checkInEffectiveDateString,
   weekStartForDate
 } from "@/lib/dates";
@@ -14,7 +13,10 @@ import {
   type StudentWeekTeacher
 } from "@/lib/student-scope";
 import type { CohortKind } from "@/lib/types";
-import type { StudentLeaderboardRow } from "@/lib/student-leaderboard";
+import {
+  selectBoundedStudentLeaderboardWeek,
+  type StudentLeaderboardRow
+} from "@/lib/student-leaderboard";
 
 type SupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
 
@@ -60,14 +62,6 @@ export type StudentLeaderboardData = {
   previousWeekLabel: string;
 };
 
-function validWeekStart(value: string | undefined, fallback: string) {
-  if (!value || !isValidDateString(value)) {
-    return fallback;
-  }
-
-  return weekStartForDate(value) === value ? value : fallback;
-}
-
 function mapLeaderboardRow(row: StudentLeaderboardRpcRow): StudentLeaderboardRow {
   return {
     rank: row.rank,
@@ -103,8 +97,39 @@ export async function loadStudentLeaderboardData(
 ): Promise<StudentLeaderboardData> {
   const today = checkInEffectiveDateString();
   const currentWeekStart = weekStartForDate(today);
-  const selectedWeekStart = validWeekStart(searchParams.week, currentWeekStart);
+  const { data: weekRows, error: weeksError } = await supabase.rpc(
+    "student_leaderboard_available_weeks"
+  );
+
+  if (weeksError) {
+    throw new Error("Unable to load leaderboard weeks.");
+  }
+
+  const boundedSelection = selectBoundedStudentLeaderboardWeek({
+    requestedWeekStart: searchParams.week,
+    currentWeekStart,
+    availableWeekStarts: Array.isArray(weekRows)
+      ? (weekRows as Array<{ week_start: string }>).map((row) => row.week_start)
+      : []
+  });
+  const selectedWeekStart = boundedSelection.selectedWeekStart ?? currentWeekStart;
   const previousWeekStart = addDays(selectedWeekStart, -7);
+
+  if (!boundedSelection.selectedWeekStart) {
+    return {
+      scope: null,
+      teacher: null,
+      rows: [],
+      currentStudentRow: null,
+      availableWeekStarts: [],
+      selectedWeekStart,
+      selectedWeekLabel: formatWeekRange(selectedWeekStart),
+      selectedWeekComplete: weekIsComplete(selectedWeekStart, today),
+      previousWeekStart,
+      previousWeekLabel: formatWeekRange(previousWeekStart)
+    };
+  }
+
   const [{ data: scopeRow, error: scopeError }, teacher] = await Promise.all([
     supabase
       .rpc("student_historical_reporting_scope_for_week", { input_week_start: selectedWeekStart })
@@ -124,7 +149,7 @@ export async function loadStudentLeaderboardData(
       teacher,
       rows: [],
       currentStudentRow: null,
-      availableWeekStarts: [selectedWeekStart, currentWeekStart].sort((a, b) => b.localeCompare(a)),
+      availableWeekStarts: boundedSelection.availableWeekStarts,
       selectedWeekStart,
       selectedWeekLabel: formatWeekRange(selectedWeekStart),
       selectedWeekComplete: weekIsComplete(selectedWeekStart, today),
@@ -133,41 +158,24 @@ export async function loadStudentLeaderboardData(
     };
   }
 
-  const [{ data: leaderboardRows, error: leaderboardError }, { data: weekRows, error: weeksError }] =
-    await Promise.all([
-      supabase.rpc("student_cohort_leaderboard_for_week", {
-        input_week_start: selectedWeekStart
-      }),
-      supabase.rpc("student_leaderboard_available_weeks")
-    ]);
+  const { data: leaderboardRows, error: leaderboardError } = await supabase.rpc(
+    "student_cohort_leaderboard_for_week",
+    { input_week_start: selectedWeekStart }
+  );
 
   if (leaderboardError) {
     throw new Error("Unable to load the student leaderboard.");
   }
 
-  if (weeksError) {
-    throw new Error("Unable to load leaderboard weeks.");
-  }
-
   const rows = Array.isArray(leaderboardRows)
     ? (leaderboardRows as StudentLeaderboardRpcRow[]).map(mapLeaderboardRow)
     : [];
-  const availableWeekStarts = [
-    ...new Set([
-      currentWeekStart,
-      selectedWeekStart,
-      ...(Array.isArray(weekRows)
-        ? (weekRows as Array<{ week_start: string }>).map((row) => row.week_start)
-        : [])
-    ])
-  ].sort((a, b) => b.localeCompare(a));
-
   return {
     scope,
     teacher,
     rows,
     currentStudentRow: rows.find((row) => row.isCurrentStudent) ?? null,
-    availableWeekStarts,
+    availableWeekStarts: boundedSelection.availableWeekStarts,
     selectedWeekStart,
     selectedWeekLabel: formatWeekRange(selectedWeekStart),
     selectedWeekComplete: weekIsComplete(selectedWeekStart, today),

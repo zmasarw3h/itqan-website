@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildStudentLeaderboardRows,
+  selectBoundedStudentLeaderboardWeek,
   studentRankChangeLabel,
   studentRankChangeSymbol
 } from "@/lib/student-leaderboard";
@@ -33,6 +34,37 @@ function leaderboardRow(overrides: Partial<LeaderboardRow> = {}): LeaderboardRow
 }
 
 describe("student leaderboard", () => {
+  it("selects only server-authorized weeks and never echoes a forged URL week", () => {
+    const availableWeekStarts = ["2026-08-02", "2026-07-19", "2026-07-05"];
+
+    expect(selectBoundedStudentLeaderboardWeek({
+      requestedWeekStart: "2026-07-19",
+      currentWeekStart: "2026-08-02",
+      availableWeekStarts
+    })).toEqual({ availableWeekStarts, selectedWeekStart: "2026-07-19" });
+
+    for (const requestedWeekStart of ["1900-01-07", "2026-08-09", "not-a-date", "2026-07-20"]) {
+      const selection = selectBoundedStudentLeaderboardWeek({
+        requestedWeekStart,
+        currentWeekStart: "2026-08-02",
+        availableWeekStarts
+      });
+      expect(selection.selectedWeekStart).toBe("2026-08-02");
+      expect(selection.availableWeekStarts).not.toContain(requestedWeekStart);
+    }
+  });
+
+  it("falls back to the latest allowed week when the current week is unavailable", () => {
+    expect(selectBoundedStudentLeaderboardWeek({
+      requestedWeekStart: "2099-01-04",
+      currentWeekStart: "2026-08-02",
+      availableWeekStarts: ["2026-07-19", "2026-07-26", "2026-07-19"]
+    })).toEqual({
+      availableWeekStarts: ["2026-07-26", "2026-07-19"],
+      selectedWeekStart: "2026-07-26"
+    });
+  });
+
   it("returns sanitized rows with current-student highlighting and rank changes", () => {
     const rows = buildStudentLeaderboardRows({
       currentStudentId: "student-2",
