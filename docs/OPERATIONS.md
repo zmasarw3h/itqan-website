@@ -264,6 +264,12 @@ Manual in the app:
 
 ## Weekly Teacher Rotation
 
+Deploy the rotation-publication migration before its application code. The page prepares a request UUID;
+availability, group setup/order, staff eligibility, or another publication can make that plan stale, in
+which case reload and publish the newly prepared state. Availability is opt-in and exact: no row for the
+selected cohort/Sunday means unavailable. See `docs/ROTATION_PUBLICATION.md` for rollout, replay,
+concurrency, run history, temporary legacy compatibility, and later cleanup.
+
 Admin workflow in the app:
 
 1. Sign in as an admin.

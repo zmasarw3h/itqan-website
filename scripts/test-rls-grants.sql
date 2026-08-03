@@ -227,8 +227,10 @@ begin
       ('apply_super_admin_staff_membership_end(uuid,uuid,uuid,uuid,date,jsonb)'),
       ('access_transition_rollout_diagnostic()'),
       ('apply_teacher_rotation_generation(uuid,date,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,integer,integer,integer,integer)'),
+      ('apply_teacher_rotation_publication(uuid,uuid,uuid,date,jsonb,jsonb)'),
       ('get_person_access_state(uuid,uuid)'),
       ('prepare_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date)'),
+      ('prepare_teacher_rotation_publication(uuid,uuid,uuid,date)'),
       ('preview_official_scoring_start_change(uuid,uuid,date)'),
       ('get_scoped_user_setup_auth_recovery(uuid,uuid,text,text,text,text,date,date,uuid,uuid)'),
       ('get_scoped_user_setup_request_result(uuid,uuid,text,text,text,text,date,date,uuid,uuid)')
@@ -263,6 +265,14 @@ begin
   ) or not has_function_privilege(
     'service_role',
     'public.apply_teacher_rotation_generation(uuid,date,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,integer,integer,integer,integer)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.prepare_teacher_rotation_publication(uuid,uuid,uuid,date)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.apply_teacher_rotation_publication(uuid,uuid,uuid,date,jsonb,jsonb)',
     'EXECUTE'
   ) then
     raise exception 'service_role lacks guarded rotation workflow EXECUTE';
