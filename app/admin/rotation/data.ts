@@ -17,6 +17,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   buildCohortGroupRebalancePreview,
   buildTeacherRotationPersistencePlan,
+  plannerInputFromRotationPublicationSnapshot,
   type CohortGroupRebalancePreview,
   type CurrentStudentGroupMembership,
   type PriorTeacherAssignment,
@@ -82,6 +83,7 @@ export type RotationPageData = {
   assignments: RotationAssignmentRow[];
   rebalancePreview: CohortGroupRebalancePreview | null;
   persistencePlan: TeacherRotationPersistencePlan | null;
+  publicationRequestId: string | null;
   setupIssues: string[];
 };
 
@@ -133,6 +135,26 @@ export const ROTATION_STATUS_MESSAGES: Record<string, { text: string; className:
   },
   "generate-error": {
     text: "Unable to publish teacher assignments.",
+    className: "bg-red-50 text-red-700"
+  },
+  "publication-stale": {
+    text: "Rotation data changed while this plan was open. Review the latest availability and publish again.",
+    className: "bg-amber-50 text-amber-900"
+  },
+  "publication-conflict": {
+    text: "Another rotation publication completed first. Review the latest plan and try again.",
+    className: "bg-amber-50 text-amber-900"
+  },
+  "publication-setup-incomplete": {
+    text: "Rotation setup is incomplete. Save the required group settings before publishing.",
+    className: "bg-amber-50 text-amber-900"
+  },
+  "publication-unavailable": {
+    text: "A selected teacher is no longer available or Saturday-eligible. Review availability and try again.",
+    className: "bg-amber-50 text-amber-900"
+  },
+  "publication-request-reused": {
+    text: "This publication request no longer matches the displayed plan. Reload and try again.",
     className: "bg-red-50 text-red-700"
   }
 };
@@ -454,6 +476,7 @@ async function loadHistoricalTeacherNames(
 export async function loadRotationPageData(input: {
   profile: Pick<Profile, "id" | "role">;
   searchParams: RotationSearchParams;
+  publicationRequestId: string;
 }): Promise<RotationPageData> {
   const selectedWeekStart = validRotationWeekStart(input.searchParams.week);
   const adminSupabase = createSupabaseAdminClient();
@@ -482,6 +505,7 @@ export async function loadRotationPageData(input: {
       assignments: [],
       rebalancePreview: null,
       persistencePlan: null,
+      publicationRequestId: null,
       setupIssues: [
         resolution.error === "invalid-selection"
           ? "The selected masjid and cohort are not available for this admin."
@@ -513,6 +537,12 @@ export async function loadRotationPageData(input: {
     adminSupabase,
     priorAssignments.map((assignment) => assignment.teacher_id)
   );
+  const publicationPreparation = await adminSupabase.rpc("prepare_teacher_rotation_publication", {
+    input_request_id: input.publicationRequestId,
+    input_actor_id: input.profile.id,
+    input_cohort_id: context.cohort.id,
+    input_week_start: selectedWeekStart
+  });
   const setupIssues = [
     settings ? null : "Set a target group count before publishing assignments.",
     settings && groups.length > settings.target_group_count
@@ -525,15 +555,20 @@ export async function loadRotationPageData(input: {
     studentData.students.length ? null : "No active students are assigned to this cohort for the selected week.",
     teachers.length ? null : "No active teachers are assigned to this masjid for the selected week."
   ].filter((issue): issue is string => Boolean(issue));
-  const persistencePlan =
-    groups.length > 0
-      ? buildTeacherRotationPersistencePlan({
-          groups,
-          teachers,
-          priorAssignments,
-          weekStart: selectedWeekStart
-        })
-      : null;
+  let persistencePlan: TeacherRotationPersistencePlan | null = null;
+
+  if (!publicationPreparation.error && publicationPreparation.data) {
+    try {
+      persistencePlan = buildTeacherRotationPersistencePlan(
+        plannerInputFromRotationPublicationSnapshot(publicationPreparation.data, selectedWeekStart)
+      );
+    } catch {
+      // The database snapshot is deliberately the only publication planner
+      // input. A malformed response must disable publishing rather than fall
+      // back to independently loaded state.
+      persistencePlan = null;
+    }
+  }
   const rebalancePreview = settings
     ? buildCohortGroupRebalancePreview({
         students: studentData.students,
@@ -561,6 +596,7 @@ export async function loadRotationPageData(input: {
     }),
     rebalancePreview,
     persistencePlan,
+    publicationRequestId: persistencePlan ? input.publicationRequestId : null,
     setupIssues
   };
 }

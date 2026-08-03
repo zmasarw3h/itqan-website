@@ -11,6 +11,11 @@ Lightweight masjid operations system that started as an emergency Canvas replace
 - Teachers can open their week-specific assigned groups, view the effective roster, download assigned students' weekly plans, and save halaqa grades. Admin-teachers can switch between admin and teaching views.
 - The app now includes scoped masjid/cohort foundations and weekly teacher rotation operations. It still excludes plan approval, comments, plan parsing/OCR, announcements, payments, booking, parent accounts, and Quran selection.
 
+Teacher rotation publication is authoritative in PostgreSQL. Sunday `week_start` is the tracker identity;
+teacher staff eligibility is evaluated on Saturday, and missing exact availability means unavailable.
+Publication uses a database snapshot, request-ID replay, stale-state comparison, and a scoped advisory
+lock. See [`docs/ROTATION_PUBLICATION.md`](docs/ROTATION_PUBLICATION.md).
+
 ## Stack
 
 - Next.js App Router

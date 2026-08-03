@@ -4,6 +4,7 @@ import {
   buildCohortGroupRebalancePreview,
   buildTeacherRotationPersistencePlan,
   generateTeacherRotationAssignments,
+  plannerInputFromRotationPublicationSnapshot,
   planBalancedMembershipChanges,
   type PriorTeacherAssignment,
   type RotationGroup,
@@ -356,5 +357,45 @@ describe("generateTeacherRotationAssignments", () => {
       assigned_count: 2,
       warning_count: 1
     });
+  });
+});
+
+describe("rotation publication snapshots", () => {
+  const snapshot = {
+    planner: {
+      groups,
+      eligible_teachers: [
+        { id: "teacher-1", name: "Teacher 1", sort_order: 1, available: true },
+        { id: "teacher-2", name: "Teacher 2", sort_order: 2, available: false },
+        { id: "teacher-3", name: "Teacher 3", sort_order: 3, available: true }
+      ],
+      prior_assignments: [
+        { group_id: "group-a", teacher_id: "teacher-3", week_start: "2026-06-28", active: true }
+      ]
+    }
+  };
+
+  it("uses the same canonical snapshot to produce the same ordered plan", () => {
+    const first = buildTeacherRotationPersistencePlan(
+      plannerInputFromRotationPublicationSnapshot(snapshot, "2026-07-05")
+    );
+    const second = buildTeacherRotationPersistencePlan(
+      plannerInputFromRotationPublicationSnapshot(snapshot, "2026-07-05")
+    );
+
+    expect(first).toEqual(second);
+  });
+
+  it("never passes unavailable snapshot teachers into the planner", () => {
+    const input = plannerInputFromRotationPublicationSnapshot(snapshot, "2026-07-05");
+
+    expect(input.teachers.map((teacher) => teacher.id)).toEqual(["teacher-1", "teacher-3"]);
+    expect(input.teachers.every((teacher) => teacher.available)).toBe(true);
+  });
+
+  it("rejects malformed canonical snapshots rather than falling back to page data", () => {
+    expect(() => plannerInputFromRotationPublicationSnapshot({ planner: {} }, "2026-07-05")).toThrow(
+      "Rotation publication snapshot is incomplete."
+    );
   });
 });
