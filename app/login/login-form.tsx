@@ -1,8 +1,27 @@
 "use client";
 
-import { useState } from "react";
-import type { SignInResult } from "@/app/login/authenticate";
+import { useRef, useState } from "react";
+import {
+  isSignInResult,
+  loginErrorMessage,
+  type SignInResult
+} from "@/lib/login-contract";
 import { formatLoginIdentifier } from "@/lib/phone-input";
+
+async function readSignInResult(response: Response): Promise<SignInResult | null> {
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (!contentType.includes("application/json")) {
+    return null;
+  }
+
+  try {
+    const result: unknown = await response.json();
+    return isSignInResult(result) ? result : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function LoginForm() {
   const [identifier, setIdentifier] = useState("");
@@ -10,9 +29,16 @@ export default function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const submitInFlight = useRef(false);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (submitInFlight.current) {
+      return;
+    }
+
+    submitInFlight.current = true;
     setError(null);
     setIsLoading(true);
 
@@ -24,28 +50,34 @@ export default function LoginForm() {
         },
         body: JSON.stringify({ identifier, password })
       });
-      const result = await response.json() as SignInResult;
+      const result = await readSignInResult(response);
 
-      if (result.error) {
-        setError(result.error);
+      if (response.status === 429) {
+        setError(loginErrorMessage("rate_limited"));
         return;
       }
 
-      if (!response.ok) {
-        setError("Unable to sign in.");
+      if (!result) {
+        setError(loginErrorMessage("service_unavailable"));
         return;
       }
 
-      window.location.href = result.redirectTo ?? "/student/check-in";
-    } catch (unknownError) {
-      setError(unknownError instanceof Error ? unknownError.message : "Unable to sign in.");
+      if (!response.ok || !result.ok) {
+        setError(loginErrorMessage(result.ok ? "service_unavailable" : result.error.code));
+        return;
+      }
+
+      window.location.href = result.redirectTo;
+    } catch {
+      setError(loginErrorMessage("service_unavailable"));
     } finally {
+      submitInFlight.current = false;
       setIsLoading(false);
     }
   }
 
   return (
-    <form className="space-y-6 sm:space-y-7 lg:space-y-9" onSubmit={handleSubmit}>
+    <form aria-busy={isLoading} className="space-y-6 sm:space-y-7 lg:space-y-9" onSubmit={handleSubmit}>
       <div>
         <label className="block text-base font-medium text-ink" htmlFor="login-phone">
           Phone Number
@@ -60,6 +92,7 @@ export default function LoginForm() {
           placeholder="(416) 555-0100"
           value={identifier}
           onChange={(event) => setIdentifier(formatLoginIdentifier(event.target.value))}
+          disabled={isLoading}
           required
         />
         <p className="mt-2 text-sm text-stone-600" id="login-phone-help">
@@ -79,13 +112,15 @@ export default function LoginForm() {
             autoComplete="current-password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
+            disabled={isLoading}
             required
           />
           <button
             aria-label={showPassword ? "Hide password" : "Show password"}
             aria-pressed={showPassword}
-            className="absolute inset-y-0 right-0 min-w-16 rounded-r-lg px-4 text-sm font-medium text-stone-600 transition hover:text-ink focus-visible:outline-offset-[-4px]"
+            className="absolute inset-y-0 right-0 min-w-16 rounded-r-lg px-4 text-sm font-medium text-stone-600 transition hover:text-ink focus-visible:outline-offset-[-4px] disabled:cursor-not-allowed disabled:opacity-60"
             onClick={() => setShowPassword((current) => !current)}
+            disabled={isLoading}
             type="button"
           >
             {showPassword ? "Hide" : "Show"}

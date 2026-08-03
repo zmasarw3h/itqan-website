@@ -22,6 +22,48 @@ create the production deployment from that commit.
 
 Do not add GitHub Actions deployment workflows for this app yet. GitHub Actions may run checks, but production deployment should remain controlled through Vercel's Git integration.
 
+## Login Abuse Monitoring
+
+Supabase Auth provides its own authentication limits, but `/api/login` also performs an active-profile
+lookup before password authentication. Use a Vercel Firewall rule as an additional edge safeguard so
+abusive traffic can be identified before it consumes application, database, or Auth capacity.
+
+Start with a monitoring-only rate-limit rule:
+
+- Path equals `/api/login`
+- Method equals `POST`
+- Environment equals `production`
+- Counting key: IP address
+- Fixed window: 300 seconds
+- Initial threshold: 100 requests per window
+- Exceeded action: log only
+
+The initial threshold is intentionally generous because many legitimate users may share one masjid
+Wi-Fi address. Publish the rule in log-only mode, then review at least one week that includes normal
+high-attendance periods. Confirm matching traffic is genuinely excessive before changing the exceeded
+action to `rate_limit` (`429`). Do not add database-backed account lockouts for this workflow.
+
+The equivalent Vercel CLI draft command is:
+
+```bash
+vercel firewall rules add "Monitor ITQAN login attempts" \
+  --condition '{"type":"path","op":"eq","value":"/api/login"}' \
+  --condition '{"type":"method","op":"eq","value":"POST"}' \
+  --condition '{"type":"environment","op":"eq","value":"production"}' \
+  --action rate_limit \
+  --rate-limit-window 300 \
+  --rate-limit-requests 100 \
+  --rate-limit-keys ip \
+  --rate-limit-action log \
+  --yes
+```
+
+Firewall rule changes are staged as drafts. Inspect `vercel firewall diff` and have a project owner run
+`vercel firewall publish --yes`; application deployments do not publish firewall drafts. To roll back,
+change the exceeded action to `log`, disable the rule, review the diff, and publish that rollback. Never
+log passwords, full phone numbers, synthetic Auth emails, cookies, or tokens while investigating login
+traffic.
+
 ## Environment Variables
 
 Configure these variables in each Vercel environment and in local `.env.local`:
