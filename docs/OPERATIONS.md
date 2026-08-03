@@ -181,6 +181,20 @@ For the scoring-boundary/accountability rollout, follow
 repair must be applied before the matching app deployment; the repair script is
 manual and must never be run against production without explicit approval.
 
+For the historical-reporting rollout, use this database-first order:
+
+1. Apply the Slice 4 Phase A migration. It remains compatible with the deployed
+   service-role direct insert, pending recalculation, and auto-waive paths while
+   validating their values from authoritative historical data.
+2. Run `npm run test:rls:compat`, smoke test staging, and deploy the application
+   version that uses the service-role reconciliation RPC.
+3. Only after that application is confirmed live, prepare a separate Phase C
+   cleanup migration to remove the legacy write path and obsolete insert policy.
+
+Do not include Phase C in the Slice 4 rollout. Existing authenticated-admin
+writes remain constrained by RLS and by trigger validation of canonical weeks,
+historical scope, scores, amounts, and immutable obligation identity.
+
 After `20260724130111_add_scoped_official_scoring_workflow.sql` is applied, admins
 use the student's **Official scoring** page to preview and activate or move the
 boundary forward. A normal admin is rejected if any affected membership or

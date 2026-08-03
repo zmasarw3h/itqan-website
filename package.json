@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:rls": "bash scripts/test-rls.sh",
+    "test:rls:compat": "bash scripts/test-historical-report-rollout-compatibility.sh",
     "test:rls:upgrade": "bash scripts/test-rls-upgrade.sh",
     "test:e2e": "playwright test",
     "check": "npm run lint && npm run typecheck && npm run test && npm run build"

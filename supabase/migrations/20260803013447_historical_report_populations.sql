@@ -68,6 +68,105 @@ as $$
     );
 $$;
 
+-- Bounded report-bearing week scopes. Legacy membership rows may begin at the
+-- 1900 sentinel, so available weeks must come from actual report evidence (or
+-- the current tracker week), never by expanding an entire membership window.
+create or replace function private.raw_historical_report_week_scopes()
+returns table (
+  week_start date,
+  masjid_id uuid,
+  cohort_id uuid
+)
+language sql
+stable
+set search_path = ''
+as $$
+  with student_week_evidence as (
+    select checkins.student_id,
+           public.week_start_for_date(checkins.date) as week_start
+    from public.checkins
+    union
+    select recitations.student_id, recitations.week_start
+    from public.partner_recitations as recitations
+    union
+    select grades.student_id, grades.week_start
+    from public.halaqa_grades as grades
+    union
+    select obligations.student_id, obligations.week_start
+    from public.accountability_obligations as obligations
+    union
+    select awards.student_id, awards.week_start
+    from public.badge_awards as awards
+  ),
+  historically_scoped_evidence as (
+    select evidence.week_start,
+           cohorts.masjid_id,
+           cohorts.id as cohort_id
+    from student_week_evidence as evidence
+    join lateral (
+      select memberships.group_id
+      from public.student_group_memberships as memberships
+      where memberships.student_id = evidence.student_id
+        and memberships.starts_on <= evidence.week_start
+        and (memberships.ends_on is null or memberships.ends_on >= evidence.week_start)
+      order by memberships.starts_on desc, memberships.id desc
+      limit 1
+    ) as effective_membership on true
+    join public.halaqa_groups as groups on groups.id = effective_membership.group_id
+    join public.cohorts on cohorts.id = groups.cohort_id
+    join public.profiles on profiles.id = evidence.student_id
+    where evidence.week_start = public.week_start_for_date(evidence.week_start)
+      and profiles.score_starts_on is not null
+      and profiles.score_starts_on <= evidence.week_start
+  ),
+  completed_report_runs as (
+    select runs.week_start,
+           runs.masjid_id,
+           cohorts.id as cohort_id
+    from public.weekly_incentive_runs as runs
+    join public.cohorts on cohorts.masjid_id = runs.masjid_id
+    where runs.week_start = public.week_start_for_date(runs.week_start)
+      and exists (
+        select 1
+        from public.halaqa_groups as groups
+        join public.student_group_memberships as memberships
+          on memberships.group_id = groups.id
+        join public.profiles on profiles.id = memberships.student_id
+        where groups.cohort_id = cohorts.id
+          and memberships.starts_on <= runs.week_start
+          and (memberships.ends_on is null or memberships.ends_on >= runs.week_start)
+          and profiles.score_starts_on is not null
+          and profiles.score_starts_on <= runs.week_start
+      )
+  ),
+  current_week_scopes as (
+    select public.week_start_for_date(public.current_toronto_civil_date()) as week_start,
+           cohorts.masjid_id,
+           cohorts.id as cohort_id
+    from public.student_group_memberships as memberships
+    join public.halaqa_groups as groups on groups.id = memberships.group_id
+    join public.cohorts on cohorts.id = groups.cohort_id
+    join public.profiles on profiles.id = memberships.student_id
+    where memberships.starts_on <= public.week_start_for_date(public.current_toronto_civil_date())
+      and (
+        memberships.ends_on is null
+        or memberships.ends_on >= public.week_start_for_date(public.current_toronto_civil_date())
+      )
+      and profiles.score_starts_on is not null
+      and profiles.score_starts_on <= public.week_start_for_date(public.current_toronto_civil_date())
+  )
+  select distinct evidence.week_start, evidence.masjid_id, evidence.cohort_id
+  from (
+    select * from historically_scoped_evidence
+    union all
+    select * from completed_report_runs
+    union all
+    select * from current_week_scopes
+  ) as evidence
+  where evidence.masjid_id is not null
+    and evidence.cohort_id is not null;
+$$;
+
 create or replace function public.historical_reporting_students_for_weeks(
   input_week_starts date[]
 )
@@ -135,6 +234,8 @@ begin
   with requested_weeks as (
     select distinct supplied.week_start
     from unnest(input_week_starts) as supplied(week_start)
+    join public.historical_reporting_available_weeks() as available
+      on available.week_start = supplied.week_start
   ),
   population as (
     select requested_weeks.week_start,
@@ -227,45 +328,33 @@ begin
   end if;
 
   return query
-  with authorized_memberships as (
-    select memberships.student_id,
-           memberships.starts_on,
-           memberships.ends_on,
-           cohorts.masjid_id,
-           profiles.score_starts_on
-    from public.student_group_memberships as memberships
-    join public.halaqa_groups as groups on groups.id = memberships.group_id
-    join public.cohorts on cohorts.id = groups.cohort_id
-    join public.profiles on profiles.id = memberships.student_id
-    where (
-        actor_role = 'student'
-        and memberships.student_id = actor_id
+  select distinct scopes.week_start
+  from private.raw_historical_report_week_scopes() as scopes
+  where actor_role = 'super_admin'
+    or (
+      actor_role = 'admin'
+      and private.raw_is_admin_for_masjid(
+        actor_id,
+        scopes.masjid_id,
+        public.current_toronto_civil_date()
       )
-      or actor_role = 'super_admin'
-      or (
-        actor_role = 'admin'
-        and private.raw_is_admin_for_masjid(
-          actor_id,
-          cohorts.masjid_id,
-          public.current_toronto_civil_date()
-        )
+    )
+    or (
+      actor_role = 'student'
+      and exists (
+        select 1
+        from public.student_group_memberships as memberships
+        join public.halaqa_groups as groups on groups.id = memberships.group_id
+        join public.profiles on profiles.id = memberships.student_id
+        where memberships.student_id = actor_id
+          and groups.cohort_id = scopes.cohort_id
+          and memberships.starts_on <= scopes.week_start
+          and (memberships.ends_on is null or memberships.ends_on >= scopes.week_start)
+          and profiles.score_starts_on is not null
+          and profiles.score_starts_on <= scopes.week_start
       )
-  ),
-  candidate_weeks as (
-    select generated.week_start::date
-    from authorized_memberships
-    cross join lateral generate_series(
-      public.week_start_for_date(authorized_memberships.starts_on + 6),
-      least(
-        coalesce(authorized_memberships.ends_on, public.current_toronto_civil_date()),
-        public.week_start_for_date(public.current_toronto_civil_date())
-      ),
-      interval '7 days'
-    ) as generated(week_start)
-  )
-  select distinct candidate_weeks.week_start
-  from candidate_weeks
-  order by candidate_weeks.week_start desc;
+    )
+  order by scopes.week_start desc;
 end;
 $$;
 
@@ -476,6 +565,40 @@ begin
       and profiles.score_starts_on is not null
       and profiles.score_starts_on <= input_week_start - 7
   ),
+  previous_activity as (
+    select exists (
+      select 1
+      from previous_students as students
+      where exists (
+        select 1
+        from public.checkins
+        where checkins.student_id = students.id
+          and checkins.date between input_week_start - 7 and input_week_start - 1
+          and private.raw_historical_activity_scope_matches(
+            students.id, input_week_start - 7, checkins.masjid_id,
+            checkins.cohort_id, checkins.halaqa_group_id
+          )
+      ) or exists (
+        select 1
+        from public.partner_recitations as recitations
+        where recitations.student_id = students.id
+          and recitations.week_start = input_week_start - 7
+          and private.raw_historical_activity_scope_matches(
+            students.id, input_week_start - 7, recitations.masjid_id,
+            recitations.cohort_id, recitations.halaqa_group_id
+          )
+      ) or exists (
+        select 1
+        from public.halaqa_grades as grades
+        where grades.student_id = students.id
+          and grades.week_start = input_week_start - 7
+          and private.raw_historical_activity_scope_matches(
+            students.id, input_week_start - 7, grades.masjid_id,
+            grades.cohort_id, grades.halaqa_group_id
+          )
+      )
+    ) as has_activity
+  ),
   previous_scores as (
     select students.id,
            students.name,
@@ -510,6 +633,8 @@ begin
                )
            ), 0)::numeric)) as total_points
     from previous_students as students
+    cross join previous_activity
+    where previous_activity.has_activity
   ),
   previous_ranked as (
     select scores.id,
@@ -606,125 +731,6 @@ as $$
   end;
 $$;
 
-create or replace function public.enforce_student_accountability_attestation()
-returns trigger
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
-  expected_percentage numeric;
-  expected_amount_cents integer;
-begin
-  if (select auth.role()) = 'service_role'
-    or public.is_active_admin()
-    or public.is_active_super_admin()
-  then
-    return new;
-  end if;
-
-  if not public.is_active_student() then
-    raise exception 'Only active students or admins may change accountability obligations.';
-  end if;
-
-  if tg_op = 'INSERT' then
-    expected_percentage := private.raw_historical_weekly_percentage(new.student_id, new.week_start);
-    expected_amount_cents := case
-      when expected_percentage is null or expected_percentage >= 70 then 0
-      else ceil((70 - expected_percentage) / 10)::integer * 500
-    end;
-
-    if new.student_id <> (select auth.uid())
-      or expected_percentage is null
-      or expected_percentage >= 70
-      or new.weekly_percentage is distinct from expected_percentage
-      or new.amount_cents is distinct from expected_amount_cents
-      or new.status <> 'pending'
-      or new.attested_paid_at is not null
-      or new.waived_at is not null
-      or new.waived_by is not null
-      or new.admin_note is not null
-    then
-      raise exception 'Students may only create their own computed, historically eligible pending obligation.';
-    end if;
-
-    return new;
-  end if;
-
-  if old.student_id <> (select auth.uid())
-    or new.id is distinct from old.id
-    or new.student_id is distinct from old.student_id
-    or new.week_start is distinct from old.week_start
-    or new.masjid_id is distinct from old.masjid_id
-    or new.cohort_id is distinct from old.cohort_id
-    or new.halaqa_group_id is distinct from old.halaqa_group_id
-    or new.created_at is distinct from old.created_at
-  then
-    raise exception 'Students may only change their own obligation state.';
-  end if;
-
-  if old.status = 'pending'
-    and new.status = 'attested_paid'
-    and new.weekly_percentage is not distinct from old.weekly_percentage
-    and new.amount_cents is not distinct from old.amount_cents
-    and new.attested_paid_at is not null
-    and new.waived_at is not distinct from old.waived_at
-    and new.waived_by is not distinct from old.waived_by
-    and new.admin_note is not distinct from old.admin_note
-  then
-    return new;
-  end if;
-
-  expected_percentage := private.raw_historical_weekly_percentage(new.student_id, new.week_start);
-  expected_amount_cents := case
-    when expected_percentage is null or expected_percentage >= 70 then 0
-    else ceil((70 - expected_percentage) / 10)::integer * 500
-  end;
-
-  if old.status = 'pending'
-    and expected_percentage is not null
-    and new.weekly_percentage is not distinct from expected_percentage
-    and new.amount_cents is not distinct from expected_amount_cents
-    and new.attested_paid_at is not distinct from old.attested_paid_at
-    and new.waived_by is not distinct from old.waived_by
-    and (
-      (expected_percentage < 70
-        and new.status = 'pending'
-        and new.waived_at is not distinct from old.waived_at
-        and new.admin_note is not distinct from old.admin_note)
-      or
-      (expected_percentage >= 70
-        and new.status = 'waived'
-        and new.waived_at is not null
-        and new.admin_note = 'Auto-waived after automatic score recalculation >= 70')
-    )
-  then
-    return new;
-  end if;
-
-  raise exception 'Students may only attest or reconcile their own historically eligible obligation.';
-end;
-$$;
-
-drop trigger if exists enforce_student_accountability_attestation_trigger
-  on public.accountability_obligations;
-
-create trigger enforce_student_accountability_attestation_trigger
-  before insert or update on public.accountability_obligations
-  for each row
-  execute function public.enforce_student_accountability_attestation();
-
-drop policy if exists "Students can create own eligible accountability obligations"
-  on public.accountability_obligations;
-
-create policy "Students can create own eligible accountability obligations"
-  on public.accountability_obligations
-  for insert
-  with check (
-    student_id = (select auth.uid())
-    and public.is_active_student()
-  );
-
 create or replace function public.set_student_scope_snapshot()
 returns trigger
 language plpgsql
@@ -817,7 +823,9 @@ begin
   );
 
   if expected_percentage is null then
-    return null;
+    raise exception using
+      errcode = '23514',
+      message = 'Accountability reconciliation requires a completed Sunday in the historical scoring population.';
   end if;
 
   expected_amount_cents := case
@@ -905,8 +913,9 @@ begin
 end;
 $$;
 
--- Preserve Slice 3's narrowly constrained official-scoring branch and add a
--- second, equally constrained branch for the server reconciliation RPC above.
+-- Phase A keeps the deployed application's service-role insert/recalculation
+-- contract while the new reconciliation RPC rolls out. Both paths recompute
+-- authoritative historical eligibility and score values in this trigger.
 create or replace function public.enforce_student_accountability_attestation()
 returns trigger
 language plpgsql
@@ -916,8 +925,54 @@ as $$
 declare
   expected_percentage numeric;
   expected_amount_cents integer;
+  expected_masjid_id uuid;
+  expected_cohort_id uuid;
+  expected_group_id uuid;
   reconciliation_marker text;
 begin
+  if tg_op = 'INSERT' then
+    if coalesce((select auth.jwt() ->> 'role'), '') = 'service_role'
+      or public.is_active_admin()
+      or public.is_active_super_admin() then
+      expected_percentage := private.raw_historical_weekly_percentage(new.student_id, new.week_start);
+      expected_amount_cents := case
+        when expected_percentage is null or expected_percentage >= 70 then 0
+        else ceil((70 - expected_percentage) / 10)::integer * 500
+      end;
+
+      select cohorts.masjid_id, cohorts.id, groups.id
+      into expected_masjid_id, expected_cohort_id, expected_group_id
+      from public.student_group_memberships memberships
+      join public.halaqa_groups groups on groups.id = memberships.group_id
+      join public.cohorts cohorts on cohorts.id = groups.cohort_id
+      where memberships.student_id = new.student_id
+        and memberships.starts_on <= new.week_start
+        and (memberships.ends_on is null or memberships.ends_on >= new.week_start)
+      order by memberships.starts_on desc, memberships.id desc
+      limit 1;
+
+      if expected_percentage is not null
+        and expected_percentage < 70
+        and new.weekly_percentage is not distinct from expected_percentage
+        and new.amount_cents is not distinct from expected_amount_cents
+        and new.status = 'pending'
+        and new.attested_paid_at is null
+        and new.waived_at is null
+        and new.waived_by is null
+        and new.admin_note is null
+        and (new.masjid_id is null or new.masjid_id = expected_masjid_id)
+        and (new.cohort_id is null or new.cohort_id = expected_cohort_id)
+        and (new.halaqa_group_id is null or new.halaqa_group_id = expected_group_id)
+      then
+        return new;
+      end if;
+
+      raise exception 'Legacy accountability insertion may only use the authoritative historical score.';
+    end if;
+
+    raise exception 'Only active admins or server workflows may insert accountability obligations.';
+  end if;
+
   reconciliation_marker := nullif(
     current_setting('app.historical_accountability_reconcile', true),
     ''
@@ -990,7 +1045,58 @@ begin
     raise exception 'Official scoring workflow may only waive an unchanged pending obligation.';
   end if;
 
+  if coalesce((select auth.jwt() ->> 'role'), '') = 'service_role' then
+    expected_percentage := private.raw_historical_weekly_percentage(new.student_id, new.week_start);
+    expected_amount_cents := case
+      when expected_percentage is null or expected_percentage >= 70 then 0
+      else ceil((70 - expected_percentage) / 10)::integer * 500
+    end;
+
+    if expected_percentage is not null
+      and old.status = 'pending'
+      and new.id is not distinct from old.id
+      and new.student_id is not distinct from old.student_id
+      and new.week_start is not distinct from old.week_start
+      and new.masjid_id is not distinct from old.masjid_id
+      and new.cohort_id is not distinct from old.cohort_id
+      and new.halaqa_group_id is not distinct from old.halaqa_group_id
+      and new.weekly_percentage is not distinct from expected_percentage
+      and new.amount_cents is not distinct from expected_amount_cents
+      and new.attested_paid_at is not distinct from old.attested_paid_at
+      and new.waived_by is not distinct from old.waived_by
+      and new.created_at is not distinct from old.created_at
+      and (
+        (expected_percentage < 70
+          and new.status = 'pending'
+          and new.waived_at is not distinct from old.waived_at
+          and new.admin_note is not distinct from old.admin_note)
+        or
+        (expected_percentage >= 70
+          and new.status = 'waived'
+          and new.waived_at is not null
+          and new.admin_note = 'Auto-waived after automatic score recalculation >= 70')
+      )
+    then
+      return new;
+    end if;
+
+    raise exception 'Legacy accountability recalculation may only use the authoritative historical score.';
+  end if;
+
   if public.is_active_admin() or public.is_active_super_admin() then
+    if new.id is distinct from old.id
+      or new.student_id is distinct from old.student_id
+      or new.week_start is distinct from old.week_start
+      or new.masjid_id is distinct from old.masjid_id
+      or new.cohort_id is distinct from old.cohort_id
+      or new.halaqa_group_id is distinct from old.halaqa_group_id
+      or new.weekly_percentage is distinct from old.weekly_percentage
+      or new.amount_cents is distinct from old.amount_cents
+      or new.created_at is distinct from old.created_at
+    then
+      raise exception 'Administrators may not alter accountability identity, historical scope, score, or amount.';
+    end if;
+
     return new;
   end if;
 
@@ -1023,16 +1129,15 @@ drop trigger if exists enforce_student_accountability_attestation_trigger
   on public.accountability_obligations;
 
 create trigger enforce_student_accountability_attestation_trigger
-  before update on public.accountability_obligations
+  before insert or update on public.accountability_obligations
   for each row
   execute function public.enforce_student_accountability_attestation();
-
-drop policy if exists "Students can create own eligible accountability obligations"
-  on public.accountability_obligations;
 
 revoke all on function private.raw_historical_activity_scope_matches(uuid, date, uuid, uuid, uuid)
   from public, anon, authenticated, service_role;
 revoke all on function private.raw_can_open_current_student_profile(uuid, uuid)
+  from public, anon, authenticated, service_role;
+revoke all on function private.raw_historical_report_week_scopes()
   from public, anon, authenticated, service_role;
 revoke all on function private.raw_historical_weekly_percentage(uuid, date)
   from public, anon, authenticated, service_role;
@@ -1064,7 +1169,7 @@ revoke execute on function public.validate_accountability_obligation_scope()
 comment on function public.historical_reporting_students_for_weeks(date[]) is
   'Batch historical student population by canonical Sunday; current authorization and contact visibility are evaluated at request time.';
 comment on function public.historical_reporting_available_weeks() is
-  'Canonical report weeks derived from historical memberships in the caller current reporting scope.';
+  'Bounded canonical report weeks from report-bearing evidence plus the current tracker week, intersected with historical membership, scoring eligibility, and current viewer scope.';
 
 create or replace function private.application_security_definer_oids()
 returns table (function_oid oid)

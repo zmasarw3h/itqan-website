@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   activityMatchesHistoricalPopulation,
   historicalPopulationByStudentWeek,
+  loadHistoricalReportingAvailableWeeks,
   type HistoricalReportingStudent
 } from "@/lib/reporting-population";
 import { buildMonthlyRewardPopulation } from "@/lib/rewards";
+import { loadCompletedWeekStarts } from "@/lib/weekly-incentives";
 
 function population(overrides: Partial<HistoricalReportingStudent> = {}): HistoricalReportingStudent {
   return {
@@ -60,5 +62,38 @@ describe("historical reporting population", () => {
     });
 
     expect(result.map((student) => student.id).sort()).toEqual(["historical", "midmonth"]);
+  });
+
+  it("paginates only the bounded evidence weeks supplied by the RPC", async () => {
+    const boundedWeeks = Array.from({ length: 12 }, (_, index) => ({
+      week_start: `2026-${String(index + 1).padStart(2, "0")}-01`
+    }));
+    const range = vi.fn(async () => ({ data: boundedWeeks, error: null }));
+    const rpc = vi.fn(() => ({ range }));
+    const supabase = { rpc } as never;
+
+    await expect(loadHistoricalReportingAvailableWeeks(supabase)).resolves.toHaveLength(12);
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(range).toHaveBeenCalledOnce();
+    expect(range).toHaveBeenCalledWith(0, 499);
+  });
+
+  it("uses the bounded available-week result as the complete rewards scan input", async () => {
+    const range = vi.fn(async () => ({
+      data: [
+        { week_start: "2026-06-21" },
+        { week_start: "2026-06-14" },
+        { week_start: "2026-06-07" }
+      ],
+      error: null
+    }));
+    const supabase = { rpc: vi.fn(() => ({ range })) } as never;
+
+    await expect(loadCompletedWeekStarts(supabase, "2026-06-28")).resolves.toEqual([
+      "2026-06-21",
+      "2026-06-14",
+      "2026-06-07"
+    ]);
+    expect(range).toHaveBeenCalledOnce();
   });
 });

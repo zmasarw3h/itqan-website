@@ -32,6 +32,7 @@ type UserName =
   | "studentA2"
   | "studentWriter"
   | "studentNoMembership"
+  | "sentinelStudent"
   | "expiredMembershipStudent"
   | "futureMembershipStudent"
   | "studentB"
@@ -212,6 +213,7 @@ async function seed(): Promise<SeedIds> {
     "studentA2",
     "studentWriter",
     "studentNoMembership",
+    "sentinelStudent",
     "expiredMembershipStudent",
     "futureMembershipStudent",
     "studentB",
@@ -705,8 +707,8 @@ async function seed(): Promise<SeedIds> {
   const obligations = await requireData<Array<{ id: string; student_id: string }>>(
     "insert obligations",
     admin.from("accountability_obligations").insert([
-      { student_id: users.studentA, week_start: weekStart, weekly_percentage: 50, amount_cents: 1000 },
-      { student_id: users.studentB, week_start: weekStart, weekly_percentage: 50, amount_cents: 1000 }
+      { student_id: users.studentA, week_start: previousWeekStart, weekly_percentage: 13.5, amount_cents: 3000 },
+      { student_id: users.studentB, week_start: previousWeekStart, weekly_percentage: 0, amount_cents: 3500 }
     ]).select("id,student_id")
   );
   const obligationA = obligations.find((row) => row.student_id === users.studentA)!.id;
@@ -715,7 +717,7 @@ async function seed(): Promise<SeedIds> {
     .from("accountability_obligations")
     .insert({
       student_id: users.futureMembershipStudent,
-      week_start: weekStart,
+      week_start: previousWeekStart,
       weekly_percentage: 0,
       amount_cents: 3500
     });
@@ -2961,14 +2963,41 @@ async function runAssertions(ids: SeedIds) {
   assert.equal(Number(reconciledObligation?.weekly_percentage), 0);
   assert.equal(reconciledObligation?.amount_cents, 3500);
   assert.equal(reconciledObligation?.status, "pending");
-  const { data: attestedObligation, error: attestedObligationError } = await studentA
+  const { data: obligationBeforeAttestation, error: obligationBeforeAttestationError } = await studentA2
+    .from("accountability_obligations")
+    .select("student_id,week_start,status,masjid_id,cohort_id,halaqa_group_id")
+    .eq("id", reconciledObligation.id)
+    .single();
+  assert.equal(obligationBeforeAttestationError, null, obligationBeforeAttestationError?.message);
+  assert.deepEqual(
+    obligationBeforeAttestation,
+    {
+      student_id: ids.users.studentA2,
+      week_start: ids.previousWeekStart,
+      status: "pending",
+      masjid_id: ids.masjidA,
+      cohort_id: ids.cohortA,
+      halaqa_group_id: ids.groupA
+    },
+    "student obligation did not retain its authoritative historical snapshot"
+  );
+  const obligationScopeMatch = await studentA2.rpc("student_scope_snapshot_matches", {
+    input_student_id: ids.users.studentA2,
+    input_week_start: ids.previousWeekStart,
+    input_masjid_id: ids.masjidA,
+    input_cohort_id: ids.cohortA,
+    input_group_id: ids.groupA
+  });
+  assert.equal(obligationScopeMatch.error, null, obligationScopeMatch.error?.message);
+  assert.equal(obligationScopeMatch.data, true, "student obligation scope failed its RLS projection");
+  const { data: attestedObligation, error: attestedObligationError } = await studentA2
     .from("accountability_obligations")
     .update({
       status: "attested_paid",
       attested_paid_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     })
-    .eq("id", ids.obligationA)
+    .eq("id", reconciledObligation.id)
     .eq("status", "pending")
     .select("id,status");
   assert.equal(attestedObligationError, null, attestedObligationError?.message);
@@ -3136,17 +3165,121 @@ async function runAssertions(ids: SeedIds) {
   const currentLeaderboardRow = (leaderboard ?? []).find((row) => row.is_current_student);
   assert.ok(Number(currentLeaderboardRow?.score_percentage) <= 100, "leaderboard score exceeded 100%");
   assert.equal(currentLeaderboardRow?.previous_rank, null, "inactive prior week fabricated a previous rank");
+  assert.equal(
+    (leaderboard ?? []).find((row) => row.student_name === "studentA2")?.previous_rank,
+    null,
+    "an activity-empty previous leaderboard fabricated ranks for eligible students"
+  );
+  const previousPeerGrade = await requireData<Array<{ id: string }>>(
+    "insert prior-week peer activity",
+    service.from("halaqa_grades").insert({
+      student_id: ids.users.expiredMembershipStudent,
+      week_start: addDays(ids.previousWeekStart, -7),
+      attended: true,
+      attendance_points: 100,
+      recitation_points: 50,
+      graded_by: ids.users.adminA
+    }).select("id")
+  );
+  const leaderboardWithPeerActivity = await studentA2.rpc("student_cohort_leaderboard_for_week", {
+    input_week_start: ids.previousWeekStart
+  });
+  assert.equal(leaderboardWithPeerActivity.error, null, leaderboardWithPeerActivity.error?.message);
+  const zeroActivityPreviousRow = (leaderboardWithPeerActivity.data ?? []).find(
+    (row: { is_current_student?: boolean }) => row.is_current_student
+  );
+  assert.notEqual(
+    zeroActivityPreviousRow?.previous_rank,
+    null,
+    "an individually inactive student lost its zero-score rank in an otherwise active prior leaderboard"
+  );
+  const selectedWeekEntrant = (leaderboard ?? []).find(
+    (row: { student_name?: string }) => row.student_name === "Setup Student"
+  );
+  assert.equal(selectedWeekEntrant?.previous_rank, null, "a student who joined in the selected week received a previous rank");
+  const selectedWeekScoringStart = await service
+    .from("profiles")
+    .update({ score_starts_on: ids.weekStart })
+    .eq("id", ids.users.studentA2);
+  assert.equal(selectedWeekScoringStart.error, null, selectedWeekScoringStart.error?.message);
+  const leaderboardAfterScoringStart = await studentA2.rpc("student_cohort_leaderboard_for_week", {
+    input_week_start: ids.weekStart
+  });
+  assert.equal(leaderboardAfterScoringStart.error, null, leaderboardAfterScoringStart.error?.message);
+  assert.equal(
+    (leaderboardAfterScoringStart.data ?? []).find(
+      (row: { student_name?: string }) => row.student_name === "studentA2"
+    )?.previous_rank,
+    null,
+    "a student whose scoring began in the selected week received a previous rank"
+  );
+  const restoreStudentA2ScoreStart = await service
+    .from("profiles")
+    .update({ score_starts_on: ids.startsOn })
+    .eq("id", ids.users.studentA2);
+  assert.equal(restoreStudentA2ScoreStart.error, null, restoreStudentA2ScoreStart.error?.message);
+  const deletePreviousPeerGrade = await service
+    .from("halaqa_grades")
+    .delete()
+    .eq("id", previousPeerGrade[0].id);
+  assert.equal(deletePreviousPeerGrade.error, null, deletePreviousPeerGrade.error?.message);
+
+  const previousCohortWeek = addDays(ids.startsOn, -7);
+  const previousCohortScoreStart = await service
+    .from("profiles")
+    .update({ score_starts_on: previousCohortWeek })
+    .eq("id", ids.users.studentA);
+  assert.equal(previousCohortScoreStart.error, null, previousCohortScoreStart.error?.message);
+  const previousCohortGrade = await requireData<Array<{ id: string }>>(
+    "insert previous-cohort activity",
+    service.from("halaqa_grades").insert({
+      student_id: ids.users.studentA,
+      week_start: previousCohortWeek,
+      attended: true,
+      attendance_points: 100,
+      recitation_points: 50,
+      graded_by: ids.users.adminB
+    }).select("id")
+  );
+  const transferBoundaryLeaderboard = await studentA.rpc("student_cohort_leaderboard_for_week", {
+    input_week_start: ids.startsOn
+  });
+  assert.equal(transferBoundaryLeaderboard.error, null, transferBoundaryLeaderboard.error?.message);
+  assert.equal(
+    (transferBoundaryLeaderboard.data ?? []).find(
+      (row: { is_current_student?: boolean }) => row.is_current_student
+    )?.previous_rank,
+    1,
+    "previous rank did not follow the caller's previous historical cohort"
+  );
+  const deletePreviousCohortGrade = await service.from("halaqa_grades").delete().eq("id", previousCohortGrade[0].id);
+  assert.equal(deletePreviousCohortGrade.error, null, deletePreviousCohortGrade.error?.message);
+  const restoreStudentAScoreStart = await service
+    .from("profiles")
+    .update({ score_starts_on: ids.startsOn })
+    .eq("id", ids.users.studentA);
+  assert.equal(restoreStudentAScoreStart.error, null, restoreStudentAScoreStart.error?.message);
+  const setupMembershipBackdate = await service
+    .from("student_group_memberships")
+    .update({ starts_on: ids.previousWeekStart })
+    .eq("student_id", ids.users.setupStudent);
+  assert.equal(setupMembershipBackdate.error, null, setupMembershipBackdate.error?.message);
+  const setupProfileBackdate = await service
+    .from("profiles")
+    .update({ score_starts_on: ids.previousWeekStart })
+    .eq("id", ids.users.setupStudent);
+  assert.equal(setupProfileBackdate.error, null, setupProfileBackdate.error?.message);
   const setupObligation = await requireData<Array<{ id: string }>>(
     "insert setup-student pending obligation",
     service.from("accountability_obligations").insert({
       student_id: ids.users.setupStudent,
-      week_start: ids.weekStart,
-      weekly_percentage: 50,
-      amount_cents: 1250
+      week_start: ids.previousWeekStart,
+      weekly_percentage: 0,
+      amount_cents: 3500
     }).select("id")
   );
   const setupObligationId = setupObligation[0].id;
-  const setupNextWeek = addDays(ids.weekStart, 7);
+  const setupNextWeek = ids.weekStart;
   const setupPreview = await service.rpc("preview_official_scoring_start_change", {
     input_actor_id: ids.users.adminA,
     input_student_id: ids.users.setupStudent,
@@ -3155,14 +3288,14 @@ async function runAssertions(ids: SeedIds) {
   assert.equal(setupPreview.error, null, setupPreview.error?.message);
   assert.equal(setupPreview.data?.direction, "forward");
   assert.equal(setupPreview.data?.pending_obligation_count, 1);
-  assert.equal(setupPreview.data?.pending_amount_cents, 1250);
+  assert.equal(setupPreview.data?.pending_amount_cents, 3500);
   const setupScoringRequestId = randomUUID();
   const setupScoringArgs = {
     input_request_id: setupScoringRequestId,
     input_actor_id: ids.users.adminA,
     input_student_id: ids.users.setupStudent,
     input_score_starts_on: setupNextWeek,
-    input_expected_score_starts_on: ids.weekStart,
+    input_expected_score_starts_on: ids.previousWeekStart,
     input_reason: "Stakeholder confirmed orientation should last one week."
   };
   const setupScoringChange = await service.rpc("apply_official_scoring_start_change", setupScoringArgs);
@@ -3211,7 +3344,7 @@ async function runAssertions(ids: SeedIds) {
     input_request_id: randomUUID(),
     input_actor_id: ids.users.adminA,
     input_student_id: ids.users.setupStudent,
-    input_score_starts_on: ids.weekStart,
+    input_score_starts_on: ids.previousWeekStart,
     input_expected_score_starts_on: setupNextWeek,
     input_reason: "Scoped admins must not backdate official scoring."
   });
@@ -3226,7 +3359,7 @@ async function runAssertions(ids: SeedIds) {
     input_request_id: randomUUID(),
     input_actor_id: ids.users.superAdmin,
     input_student_id: ids.users.setupStudent,
-    input_score_starts_on: ids.weekStart,
+    input_score_starts_on: ids.previousWeekStart,
     input_expected_score_starts_on: setupNextWeek,
     input_reason: "Super admin correction restores the confirmed original week."
   });
@@ -3253,8 +3386,8 @@ async function runAssertions(ids: SeedIds) {
   const orientationWeeks = await studentA2.rpc("student_leaderboard_available_weeks");
   assert.equal(orientationWeeks.error, null, orientationWeeks.error?.message);
   assert.ok(
-    (orientationWeeks.data ?? []).some((row: { week_start?: string }) => row.week_start === ids.weekStart),
-    "orientation student could not discover a historical membership week"
+    !(orientationWeeks.data ?? []).some((row: { week_start?: string }) => row.week_start === ids.weekStart),
+    "orientation student discovered a pre-scoring report week"
   );
 
   const currentReporting = await adminA.rpc("historical_reporting_students_for_weeks", {
@@ -3280,6 +3413,22 @@ async function runAssertions(ids: SeedIds) {
   );
 
   const transferredWeek = addDays(ids.startsOn, -28);
+  const transferredScoreStart = await service
+    .from("profiles")
+    .update({ score_starts_on: transferredWeek })
+    .eq("id", ids.users.studentA);
+  assert.equal(transferredScoreStart.error, null, transferredScoreStart.error?.message);
+  const transferredWeekEvidence = await requireData<Array<{ id: string }>>(
+    "insert transferred-week report evidence",
+    service.from("checkins").insert({
+      student_id: ids.users.studentA,
+      date: transferredWeek,
+      completed: true,
+      earned_weight: 0,
+      total_weight: 100,
+      daily_score: 0
+    }).select("id")
+  );
   const adminBHistorical = await adminB.rpc("historical_reporting_students_for_weeks", {
     input_week_starts: [transferredWeek]
   });
@@ -3357,6 +3506,16 @@ async function runAssertions(ids: SeedIds) {
     [{ group_id: ids.groupB, masjid_id: ids.masjidB }],
     "student historical scope used current placement"
   );
+  const deleteTransferredWeekEvidence = await service
+    .from("checkins")
+    .delete()
+    .eq("id", transferredWeekEvidence[0].id);
+  assert.equal(deleteTransferredWeekEvidence.error, null, deleteTransferredWeekEvidence.error?.message);
+  const restoreTransferredScoreStart = await service
+    .from("profiles")
+    .update({ score_starts_on: ids.startsOn })
+    .eq("id", ids.users.studentA);
+  assert.equal(restoreTransferredScoreStart.error, null, restoreTransferredScoreStart.error?.message);
 
   const historicalScoreStart = addDays(ids.startsOn, -56);
   const historicalScoreUpdate = await service
@@ -3364,6 +3523,17 @@ async function runAssertions(ids: SeedIds) {
     .update({ score_starts_on: historicalScoreStart })
     .eq("id", ids.users.studentA);
   assert.equal(historicalScoreUpdate.error, null, historicalScoreUpdate.error?.message);
+  const preAppointmentEvidence = await requireData<Array<{ id: string }>>(
+    "insert pre-appointment historical evidence",
+    service.from("checkins").insert({
+      student_id: ids.users.studentA,
+      date: historicalScoreStart,
+      completed: true,
+      earned_weight: 0,
+      total_weight: 100,
+      daily_score: 0
+    }).select("id")
+  );
   const adminAvailableWeeks = await adminA.rpc("historical_reporting_available_weeks");
   assert.equal(adminAvailableWeeks.error, null, adminAvailableWeeks.error?.message);
   assert.ok(
@@ -3372,6 +3542,38 @@ async function runAssertions(ids: SeedIds) {
     ),
     "newly appointed administrator could not view earlier Masjid A reporting weeks"
   );
+  const sentinelProfile = await service
+    .from("profiles")
+    .update({ score_starts_on: "1900-01-07" })
+    .eq("id", ids.users.sentinelStudent);
+  assert.equal(sentinelProfile.error, null, sentinelProfile.error?.message);
+  const sentinelMembership = await requireData<Array<{ id: string }>>(
+    "insert production-shaped sentinel membership",
+    service.from("student_group_memberships").insert({
+      student_id: ids.users.sentinelStudent,
+      group_id: ids.groupA,
+      starts_on: "1900-01-01",
+      assigned_by: ids.users.superAdmin
+    }).select("id")
+  );
+  assert.ok(sentinelMembership[0].id);
+  const boundedWeeks = await adminA.rpc("historical_reporting_available_weeks");
+  assert.equal(boundedWeeks.error, null, boundedWeeks.error?.message);
+  assert.ok((boundedWeeks.data ?? []).length <= 32, "sentinel membership produced an unbounded available-week result");
+  assert.ok(
+    !(boundedWeeks.data ?? []).some((row: { week_start: string }) => row.week_start.startsWith("1900-")),
+    "sentinel membership exposed a 1900-era empty report week"
+  );
+  const sentinelOnlyWeek = await adminA.rpc("historical_reporting_students_for_weeks", {
+    input_week_starts: ["1900-01-07"]
+  });
+  assert.equal(sentinelOnlyWeek.error, null, sentinelOnlyWeek.error?.message);
+  assert.deepEqual(sentinelOnlyWeek.data, [], "a sentinel-only empty week expanded the reporting population");
+  const deletePreAppointmentEvidence = await service
+    .from("checkins")
+    .delete()
+    .eq("id", preAppointmentEvidence[0].id);
+  assert.equal(deletePreAppointmentEvidence.error, null, deletePreAppointmentEvidence.error?.message);
   const restoreScoreStart = await service
     .from("profiles")
     .update({ score_starts_on: ids.startsOn })
