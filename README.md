@@ -1,4 +1,4 @@
-# ITQAN Daily Check-In
+# ITQAN Lite
 
 Lightweight masjid operations system that started as an emergency Canvas replacement.
 
