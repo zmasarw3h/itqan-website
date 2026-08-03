@@ -1,12 +1,20 @@
 import { isValidDateString, torontoCivilDateString } from "@/lib/dates";
 import type { BadgeAward, Profile } from "@/lib/types";
+import type { HistoricalReportingStudent } from "@/lib/reporting-population";
 
 export type RewardBadgeAward = Pick<
   BadgeAward,
   "id" | "student_id" | "week_start" | "weekly_percentage" | "badges_awarded" | "created_at"
 >;
 
-export type RewardStudent = Pick<Profile, "id" | "name" | "email" | "phone">;
+export type RewardStudent = {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  canViewCurrentContact: boolean;
+  canOpenCurrentProfile: boolean;
+};
 
 export type StudentRewardSummary = {
   totalBadges: number;
@@ -17,8 +25,10 @@ export type MonthlyBadgeLeaderboardRow = {
   rank: number;
   studentId: string;
   studentName: string;
-  studentEmail: string;
+  studentEmail: string | null;
   studentPhone: string | null;
+  canViewCurrentContact: boolean;
+  canOpenCurrentProfile: boolean;
   monthBadges: number;
   lifetimeBadges: number;
   recentAwards: RewardBadgeAward[];
@@ -115,6 +125,8 @@ export function buildMonthlyBadgeLeaderboard(input: {
         studentName: student.name,
         studentEmail: student.email,
         studentPhone: student.phone,
+        canViewCurrentContact: student.canViewCurrentContact,
+        canOpenCurrentProfile: student.canOpenCurrentProfile,
         monthBadges: studentAwards
           .filter((award) => awardIsInMonth(award, input.monthStart))
           .reduce((sum, award) => sum + Number(award.badges_awarded ?? 0), 0),
@@ -129,4 +141,39 @@ export function buildMonthlyBadgeLeaderboard(input: {
         a.studentName.localeCompare(b.studentName)
     )
     .map((row, index) => ({ ...row, rank: index + 1 }));
+}
+
+export function buildMonthlyRewardPopulation(input: {
+  population: HistoricalReportingStudent[];
+  monthStart: string;
+}): RewardStudent[] {
+  const monthEnd = nextMonthStart(input.monthStart);
+  const monthStudentIds = new Set(
+    input.population
+      .filter(
+        (student) =>
+          student.scoring_eligible &&
+          student.week_start >= input.monthStart &&
+          student.week_start < monthEnd
+      )
+      .map((student) => student.student_id)
+  );
+  const latestIdentityByStudent = new Map(
+    [...input.population]
+      .sort((left, right) => left.week_start.localeCompare(right.week_start))
+      .map((student) => [student.student_id, student])
+  );
+
+  return [...monthStudentIds].flatMap((studentId) => {
+    const student = latestIdentityByStudent.get(studentId);
+
+    return student ? [{
+      id: student.student_id,
+      name: student.student_name,
+      email: student.student_email,
+      phone: student.student_phone,
+      canViewCurrentContact: student.can_view_current_contact,
+      canOpenCurrentProfile: student.can_open_current_profile
+    }] : [];
+  });
 }

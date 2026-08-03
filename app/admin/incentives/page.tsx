@@ -1,7 +1,6 @@
 import Link from "next/link";
 import AppNav from "@/app/nav";
-import { adminScopedStudentToProfile, loadAdminStudentsForWeek } from "@/lib/admin-scope";
-import { checkInEffectiveDateString, formatWeekRange, weekStartForDate } from "@/lib/dates";
+import { formatWeekRange } from "@/lib/dates";
 import { formatAmountCents } from "@/lib/incentives";
 import { requireProfile } from "@/lib/supabase-server";
 import {
@@ -90,7 +89,10 @@ function StudentScoreTable({
             <tr key={`${row.studentId}:${row.weekStart}`}>
               <td className="px-3 py-3">
                 <p className="font-medium text-ink">{row.studentName}</p>
-                <p className="mt-1 text-xs text-stone-500">{row.studentPhone || row.studentEmail}</p>
+                <p className="text-xs text-stone-500">{row.masjidName} · {row.cohortName} · {row.groupName}</p>
+                {row.canViewCurrentContact && (row.studentPhone || row.studentEmail) ? (
+                  <p className="mt-1 text-xs text-stone-500">{row.studentPhone || row.studentEmail}</p>
+                ) : null}
               </td>
               {columns.includes("score") ? (
                 <td className="px-3 py-3 text-stone-700">{row.weeklyPercentage}%</td>
@@ -117,13 +119,10 @@ export default async function AdminIncentivesPage({
   searchParams: Promise<IncentiveReportSearchParams>;
 }) {
   const resolvedSearchParams = await searchParams;
-  const { supabase, profile } = await requireProfile(["admin"]);
+  const { supabase, profile } = await requireProfile(["admin", "super_admin"]);
   const activeView = selectedReportView(resolvedSearchParams.view);
-  const currentWeekStart = weekStartForDate(checkInEffectiveDateString());
-  const students = (await loadAdminStudentsForWeek(supabase, currentWeekStart)).map(adminScopedStudentToProfile);
   const data = await loadWeeklyIncentiveReportData({
     supabase,
-    students,
     week: resolvedSearchParams.week
   });
   const activeViewMeta = reportViews.find((view) => view.key === activeView) ?? reportViews[1];

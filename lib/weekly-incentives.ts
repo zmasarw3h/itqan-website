@@ -3,7 +3,6 @@ import {
   formatWeekRange,
   isValidDateString,
   checkInEffectiveDateString,
-  weekDatesFromStart,
   weekStartForDate
 } from "@/lib/dates";
 import {
@@ -12,14 +11,30 @@ import {
   calculateBadgeAwardCount
 } from "@/lib/incentives";
 import { calculateWeekScoreForStudent, weekIsComplete } from "@/lib/leaderboard";
+import {
+  activityMatchesHistoricalPopulation,
+  historicalPopulationByStudentWeek,
+  loadHistoricalReportingAvailableWeeks,
+  loadHistoricalReportingStudentsForWeeks,
+  type HistoricalReportingStudent
+} from "@/lib/reporting-population";
 import type { requireProfile } from "@/lib/supabase-server";
-import type { AccountabilityObligation, CheckIn, HalaqaGrade, PartnerRecitation, Profile } from "@/lib/types";
+import { chunksOf, loadAllSupabasePages } from "@/lib/supabase-pagination";
+import type { AccountabilityObligation, CheckIn, HalaqaGrade, PartnerRecitation } from "@/lib/types";
 
 type SupabaseClient = Awaited<ReturnType<typeof requireProfile>>["supabase"];
-type ActiveStudent = Pick<Profile, "id" | "name" | "email" | "phone" | "score_starts_on">;
-type WeeklyCheckIn = Pick<CheckIn, "student_id" | "date" | "daily_score">;
-type WeeklyPartnerRecitation = Pick<PartnerRecitation, "student_id" | "week_start" | "round" | "points">;
-type WeeklyHalaqaGrade = Pick<HalaqaGrade, "student_id" | "week_start" | "attendance_points" | "recitation_points">;
+type WeeklyCheckIn = Pick<
+  CheckIn,
+  "student_id" | "date" | "daily_score" | "masjid_id" | "cohort_id" | "halaqa_group_id"
+>;
+type WeeklyPartnerRecitation = Pick<
+  PartnerRecitation,
+  "student_id" | "week_start" | "round" | "points" | "masjid_id" | "cohort_id" | "halaqa_group_id"
+>;
+type WeeklyHalaqaGrade = Pick<
+  HalaqaGrade,
+  "student_id" | "week_start" | "attendance_points" | "recitation_points" | "masjid_id" | "cohort_id" | "halaqa_group_id"
+>;
 
 export type ComputedBadgeAward = {
   id: string;
@@ -33,8 +48,13 @@ export type ComputedBadgeAward = {
 export type WeeklyIncentiveScoreRow = {
   studentId: string;
   studentName: string;
-  studentEmail: string;
+  studentEmail: string | null;
   studentPhone: string | null;
+  canViewCurrentContact: boolean;
+  canOpenCurrentProfile: boolean;
+  masjidName: string;
+  cohortName: string;
+  groupName: string;
   weekStart: string;
   weeklyPercentage: number;
   badgesAwarded: number;
@@ -111,8 +131,7 @@ export function accountabilityGateIsActiveForDate(today: string) {
 }
 
 export function buildWeeklyIncentiveRows(input: {
-  students: ActiveStudent[];
-  weekStarts: string[];
+  population: HistoricalReportingStudent[];
   checkins: WeeklyCheckIn[];
   partnerRecitations: WeeklyPartnerRecitation[];
   halaqaGrades: WeeklyHalaqaGrade[];
@@ -122,13 +141,11 @@ export function buildWeeklyIncentiveRows(input: {
   const halaqaGradesByStudentWeek = groupHalaqaGradesByStudentWeek(input.halaqaGrades);
   const rows: WeeklyIncentiveScoreRow[] = [];
 
-  for (const weekStart of input.weekStarts) {
-    for (const student of input.students) {
-      if (!student.score_starts_on || weekStart < student.score_starts_on) {
-        continue;
-      }
+  for (const student of input.population) {
+      if (!student.scoring_eligible) continue;
 
-      const key = studentWeekKey(student.id, weekStart);
+      const weekStart = student.week_start;
+      const key = studentWeekKey(student.student_id, weekStart);
       const score = calculateWeekScoreForStudent({
         weekStart,
         checkins: checkinsByStudentWeek.get(key) ?? [],
@@ -137,16 +154,20 @@ export function buildWeeklyIncentiveRows(input: {
       });
 
       rows.push({
-        studentId: student.id,
-        studentName: student.name,
-        studentEmail: student.email,
-        studentPhone: student.phone,
+        studentId: student.student_id,
+        studentName: student.student_name,
+        studentEmail: student.student_email,
+        studentPhone: student.student_phone,
+        canViewCurrentContact: student.can_view_current_contact,
+        canOpenCurrentProfile: student.can_open_current_profile,
+        masjidName: student.masjid_name,
+        cohortName: student.cohort_name,
+        groupName: student.group_name,
         weekStart,
         weeklyPercentage: score.percentage,
         badgesAwarded: calculateBadgeAwardCount(score.percentage),
         accountabilityAmountCents: calculateAccountabilityAmountCents(score.percentage)
       });
-    }
   }
 
   return rows;
@@ -158,9 +179,9 @@ export function buildWeeklyIncentiveReport(input: {
   rows: WeeklyIncentiveScoreRow[];
 }): WeeklyIncentiveReport {
   const selectedRows = input.rows.filter((row) => row.weekStart === input.selectedWeekStart);
-  const selectedIndex = input.completedWeekStartsDescending.indexOf(input.selectedWeekStart);
-  const previousWeekStart = selectedIndex >= 0 ? input.completedWeekStartsDescending[selectedIndex + 1] : undefined;
-  const twoWeeksAgoStart = selectedIndex >= 0 ? input.completedWeekStartsDescending[selectedIndex + 2] : undefined;
+  const completedWeeks = new Set(input.completedWeekStartsDescending);
+  const previousWeekStart = addDays(input.selectedWeekStart, -7);
+  const twoWeeksAgoStart = addDays(input.selectedWeekStart, -14);
 
   const scoreByStudentWeek = new Map(input.rows.map((row) => [studentWeekKey(row.studentId, row.weekStart), row]));
   const mostBadgesThisWeek = selectedRows
@@ -174,13 +195,13 @@ export function buildWeeklyIncentiveReport(input: {
   const below70ThisWeek = selectedRows
     .filter((row) => row.weeklyPercentage < 70)
     .sort((a, b) => a.weeklyPercentage - b.weeklyPercentage || a.studentName.localeCompare(b.studentName));
-  const below70TwoWeeksStraight = previousWeekStart && accountabilityAppliesToWeek(previousWeekStart)
+  const below70TwoWeeksStraight = completedWeeks.has(previousWeekStart) && accountabilityAppliesToWeek(previousWeekStart)
     ? below70ThisWeek.filter(
         (row) => (scoreByStudentWeek.get(studentWeekKey(row.studentId, previousWeekStart))?.weeklyPercentage ?? 100) < 70
       )
     : [];
   const passingThreeWeeksStraight =
-    previousWeekStart && twoWeeksAgoStart
+    completedWeeks.has(previousWeekStart) && completedWeeks.has(twoWeeksAgoStart)
       ? selectedRows
           .filter((row) => row.weeklyPercentage >= 70)
           .filter(
@@ -219,49 +240,10 @@ export function computedBadgeAwardFromRow(row: WeeklyIncentiveScoreRow): Compute
 
 export async function loadCompletedWeekStarts(
   supabase: SupabaseClient,
-  today = checkInEffectiveDateString(),
-  studentIds?: string[]
+  today = checkInEffectiveDateString()
 ) {
-  if (studentIds && !studentIds.length) {
-    return [];
-  }
-
   const currentWeekStart = weekStartForDate(today);
-  let checkinDatesQuery = supabase
-    .from("checkins")
-    .select("date")
-    .order("date", { ascending: false })
-    .limit(365);
-  let partnerWeeksQuery = supabase
-    .from("partner_recitations")
-    .select("week_start")
-    .order("week_start", { ascending: false })
-    .limit(104);
-  let halaqaWeeksQuery = supabase
-    .from("halaqa_grades")
-    .select("week_start")
-    .order("week_start", { ascending: false })
-    .limit(104);
-
-  if (studentIds) {
-    checkinDatesQuery = checkinDatesQuery.in("student_id", studentIds);
-    partnerWeeksQuery = partnerWeeksQuery.in("student_id", studentIds);
-    halaqaWeeksQuery = halaqaWeeksQuery.in("student_id", studentIds);
-  }
-
-  const [{ data: checkinDates }, { data: partnerWeeks }, { data: halaqaWeeks }] = await Promise.all([
-    checkinDatesQuery.returns<Array<{ date: string }>>(),
-    partnerWeeksQuery.returns<Array<{ week_start: string }>>(),
-    halaqaWeeksQuery.returns<Array<{ week_start: string }>>()
-  ]);
-
-  return [
-    ...new Set([
-      ...(checkinDates ?? []).map((checkin) => weekStartForDate(checkin.date)),
-      ...(partnerWeeks ?? []).map((week) => week.week_start),
-      ...(halaqaWeeks ?? []).map((week) => week.week_start)
-    ])
-  ]
+  return (await loadHistoricalReportingAvailableWeeks(supabase))
     .filter((weekStart) => weekStart < currentWeekStart && weekIsComplete(weekStart, today))
     .sort((a, b) => b.localeCompare(a));
 }
@@ -270,66 +252,83 @@ export async function loadComputedWeeklyIncentiveRows(input: {
   supabase: SupabaseClient;
   weekStarts: string[];
   studentId?: string;
-  students?: ActiveStudent[];
+  population?: HistoricalReportingStudent[];
 }) {
   if (!input.weekStarts.length) {
     return [];
   }
 
-  const allDates = input.weekStarts.flatMap((weekStart) => weekDatesFromStart(weekStart));
-  let students = input.students ?? null;
-
-  if (!students) {
-    let studentsQuery = input.supabase
-      .from("profiles")
-      .select("id,name,email,phone,score_starts_on")
-      .eq("role", "student")
-      .eq("active", true)
-      .order("name", { ascending: true });
-
-    if (input.studentId) {
-      studentsQuery = studentsQuery.eq("id", input.studentId);
-    }
-
-    const { data } = await studentsQuery.returns<ActiveStudent[]>();
-    students = data ?? [];
-  } else if (input.studentId) {
-    students = students.filter((student) => student.id === input.studentId);
-  }
-
-  const studentIds = students.map((student) => student.id);
+  let population = input.population ?? await loadHistoricalReportingStudentsForWeeks(input.supabase, input.weekStarts);
+  if (input.studentId) population = population.filter((student) => student.student_id === input.studentId);
+  population = population.filter((student) => student.scoring_eligible);
+  const populationByWeek = historicalPopulationByStudentWeek(population);
+  const studentIds = [...new Set(population.map((student) => student.student_id))];
 
   if (!studentIds.length) {
     return [];
   }
 
-  const [{ data: checkins }, { data: partnerRecitations }, { data: halaqaGrades }] = await Promise.all([
-    input.supabase
-      .from("checkins")
-      .select("student_id,date,daily_score")
-      .in("student_id", studentIds)
-      .in("date", allDates)
-      .returns<WeeklyCheckIn[]>(),
-    input.supabase
-      .from("partner_recitations")
-      .select("student_id,week_start,round,points")
-      .in("student_id", studentIds)
-      .in("week_start", input.weekStarts)
-      .returns<WeeklyPartnerRecitation[]>(),
-    input.supabase
-      .from("halaqa_grades")
-      .select("student_id,week_start,attendance_points,recitation_points")
-      .in("student_id", studentIds)
-      .in("week_start", input.weekStarts)
-      .returns<WeeklyHalaqaGrade[]>()
+  const orderedWeekStarts = [...input.weekStarts].sort();
+  const firstWeekStart = orderedWeekStarts[0];
+  const lastWeekStart = orderedWeekStarts.at(-1)!;
+  const studentIdChunks = chunksOf(studentIds);
+  const [checkins, partnerRecitations, halaqaGrades] = await Promise.all([
+    Promise.all(studentIdChunks.map((studentIdChunk) =>
+      loadAllSupabasePages<WeeklyCheckIn>((from, to) =>
+        input.supabase
+          .from("checkins")
+          .select("student_id,date,daily_score,masjid_id,cohort_id,halaqa_group_id")
+          .in("student_id", studentIdChunk)
+          .gte("date", firstWeekStart)
+          .lte("date", addDays(lastWeekStart, 6))
+          .order("student_id")
+          .order("date")
+          .range(from, to)
+          .returns<WeeklyCheckIn[]>()
+      )
+    )).then((pages) => pages.flat()),
+    Promise.all(studentIdChunks.map((studentIdChunk) =>
+      loadAllSupabasePages<WeeklyPartnerRecitation>((from, to) =>
+        input.supabase
+          .from("partner_recitations")
+          .select("student_id,week_start,round,points,masjid_id,cohort_id,halaqa_group_id")
+          .in("student_id", studentIdChunk)
+          .gte("week_start", firstWeekStart)
+          .lte("week_start", lastWeekStart)
+          .order("student_id")
+          .order("week_start")
+          .order("round")
+          .range(from, to)
+          .returns<WeeklyPartnerRecitation[]>()
+      )
+    )).then((pages) => pages.flat()),
+    Promise.all(studentIdChunks.map((studentIdChunk) =>
+      loadAllSupabasePages<WeeklyHalaqaGrade>((from, to) =>
+        input.supabase
+          .from("halaqa_grades")
+          .select("student_id,week_start,attendance_points,recitation_points,masjid_id,cohort_id,halaqa_group_id")
+          .in("student_id", studentIdChunk)
+          .gte("week_start", firstWeekStart)
+          .lte("week_start", lastWeekStart)
+          .order("student_id")
+          .order("week_start")
+          .range(from, to)
+          .returns<WeeklyHalaqaGrade[]>()
+      )
+    )).then((pages) => pages.flat())
   ]);
 
   return buildWeeklyIncentiveRows({
-    students,
-    weekStarts: input.weekStarts,
-    checkins: checkins ?? [],
-    partnerRecitations: partnerRecitations ?? [],
-    halaqaGrades: halaqaGrades ?? []
+    population,
+    checkins: checkins.filter((row) =>
+      activityMatchesHistoricalPopulation(row, weekStartForDate(row.date), populationByWeek)
+    ),
+    partnerRecitations: partnerRecitations.filter((row) =>
+      activityMatchesHistoricalPopulation(row, row.week_start, populationByWeek)
+    ),
+    halaqaGrades: halaqaGrades.filter((row) =>
+      activityMatchesHistoricalPopulation(row, row.week_start, populationByWeek)
+    )
   });
 }
 
@@ -337,16 +336,15 @@ export async function loadComputedBadgeAwards(input: {
   supabase: SupabaseClient;
   weekStarts?: string[];
   studentId?: string;
-  students?: ActiveStudent[];
+  population?: HistoricalReportingStudent[];
   today?: string;
 }) {
-  const scopedStudentIds = input.students?.map((student) => student.id);
-  const weekStarts = input.weekStarts ?? (await loadCompletedWeekStarts(input.supabase, input.today, scopedStudentIds));
+  const weekStarts = input.weekStarts ?? (await loadCompletedWeekStarts(input.supabase, input.today));
   const rows = await loadComputedWeeklyIncentiveRows({
     supabase: input.supabase,
     weekStarts,
     studentId: input.studentId,
-    students: input.students
+    population: input.population
   });
 
   return rows.flatMap((row) => {
@@ -358,12 +356,10 @@ export async function loadComputedBadgeAwards(input: {
 export async function loadWeeklyIncentiveReportData(input: {
   supabase: SupabaseClient;
   week?: string;
-  students?: ActiveStudent[];
   today?: string;
 }) {
   const today = input.today ?? checkInEffectiveDateString();
-  const scopedStudentIds = input.students?.map((student) => student.id);
-  const completedWeekStarts = await loadCompletedWeekStarts(input.supabase, today, scopedStudentIds);
+  const completedWeekStarts = await loadCompletedWeekStarts(input.supabase, today);
   const selectedWeekStart = validCompletedWeekStart(input.week, completedWeekStarts);
 
   if (!selectedWeekStart) {
@@ -375,24 +371,62 @@ export async function loadWeeklyIncentiveReportData(input: {
     };
   }
 
-  const selectedIndex = completedWeekStarts.indexOf(selectedWeekStart);
-  const reportWeekStarts = completedWeekStarts.slice(selectedIndex, selectedIndex + 3);
+  const reportWeekStarts = [
+    selectedWeekStart,
+    addDays(selectedWeekStart, -7),
+    addDays(selectedWeekStart, -14)
+  ].filter((weekStart) => completedWeekStarts.includes(weekStart));
+  const population = await loadHistoricalReportingStudentsForWeeks(input.supabase, reportWeekStarts);
   const rows = await loadComputedWeeklyIncentiveRows({
     supabase: input.supabase,
     weekStarts: reportWeekStarts,
-    students: input.students
+    population
   });
-  let pendingAccountabilityQuery = input.supabase
-    .from("accountability_obligations")
-    .select("id", { count: "exact", head: true })
-    .eq("week_start", selectedWeekStart)
-    .eq("status", "pending");
-
-  if (scopedStudentIds) {
-    pendingAccountabilityQuery = pendingAccountabilityQuery.in("student_id", scopedStudentIds);
+  const scopedStudentIds = population
+    .filter((student) => student.week_start === selectedWeekStart && student.scoring_eligible)
+    .map((student) => student.student_id);
+  if (!scopedStudentIds.length) {
+    return {
+      availableWeekStarts: completedWeekStarts,
+      selectedWeekStart,
+      report: buildWeeklyIncentiveReport({
+        selectedWeekStart,
+        completedWeekStartsDescending: reportWeekStarts,
+        rows
+      }),
+      pendingAccountabilityCount: 0
+    };
   }
 
-  const { count: pendingAccountabilityCount } = await pendingAccountabilityQuery;
+  const selectedPopulationByStudent = new Map(
+    population
+      .filter((student) => student.week_start === selectedWeekStart && student.scoring_eligible)
+      .map((student) => [student.student_id, student])
+  );
+  const pendingObligations = (
+    await Promise.all(
+      chunksOf(scopedStudentIds).map((studentIdChunk) =>
+        loadAllSupabasePages<Pick<AccountabilityObligation, "student_id" | "masjid_id" | "cohort_id" | "halaqa_group_id">>(
+          (from, to) => input.supabase
+            .from("accountability_obligations")
+            .select("student_id,masjid_id,cohort_id,halaqa_group_id")
+            .eq("week_start", selectedWeekStart)
+            .eq("status", "pending")
+            .in("student_id", studentIdChunk)
+            .order("student_id")
+            .range(from, to)
+            .returns<Array<Pick<AccountabilityObligation, "student_id" | "masjid_id" | "cohort_id" | "halaqa_group_id">>>()
+        )
+      )
+    )
+  ).flat();
+  const pendingAccountabilityCount = pendingObligations.filter((obligation) => {
+    const historical = selectedPopulationByStudent.get(obligation.student_id);
+    return historical
+      && obligation.masjid_id === historical.masjid_id
+      && obligation.cohort_id === historical.cohort_id
+      && obligation.halaqa_group_id === historical.group_id;
+  }).length;
 
   return {
     availableWeekStarts: completedWeekStarts,
@@ -402,12 +436,13 @@ export async function loadWeeklyIncentiveReportData(input: {
       completedWeekStartsDescending: reportWeekStarts,
       rows
     }),
-    pendingAccountabilityCount: pendingAccountabilityCount ?? 0
+    pendingAccountabilityCount
   };
 }
 
 export async function findOrCreateBlockingAccountabilityObligation(input: {
   supabase: SupabaseClient;
+  adminSupabase: SupabaseClient;
   studentId: string;
   today?: string;
 }) {
@@ -431,79 +466,22 @@ export async function findOrCreateBlockingAccountabilityObligation(input: {
     return null;
   }
 
-  const { data: existingObligations } = await input.supabase
-    .from("accountability_obligations")
-    .select("id,student_id,week_start,weekly_percentage,amount_cents,status,attested_paid_at,waived_at,waived_by,admin_note,created_at,updated_at")
-    .eq("student_id", input.studentId)
-    .in(
-      "week_start",
-      scoreRows.map((row) => row.weekStart)
-    )
-    .returns<AccountabilityObligation[]>();
-  const obligationByWeek = new Map((existingObligations ?? []).map((obligation) => [obligation.week_start, obligation]));
-
   for (const row of scoreRows) {
-    const existing = obligationByWeek.get(row.weekStart);
-
-    if (row.weeklyPercentage >= 70) {
-      if (existing?.status === "pending") {
-        const now = new Date().toISOString();
-        await input.supabase
-          .from("accountability_obligations")
-          .update({
-            weekly_percentage: row.weeklyPercentage,
-            amount_cents: 0,
-            status: "waived",
-            waived_at: now,
-            admin_note: "Auto-waived after automatic score recalculation >= 70",
-            updated_at: now
-          })
-          .eq("id", existing.id)
-          .eq("status", "pending");
+    const { data, error } = await input.adminSupabase.rpc(
+      "reconcile_historical_accountability_obligation",
+      {
+        input_student_id: input.studentId,
+        input_week_start: row.weekStart
       }
-
-      continue;
-    }
-
-    if (existing?.status === "attested_paid" || existing?.status === "waived") {
-      continue;
-    }
-
-    if (existing?.status === "pending") {
-      const now = new Date().toISOString();
-      const { data: updated } = await input.supabase
-        .from("accountability_obligations")
-        .update({
-          weekly_percentage: row.weeklyPercentage,
-          amount_cents: row.accountabilityAmountCents,
-          updated_at: now
-        })
-        .eq("id", existing.id)
-        .eq("status", "pending")
-        .select("id,student_id,week_start,weekly_percentage,amount_cents,status,attested_paid_at,waived_at,waived_by,admin_note,created_at,updated_at")
-        .maybeSingle<AccountabilityObligation>();
-
-      return updated ?? existing;
-    }
-
-    const { data: inserted, error } = await input.supabase
-      .from("accountability_obligations")
-      .insert({
-        student_id: input.studentId,
-        week_start: row.weekStart,
-        weekly_percentage: row.weeklyPercentage,
-        amount_cents: row.accountabilityAmountCents,
-        status: "pending",
-        updated_at: new Date().toISOString()
-      })
-      .select("id,student_id,week_start,weekly_percentage,amount_cents,status,attested_paid_at,waived_at,waived_by,admin_note,created_at,updated_at")
-      .single<AccountabilityObligation>();
+    );
 
     if (error) {
-      throw new Error("Unable to create accountability obligation.");
+      throw new Error("Unable to reconcile accountability obligation.");
     }
 
-    return inserted;
+    if (data) {
+      return data as AccountabilityObligation;
+    }
   }
 
   return null;

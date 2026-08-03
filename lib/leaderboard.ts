@@ -1,7 +1,7 @@
 import { addDays, weekDatesFromStart } from "@/lib/dates";
 import { accountabilityAppliesToWeek } from "@/lib/incentives";
 import { calculateWeeklyScore, type WeeklyScore } from "@/lib/scoring";
-import type { CheckIn, HalaqaGrade, PartnerRecitation, Profile } from "@/lib/types";
+import type { CheckIn, HalaqaGrade, PartnerRecitation } from "@/lib/types";
 
 export const PASSING_PERCENTAGE = 70;
 
@@ -9,14 +9,29 @@ export type LeaderboardRow = {
   rank: number;
   studentId: string;
   studentName: string;
-  studentEmail: string;
+  studentEmail: string | null;
   studentPhone: string | null;
+  masjidName: string;
+  cohortName: string;
+  groupName: string;
+  canViewCurrentContact: boolean;
+  canOpenCurrentProfile: boolean;
   score: WeeklyScore;
   status: "passing" | "below_70" | "in_progress" | "below_70_so_far";
   below70Streak: number;
 };
 
-type Student = Pick<Profile, "id" | "name" | "email" | "phone">;
+type Student = {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  masjidName: string;
+  cohortName: string;
+  groupName: string;
+  canViewCurrentContact: boolean;
+  canOpenCurrentProfile: boolean;
+};
 
 function escapeCsv(value: string | number | boolean | null | undefined) {
   const text = value === null || value === undefined ? "" : String(value);
@@ -52,6 +67,7 @@ export function calculateWeekScoreForStudent(input: {
 export function calculateBelow70Streak(input: {
   completedWeekStartsDescending: string[];
   minimumWeekStart?: string | null;
+  eligibleWeekStarts?: ReadonlySet<string>;
   checkinsByWeek: ReadonlyMap<string, Pick<CheckIn, "student_id" | "date" | "daily_score">[]>;
   partnerRecitationsByWeek: ReadonlyMap<string, Pick<PartnerRecitation, "student_id" | "round" | "points">[]>;
   halaqaGradeByWeek: ReadonlyMap<
@@ -66,6 +82,10 @@ export function calculateBelow70Streak(input: {
   let streak = 0;
 
   for (const weekStart of input.completedWeekStartsDescending) {
+    if (input.eligibleWeekStarts && !input.eligibleWeekStarts.has(weekStart)) {
+      break;
+    }
+
     if (weekStart < input.minimumWeekStart) {
       break;
     }
@@ -115,6 +135,7 @@ export function buildLeaderboardRows(input: {
         string,
         Pick<HalaqaGrade, "student_id" | "attendance_points" | "recitation_points"> | null
       >;
+      eligibleWeekStarts: ReadonlySet<string>;
     }
   >;
   minimumWeekStartByStudent?: ReadonlyMap<string, string | null | undefined>;
@@ -149,6 +170,11 @@ export function buildLeaderboardRows(input: {
       studentName: student.name,
       studentEmail: student.email,
       studentPhone: student.phone,
+      masjidName: student.masjidName,
+      cohortName: student.cohortName,
+      groupName: student.groupName,
+      canViewCurrentContact: student.canViewCurrentContact,
+      canOpenCurrentProfile: student.canOpenCurrentProfile,
       score,
       status: selectedWeekComplete
         ? belowThreshold
@@ -186,6 +212,9 @@ export function leaderboardRowsToCsv(rows: LeaderboardRow[]) {
     "student name",
     "student phone",
     "student email",
+    "historical masjid",
+    "historical cohort",
+    "historical group",
     "weekly percentage",
     "status",
     "below_70_streak",
@@ -202,6 +231,9 @@ export function leaderboardRowsToCsv(rows: LeaderboardRow[]) {
         row.studentName,
         row.studentPhone,
         row.studentEmail,
+        row.masjidName,
+        row.cohortName,
+        row.groupName,
         row.score.percentage,
         leaderboardStatusLabel(row.status),
         row.below70Streak,

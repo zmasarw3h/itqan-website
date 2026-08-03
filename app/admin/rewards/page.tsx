@@ -1,16 +1,17 @@
 import Link from "next/link";
 import AppNav from "@/app/nav";
-import { adminScopedStudentToProfile, loadAdminStudentsForWeek } from "@/lib/admin-scope";
-import { formatWeekRange, torontoCivilDateString, weekStartForDate } from "@/lib/dates";
+import { formatWeekRange, torontoCivilDateString } from "@/lib/dates";
 import {
   buildMonthlyBadgeLeaderboard,
+  buildMonthlyRewardPopulation,
   formatMonthLabel,
   isValidMonthString,
   monthStartForDate,
   monthStartForMonthString
 } from "@/lib/rewards";
 import { requireProfile } from "@/lib/supabase-server";
-import { loadComputedBadgeAwards } from "@/lib/weekly-incentives";
+import { loadHistoricalReportingStudentsForWeeks } from "@/lib/reporting-population";
+import { loadCompletedWeekStarts, loadComputedBadgeAwards } from "@/lib/weekly-incentives";
 
 export const dynamic = "force-dynamic";
 
@@ -36,13 +37,18 @@ export default async function AdminRewardsPage({
   searchParams: Promise<AdminRewardsSearchParams>;
 }) {
   const resolvedSearchParams = await searchParams;
-  const { supabase, profile } = await requireProfile(["admin"]);
+  const { supabase, profile } = await requireProfile(["admin", "super_admin"]);
   const monthStart = selectedMonthStart(resolvedSearchParams.month);
-  const currentWeekStart = weekStartForDate(torontoCivilDateString());
-  const students = (await loadAdminStudentsForWeek(supabase, currentWeekStart)).map(adminScopedStudentToProfile);
-  const awards = await loadComputedBadgeAwards({ supabase, students });
+  const completedWeekStarts = await loadCompletedWeekStarts(supabase);
+  const population = await loadHistoricalReportingStudentsForWeeks(supabase, completedWeekStarts);
+  const awards = await loadComputedBadgeAwards({ supabase, weekStarts: completedWeekStarts, population });
+  const students = buildMonthlyRewardPopulation({ population, monthStart });
   const availableMonthStarts = [
-    ...new Set([monthStart, monthStartForDate(torontoCivilDateString()), ...awards.map((award) => `${award.week_start.slice(0, 7)}-01`)])
+    ...new Set([
+      monthStart,
+      monthStartForDate(torontoCivilDateString()),
+      ...completedWeekStarts.map((weekStart) => `${weekStart.slice(0, 7)}-01`)
+    ])
   ].sort((a, b) => b.localeCompare(a));
   const rows = buildMonthlyBadgeLeaderboard({
     students,
@@ -98,10 +104,16 @@ export default async function AdminRewardsPage({
                   <tr key={row.studentId}>
                     <td className="px-3 py-3 font-semibold text-ink">{row.rank}</td>
                     <td className="px-3 py-3">
-                      <Link className="font-medium text-moss hover:text-ink" href={`/admin/students/${row.studentId}`}>
-                        {row.studentName}
-                      </Link>
-                      <p className="mt-1 text-xs text-stone-500">{row.studentPhone || row.studentEmail}</p>
+                      {row.canOpenCurrentProfile ? (
+                        <Link className="font-medium text-moss hover:text-ink" href={`/admin/students/${row.studentId}`}>
+                          {row.studentName}
+                        </Link>
+                      ) : (
+                        <span className="font-medium text-ink">{row.studentName}</span>
+                      )}
+                      {row.canViewCurrentContact && (row.studentPhone || row.studentEmail) ? (
+                        <p className="mt-1 text-xs text-stone-500">{row.studentPhone || row.studentEmail}</p>
+                      ) : null}
                     </td>
                     <td className="px-3 py-3 font-semibold text-ink">{row.monthBadges}</td>
                     <td className="px-3 py-3 text-stone-700">{row.lifetimeBadges}</td>

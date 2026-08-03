@@ -13,6 +13,11 @@ function leaderboardRow(overrides: Partial<LeaderboardRow> = {}): LeaderboardRow
     studentName: "Student One",
     studentEmail: "student@example.com",
     studentPhone: "+1 555 0101",
+    masjidName: "Masjid A",
+    cohortName: "Brothers",
+    groupName: "Group A",
+    canViewCurrentContact: true,
+    canOpenCurrentProfile: true,
     score: {
       daily_points: 700,
       partner_points: 150,

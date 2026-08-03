@@ -22,7 +22,7 @@ if ! git rev-parse --verify "${base_ref}^{commit}" >/dev/null 2>&1; then
   base_ref="origin/main"
 fi
 base_commit="$(git rev-parse "${base_ref}^{commit}")"
-cutoff_filename="20260731224257_temporal_teacher_week_authorization_followup.sql"
+cutoff_filename="20260801193526_access_transition_upgrade_path.sql"
 cutoff_path="supabase/migrations/${cutoff_filename}"
 
 if ! git cat-file -e "${base_commit}:${cutoff_path}"; then
@@ -122,6 +122,15 @@ from unnest(array[
   'public.apply_super_admin_access_change(uuid,uuid,uuid,text,date,uuid,uuid,jsonb)',
   'public.apply_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date,jsonb)',
   'public.apply_super_admin_staff_membership_end(uuid,uuid,uuid,uuid,date,jsonb)',
+  'public.historical_reporting_available_weeks()',
+  'public.historical_reporting_students_for_weeks(date[])',
+  'public.student_historical_reporting_scope_for_week(date)',
+  'public.student_cohort_leaderboard_for_week(date)',
+  'public.student_leaderboard_available_weeks()',
+  'public.reconcile_historical_accountability_obligation(uuid,date)',
+  'public.enforce_student_accountability_attestation()',
+  'public.set_student_scope_snapshot()',
+  'public.validate_accountability_obligation_scope()',
   'private.raw_profile_access_projection(uuid,date)'
 ]::text[]) as signatures(signature)
 join pg_proc as procedures on procedures.oid = to_regprocedure(signatures.signature)
@@ -142,7 +151,8 @@ where not triggers.tgisinternal
     'enforce_staff_grant_preview_transition',
     'enforce_masjid_hierarchy_readiness',
     'enforce_cohort_hierarchy_readiness',
-    'enforce_group_hierarchy_readiness'
+    'enforce_group_hierarchy_readiness',
+    'enforce_student_accountability_attestation_trigger'
   )
 order by namespaces.nspname, relations.relname, triggers.tgname;
 
@@ -162,6 +172,15 @@ from unnest(array[
   'public.apply_super_admin_access_change(uuid,uuid,uuid,text,date,uuid,uuid,jsonb)',
   'public.apply_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date,jsonb)',
   'public.apply_super_admin_staff_membership_end(uuid,uuid,uuid,uuid,date,jsonb)',
+  'public.historical_reporting_available_weeks()',
+  'public.historical_reporting_students_for_weeks(date[])',
+  'public.student_historical_reporting_scope_for_week(date)',
+  'public.student_cohort_leaderboard_for_week(date)',
+  'public.student_leaderboard_available_weeks()',
+  'public.reconcile_historical_accountability_obligation(uuid,date)',
+  'public.enforce_student_accountability_attestation()',
+  'public.set_student_scope_snapshot()',
+  'public.validate_accountability_obligation_scope()',
   'private.raw_profile_access_projection(uuid,date)'
 ]::text[]) as signatures(signature)
 join pg_proc as procedures on procedures.oid = to_regprocedure(signatures.signature)
@@ -202,6 +221,10 @@ eval "$(cd "$upgrade_root" && "$supabase_cli" status -o env)"
 )
 upgrade_snapshot="$temp_root/upgrade-schema.snapshot"
 capture_schema_snapshot "$upgrade_snapshot"
+historical_audit_output="$temp_root/historical-population-audit.txt"
+docker exec -i "$db_container" psql \
+  --set ON_ERROR_STOP=1 --username postgres --dbname postgres --no-psqlrc \
+  < "$repo_root/scripts/audit-historical-report-populations.sql" > "$historical_audit_output"
 
 if ! cmp -s "$clean_snapshot" "$upgrade_snapshot"; then
   echo "Clean-install and production-upgrade critical schema snapshots differ." >&2
@@ -212,3 +235,5 @@ fi
 echo "Clean-install and production-upgrade critical schemas match."
 echo "Pre-deployment audit completed; sample redacted output:"
 sed -n '1,80p' "$base_audit_output"
+echo "Historical population audit completed; sample ID-only fixture output:"
+sed -n '1,80p' "$historical_audit_output"

@@ -9,10 +9,11 @@ import {
   weekStartForDate
 } from "@/lib/dates";
 import {
-  loadStudentWeekContext,
+  loadStudentWeekTeacher,
   type StudentWeekScope,
   type StudentWeekTeacher
 } from "@/lib/student-scope";
+import type { CohortKind } from "@/lib/types";
 import type { StudentLeaderboardRow } from "@/lib/student-leaderboard";
 
 type SupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
@@ -26,6 +27,20 @@ type StudentLeaderboardRpcRow = {
   score_percentage: number;
   is_current_student: boolean;
   status_label: string;
+};
+
+type HistoricalScopeRpcRow = {
+  student_id: string;
+  week_start: string;
+  masjid_id: string;
+  masjid_name: string;
+  masjid_slug: string;
+  cohort_id: string;
+  cohort_name: string;
+  cohort_kind: CohortKind;
+  group_id: string;
+  group_name: string;
+  membership_starts_on: string;
 };
 
 export type StudentLeaderboardSearchParams = {
@@ -66,17 +81,42 @@ function mapLeaderboardRow(row: StudentLeaderboardRpcRow): StudentLeaderboardRow
   };
 }
 
+function mapHistoricalScope(row: HistoricalScopeRpcRow | null): StudentWeekScope | null {
+  return row ? {
+    studentId: row.student_id,
+    weekStart: row.week_start,
+    masjidId: row.masjid_id,
+    masjidName: row.masjid_name,
+    masjidSlug: row.masjid_slug,
+    cohortId: row.cohort_id,
+    cohortName: row.cohort_name,
+    cohortKind: row.cohort_kind,
+    groupId: row.group_id,
+    groupName: row.group_name,
+    startsOn: row.membership_starts_on
+  } : null;
+}
+
 export async function loadStudentLeaderboardData(
   supabase: SupabaseClient,
-  currentStudentId: string,
   searchParams: StudentLeaderboardSearchParams
 ): Promise<StudentLeaderboardData> {
   const today = checkInEffectiveDateString();
   const currentWeekStart = weekStartForDate(today);
   const selectedWeekStart = validWeekStart(searchParams.week, currentWeekStart);
   const previousWeekStart = addDays(selectedWeekStart, -7);
-  const studentContext = await loadStudentWeekContext(supabase, currentStudentId, selectedWeekStart);
-  const { scope, teacher } = studentContext;
+  const [{ data: scopeRow, error: scopeError }, teacher] = await Promise.all([
+    supabase
+      .rpc("student_historical_reporting_scope_for_week", { input_week_start: selectedWeekStart })
+      .maybeSingle<HistoricalScopeRpcRow>(),
+    loadStudentWeekTeacher(supabase, selectedWeekStart)
+  ]);
+
+  if (scopeError) {
+    throw new Error("Unable to load the historical student reporting scope.");
+  }
+
+  const scope = mapHistoricalScope(scopeRow ?? null);
 
   if (!scope) {
     return {

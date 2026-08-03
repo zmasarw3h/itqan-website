@@ -1,24 +1,40 @@
 import "server-only";
-import { adminScopedStudentToProfile, loadAdminStudentsForWeek } from "@/lib/admin-scope";
 import {
   buildLeaderboardRows,
   weekIsComplete,
   type LeaderboardRow
 } from "@/lib/leaderboard";
 import {
+  addDays,
   checkInEffectiveDateString,
   formatWeekRange,
   isValidDateString,
   weekDatesFromStart,
   weekStartForDate
 } from "@/lib/dates";
+import {
+  activityMatchesHistoricalPopulation,
+  historicalPopulationByStudentWeek,
+  loadHistoricalReportingAvailableWeeks,
+  loadHistoricalReportingStudentsForWeeks
+} from "@/lib/reporting-population";
+import { chunksOf, loadAllSupabasePages } from "@/lib/supabase-pagination";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn, HalaqaGrade, PartnerRecitation } from "@/lib/types";
 
 type SupabaseClient = Awaited<ReturnType<typeof requireProfile>>["supabase"];
-type LeaderboardCheckIn = Pick<CheckIn, "student_id" | "date" | "daily_score">;
-type LeaderboardPartnerRecitation = Pick<PartnerRecitation, "student_id" | "week_start" | "round" | "points">;
-type LeaderboardHalaqaGrade = Pick<HalaqaGrade, "student_id" | "week_start" | "attendance_points" | "recitation_points">;
+type LeaderboardCheckIn = Pick<
+  CheckIn,
+  "student_id" | "date" | "daily_score" | "masjid_id" | "cohort_id" | "halaqa_group_id"
+>;
+type LeaderboardPartnerRecitation = Pick<
+  PartnerRecitation,
+  "student_id" | "week_start" | "round" | "points" | "masjid_id" | "cohort_id" | "halaqa_group_id"
+>;
+type LeaderboardHalaqaGrade = Pick<
+  HalaqaGrade,
+  "student_id" | "week_start" | "attendance_points" | "recitation_points" | "masjid_id" | "cohort_id" | "halaqa_group_id"
+>;
 
 export type LeaderboardSearchParams = {
   week?: string;
@@ -34,12 +50,12 @@ export type LeaderboardData = {
   below70Only: boolean;
 };
 
-function validWeekStart(value: string | undefined, fallback: string) {
+function validWeekStart(value: string | undefined, fallback: string, allowedWeekStarts: ReadonlySet<string>) {
   if (!value || !isValidDateString(value)) {
     return fallback;
   }
 
-  return weekStartForDate(value) === value ? value : fallback;
+  return weekStartForDate(value) === value && allowedWeekStarts.has(value) ? value : fallback;
 }
 
 function studentWeekKey(studentId: string, weekStart: string) {
@@ -124,89 +140,132 @@ export async function loadLeaderboardData(
 ): Promise<LeaderboardData> {
   const today = checkInEffectiveDateString();
   const currentWeekStart = weekStartForDate(today);
-  const selectedWeekStart = validWeekStart(searchParams.week, currentWeekStart);
   const below70Only = searchParams.below70 === "1";
-  const adminScopedStudents = await loadAdminStudentsForWeek(supabase, selectedWeekStart);
-  const students = adminScopedStudents.map(adminScopedStudentToProfile);
-  const studentIds = students.map((student) => student.id);
-  const minimumWeekStartByStudent = new Map(
-    adminScopedStudents.map((student) => [student.student_id, student.score_starts_on])
-  );
-
-  const [{ data: checkinDates }, { data: partnerWeeks }, { data: halaqaWeeks }] = studentIds.length
-    ? await Promise.all([
-        supabase
-          .from("checkins")
-          .select("date")
-          .in("student_id", studentIds)
-          .order("date", { ascending: false })
-          .limit(365)
-          .returns<Array<{ date: string }>>(),
-        supabase
-          .from("partner_recitations")
-          .select("week_start")
-          .in("student_id", studentIds)
-          .order("week_start", { ascending: false })
-          .limit(104)
-          .returns<Array<{ week_start: string }>>(),
-        supabase
-          .from("halaqa_grades")
-          .select("week_start")
-          .in("student_id", studentIds)
-          .order("week_start", { ascending: false })
-          .limit(104)
-          .returns<Array<{ week_start: string }>>()
-      ])
-    : [{ data: [] }, { data: [] }, { data: [] }];
+  const reportWeekStarts = await loadHistoricalReportingAvailableWeeks(supabase);
+  const selectableWeekStarts = new Set([currentWeekStart, ...reportWeekStarts]);
+  const selectedWeekStart = validWeekStart(searchParams.week, currentWeekStart, selectableWeekStarts);
   const availableWeekStarts = [
     ...new Set([
       currentWeekStart,
-      selectedWeekStart,
-      ...(checkinDates ?? []).map((checkin) => weekStartForDate(checkin.date)),
-      ...(partnerWeeks ?? []).map((week) => week.week_start),
-      ...(halaqaWeeks ?? []).map((week) => week.week_start)
+      ...reportWeekStarts
     ])
   ].sort((a, b) => b.localeCompare(a));
-  const completedWeekStartsDescending = availableWeekStarts.filter(
-    (weekStart) => weekStart <= selectedWeekStart && weekIsComplete(weekStart, today)
-  );
+  const earliestAvailableWeek = reportWeekStarts
+    .filter((weekStart) => weekStart <= selectedWeekStart)
+    .sort()[0] ?? selectedWeekStart;
+  const completedWeekStartsDescending: string[] = [];
+  let streakWeekStart = weekIsComplete(selectedWeekStart, today)
+    ? selectedWeekStart
+    : addDays(selectedWeekStart, -7);
+
+  while (streakWeekStart >= earliestAvailableWeek) {
+    completedWeekStartsDescending.push(streakWeekStart);
+    streakWeekStart = addDays(streakWeekStart, -7);
+  }
   const allWeekStarts = [...new Set([selectedWeekStart, ...completedWeekStartsDescending])];
-  const allDates = allWeekStarts.flatMap((weekStart) => weekDatesFromStart(weekStart));
+  const population = await loadHistoricalReportingStudentsForWeeks(supabase, allWeekStarts);
+  const populationByWeek = historicalPopulationByStudentWeek(population);
+  const selectedPopulation = population.filter(
+    (student) => student.week_start === selectedWeekStart && student.scoring_eligible
+  );
+  const students = selectedPopulation.map((student) => ({
+    id: student.student_id,
+    name: student.student_name,
+    email: student.student_email,
+    phone: student.student_phone,
+    masjidName: student.masjid_name,
+    cohortName: student.cohort_name,
+    groupName: student.group_name,
+    canViewCurrentContact: student.can_view_current_contact,
+    canOpenCurrentProfile: student.can_open_current_profile
+  }));
+  const studentIds = [...new Set(population.filter((student) => student.scoring_eligible).map((student) => student.student_id))];
+  const minimumWeekStartByStudent = new Map(
+    selectedPopulation.map((student) => [student.student_id, student.score_starts_on])
+  );
+  const eligibleWeeksByStudent = new Map<string, Set<string>>();
 
-  const [{ data: checkins }, { data: partnerRecitations }, { data: halaqaGrades }] = studentIds.length
+  for (const student of population) {
+    if (!student.scoring_eligible) continue;
+    const weeks = eligibleWeeksByStudent.get(student.student_id) ?? new Set<string>();
+    weeks.add(student.week_start);
+    eligibleWeeksByStudent.set(student.student_id, weeks);
+  }
+
+  const orderedWeekStarts = [...allWeekStarts].sort();
+  const firstWeekStart = orderedWeekStarts[0];
+  const lastWeekStart = orderedWeekStarts.at(-1)!;
+  const firstDate = firstWeekStart;
+  const lastDate = addDays(lastWeekStart, 6);
+  const studentIdChunks = chunksOf(studentIds);
+  const [checkins, partnerRecitations, halaqaGrades] = studentIds.length
     ? await Promise.all([
-        supabase
-          .from("checkins")
-          .select("student_id,date,daily_score")
-          .in("student_id", studentIds)
-          .in("date", allDates)
-          .returns<LeaderboardCheckIn[]>(),
-        supabase
-          .from("partner_recitations")
-          .select("student_id,week_start,round,points")
-          .in("student_id", studentIds)
-          .in("week_start", allWeekStarts)
-          .returns<LeaderboardPartnerRecitation[]>(),
-        supabase
-          .from("halaqa_grades")
-          .select("student_id,week_start,attendance_points,recitation_points")
-          .in("student_id", studentIds)
-          .in("week_start", allWeekStarts)
-          .returns<LeaderboardHalaqaGrade[]>()
+        Promise.all(studentIdChunks.map((studentIdChunk) =>
+          loadAllSupabasePages<LeaderboardCheckIn>((from, to) =>
+            supabase
+              .from("checkins")
+              .select("student_id,date,daily_score,masjid_id,cohort_id,halaqa_group_id")
+              .in("student_id", studentIdChunk)
+              .gte("date", firstDate)
+              .lte("date", lastDate)
+              .order("student_id")
+              .order("date")
+              .range(from, to)
+              .returns<LeaderboardCheckIn[]>()
+          )
+        )).then((pages) => pages.flat()),
+        Promise.all(studentIdChunks.map((studentIdChunk) =>
+          loadAllSupabasePages<LeaderboardPartnerRecitation>((from, to) =>
+            supabase
+              .from("partner_recitations")
+              .select("student_id,week_start,round,points,masjid_id,cohort_id,halaqa_group_id")
+              .in("student_id", studentIdChunk)
+              .gte("week_start", firstWeekStart)
+              .lte("week_start", lastWeekStart)
+              .order("student_id")
+              .order("week_start")
+              .order("round")
+              .range(from, to)
+              .returns<LeaderboardPartnerRecitation[]>()
+          )
+        )).then((pages) => pages.flat()),
+        Promise.all(studentIdChunks.map((studentIdChunk) =>
+          loadAllSupabasePages<LeaderboardHalaqaGrade>((from, to) =>
+            supabase
+              .from("halaqa_grades")
+              .select("student_id,week_start,attendance_points,recitation_points,masjid_id,cohort_id,halaqa_group_id")
+              .in("student_id", studentIdChunk)
+              .gte("week_start", firstWeekStart)
+              .lte("week_start", lastWeekStart)
+              .order("student_id")
+              .order("week_start")
+              .range(from, to)
+              .returns<LeaderboardHalaqaGrade[]>()
+          )
+        )).then((pages) => pages.flat())
       ])
-    : [{ data: [] }, { data: [] }, { data: [] }];
+    : [[], [], []];
 
+  const validCheckins = checkins.filter((checkin) =>
+    activityMatchesHistoricalPopulation(checkin, weekStartForDate(checkin.date), populationByWeek)
+  );
+  const validPartnerRecitations = partnerRecitations.filter((recitation) =>
+    activityMatchesHistoricalPopulation(recitation, recitation.week_start, populationByWeek)
+  );
+  const validHalaqaGrades = halaqaGrades.filter((grade) =>
+    activityMatchesHistoricalPopulation(grade, grade.week_start, populationByWeek)
+  );
   const selectedWeekDates = new Set(weekDatesFromStart(selectedWeekStart));
   const selectedWeekCheckinsByStudent = groupCheckinsByStudent(
-    (checkins ?? []).filter((checkin) => selectedWeekDates.has(checkin.date))
+    validCheckins.filter((checkin) => selectedWeekDates.has(checkin.date))
   );
   const selectedWeekPartnerRecitationsByStudent = groupPartnerRecitationsByStudent(
-    (partnerRecitations ?? [])
+    validPartnerRecitations
       .filter((recitation) => recitation.week_start === selectedWeekStart)
       .map(({ student_id, round, points }) => ({ student_id, round, points }))
   );
   const selectedWeekHalaqaGradeByStudent = groupHalaqaGradesByStudent(
-    (halaqaGrades ?? [])
+    validHalaqaGrades
       .filter((grade) => grade.week_start === selectedWeekStart)
       .map(({ student_id, attendance_points, recitation_points }) => ({
         student_id,
@@ -214,15 +273,16 @@ export async function loadLeaderboardData(
         recitation_points
       }))
   );
-  const checkinsByStudentWeek = groupCheckinsByStudentWeek(checkins ?? []);
-  const partnerRecitationsByStudentWeek = groupPartnerRecitationsByStudentWeek(partnerRecitations ?? []);
-  const halaqaGradesByStudentWeek = groupHalaqaGradesByStudentWeek(halaqaGrades ?? []);
+  const checkinsByStudentWeek = groupCheckinsByStudentWeek(validCheckins);
+  const partnerRecitationsByStudentWeek = groupPartnerRecitationsByStudentWeek(validPartnerRecitations);
+  const halaqaGradesByStudentWeek = groupHalaqaGradesByStudentWeek(validHalaqaGrades);
   const streakDataByStudent = new Map<
     string,
     {
       checkinsByWeek: Map<string, LeaderboardCheckIn[]>;
       partnerRecitationsByWeek: Map<string, Array<Pick<PartnerRecitation, "student_id" | "round" | "points">>>;
       halaqaGradeByWeek: Map<string, Pick<HalaqaGrade, "student_id" | "attendance_points" | "recitation_points"> | null>;
+      eligibleWeekStarts: ReadonlySet<string>;
     }
   >();
 
@@ -242,7 +302,12 @@ export async function loadLeaderboardData(
       halaqaGradeByWeek.set(weekStart, halaqaGradesByStudentWeek.get(key) ?? null);
     }
 
-    streakDataByStudent.set(student.id, { checkinsByWeek, partnerRecitationsByWeek, halaqaGradeByWeek });
+    streakDataByStudent.set(student.id, {
+      checkinsByWeek,
+      partnerRecitationsByWeek,
+      halaqaGradeByWeek,
+      eligibleWeekStarts: eligibleWeeksByStudent.get(student.id) ?? new Set<string>()
+    });
   }
 
   return {
