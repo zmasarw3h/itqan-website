@@ -47,6 +47,66 @@ create unique index if not exists teacher_rotation_runs_request_id_unique_idx
 create index if not exists teacher_rotation_runs_masjid_cohort_week_idx
   on public.teacher_rotation_runs(masjid_id, cohort_id, week_start);
 
+-- A per-cohort version lets a publication take a shared lock immediately
+-- before its final comparison. State writers take the conflicting update lock.
+-- Two publications for different weeks can hold shared locks concurrently,
+-- while an out-of-band availability/member/group insertion cannot slip between
+-- the final comparison and publication commit. Publishers lock existing public
+-- rows before this version lock: that order matches writers, which acquire a
+-- public row lock before their AFTER trigger advances the version.
+create table if not exists private.rotation_publication_state_versions (
+  cohort_id uuid primary key references public.cohorts(id) on delete cascade,
+  version bigint not null default 0,
+  updated_at timestamptz not null default now()
+);
+
+alter table private.rotation_publication_state_versions enable row level security;
+revoke all on table private.rotation_publication_state_versions
+  from public, anon, authenticated, service_role;
+
+create or replace function private.ensure_rotation_publication_state_version(
+  input_cohort_id uuid
+)
+returns bigint
+language plpgsql
+set search_path = ''
+as $$
+declare
+  current_version bigint;
+begin
+  insert into private.rotation_publication_state_versions (cohort_id)
+  values (input_cohort_id)
+  on conflict (cohort_id) do nothing;
+
+  select versions.version
+  into current_version
+  from private.rotation_publication_state_versions as versions
+  where versions.cohort_id = input_cohort_id;
+
+  return current_version;
+end;
+$$;
+
+create or replace function private.bump_rotation_publication_state_version(
+  input_cohort_id uuid
+)
+returns void
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if input_cohort_id is null then
+    return;
+  end if;
+
+  perform private.ensure_rotation_publication_state_version(input_cohort_id);
+  update private.rotation_publication_state_versions
+  set version = version + 1,
+      updated_at = statement_timestamp()
+  where cohort_id = input_cohort_id;
+end;
+$$;
+
 -- This guard deliberately uses the civil calendar, not the check-in reset
 -- clock. An admin+teacher remains a profile-role `admin` and is accepted for
 -- teaching separately by the Saturday eligibility helper below.
@@ -183,6 +243,11 @@ as $$
   )
   select jsonb_build_object(
     'version', 1,
+    'state_version', coalesce((
+      select versions.version
+      from private.rotation_publication_state_versions as versions
+      where versions.cohort_id = scope.cohort_id
+    ), 0),
     'cohort', jsonb_build_object(
       'id', scope.cohort_id,
       'masjid_id', scope.masjid_id,
@@ -442,7 +507,9 @@ begin
 
   -- Lock every existing row that contributes to the state. The scoped advisory
   -- lock serializes guarded publication/legacy paths without blocking another
-  -- cohort or week.
+  -- cohort or week. State writers acquire these public rows before their AFTER
+  -- trigger takes the version update lock, so take the version share lock only
+  -- after this block to avoid a lock-order inversion.
   perform cohorts.id
   from public.cohorts
   join public.masajid on masajid.id = cohorts.masjid_id
@@ -485,6 +552,13 @@ begin
   where groups.cohort_id = input_cohort_id
     and assignments.week_start <= input_week_start
   for update of assignments;
+
+  perform private.ensure_rotation_publication_state_version(input_cohort_id);
+  perform versions.cohort_id
+  from private.rotation_publication_state_versions as versions
+  where versions.cohort_id = input_cohort_id
+  for share;
+  perform set_config('app.rotation_publication_mutation', 'true', true);
 
   current_state := private.rotation_publication_state(input_cohort_id, input_week_start);
   if current_state is null
@@ -760,6 +834,248 @@ begin
 end;
 $$;
 
+-- Every canonical-state writer advances the cohort version unless it is the
+-- guarded publisher itself. The publisher already holds the version share lock
+-- and writes a complete desired assignment set; bumping there would serialize
+-- otherwise independent week publications.
+create or replace function public.rotation_publication_state_version_bump()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  affected_masjid_id uuid;
+  affected_profile_id uuid;
+  affected_cohort_id uuid;
+  previous_cohort_id uuid;
+  next_cohort_id uuid;
+  previous_masjid_id uuid;
+  next_masjid_id uuid;
+begin
+  if current_setting('app.rotation_publication_mutation', true) = 'true' then
+    if tg_op = 'DELETE' then return old; end if;
+    return new;
+  end if;
+
+  if tg_table_name = 'teacher_rotation_availability'
+    or tg_table_name = 'cohort_rotation_settings'
+    or tg_table_name = 'halaqa_groups' then
+    if tg_op <> 'INSERT' then
+      previous_cohort_id := old.cohort_id;
+      perform private.bump_rotation_publication_state_version(previous_cohort_id);
+    end if;
+    if tg_op <> 'DELETE' then
+      next_cohort_id := new.cohort_id;
+      if next_cohort_id is distinct from previous_cohort_id then
+        perform private.bump_rotation_publication_state_version(next_cohort_id);
+      end if;
+    end if;
+    if tg_op = 'DELETE' then return old; end if;
+    return new;
+  end if;
+
+  if tg_table_name = 'group_teacher_assignments' then
+    if tg_op <> 'INSERT' then
+      select groups.cohort_id
+      into previous_cohort_id
+      from public.halaqa_groups as groups
+      where groups.id = old.group_id;
+      perform private.bump_rotation_publication_state_version(previous_cohort_id);
+    end if;
+    if tg_op <> 'DELETE' then
+      select groups.cohort_id
+      into next_cohort_id
+      from public.halaqa_groups as groups
+      where groups.id = new.group_id;
+      if next_cohort_id is distinct from previous_cohort_id then
+        perform private.bump_rotation_publication_state_version(next_cohort_id);
+      end if;
+    end if;
+    if tg_op = 'DELETE' then return old; end if;
+    return new;
+  end if;
+
+  if tg_table_name = 'cohorts' then
+    perform private.bump_rotation_publication_state_version(
+      case when tg_op = 'DELETE' then old.id else new.id end
+    );
+    if tg_op = 'DELETE' then return old; end if;
+    return new;
+  end if;
+
+  if tg_table_name = 'masajid' then
+    if tg_op <> 'INSERT' then previous_masjid_id := old.id; end if;
+    if tg_op <> 'DELETE' then next_masjid_id := new.id; end if;
+  elsif tg_table_name = 'masjid_staff_memberships' then
+    if tg_op <> 'INSERT' then previous_masjid_id := old.masjid_id; end if;
+    if tg_op <> 'DELETE' then next_masjid_id := new.masjid_id; end if;
+  elsif tg_table_name = 'profiles' then
+    affected_profile_id := case when tg_op = 'DELETE' then old.id else new.id end;
+    for affected_masjid_id in
+      select distinct memberships.masjid_id
+      from public.masjid_staff_memberships as memberships
+      where memberships.profile_id = affected_profile_id
+        and memberships.staff_role = 'teacher'
+    loop
+      for affected_cohort_id in
+        select cohorts.id from public.cohorts as cohorts where cohorts.masjid_id = affected_masjid_id
+      loop
+        perform private.bump_rotation_publication_state_version(affected_cohort_id);
+      end loop;
+    end loop;
+    if tg_op = 'DELETE' then return old; end if;
+    return new;
+  else
+    raise exception 'rotation publication state trigger is attached to unsupported table %', tg_table_name;
+  end if;
+
+  for affected_masjid_id in
+    select distinct scopes.masjid_id
+    from (values (previous_masjid_id), (next_masjid_id)) as scopes(masjid_id)
+    where scopes.masjid_id is not null
+  loop
+    for affected_cohort_id in
+      select cohorts.id from public.cohorts as cohorts where cohorts.masjid_id = affected_masjid_id
+    loop
+      perform private.bump_rotation_publication_state_version(affected_cohort_id);
+    end loop;
+  end loop;
+
+  if tg_op = 'DELETE' then return old; end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists rotation_publication_state_version_availability_trigger
+  on public.teacher_rotation_availability;
+create trigger rotation_publication_state_version_availability_trigger
+  after insert or update or delete on public.teacher_rotation_availability
+  for each row execute function public.rotation_publication_state_version_bump();
+
+drop trigger if exists rotation_publication_state_version_settings_trigger
+  on public.cohort_rotation_settings;
+create trigger rotation_publication_state_version_settings_trigger
+  after insert or update or delete on public.cohort_rotation_settings
+  for each row execute function public.rotation_publication_state_version_bump();
+
+drop trigger if exists rotation_publication_state_version_groups_trigger
+  on public.halaqa_groups;
+create trigger rotation_publication_state_version_groups_trigger
+  after insert or update or delete on public.halaqa_groups
+  for each row execute function public.rotation_publication_state_version_bump();
+
+drop trigger if exists rotation_publication_state_version_assignments_trigger
+  on public.group_teacher_assignments;
+create trigger rotation_publication_state_version_assignments_trigger
+  after insert or update or delete on public.group_teacher_assignments
+  for each row execute function public.rotation_publication_state_version_bump();
+
+drop trigger if exists rotation_publication_state_version_cohorts_trigger
+  on public.cohorts;
+create trigger rotation_publication_state_version_cohorts_trigger
+  after insert or update or delete on public.cohorts
+  for each row execute function public.rotation_publication_state_version_bump();
+
+drop trigger if exists rotation_publication_state_version_masajid_trigger
+  on public.masajid;
+create trigger rotation_publication_state_version_masajid_trigger
+  after insert or update or delete on public.masajid
+  for each row execute function public.rotation_publication_state_version_bump();
+
+drop trigger if exists rotation_publication_state_version_staff_trigger
+  on public.masjid_staff_memberships;
+create trigger rotation_publication_state_version_staff_trigger
+  after insert or update or delete on public.masjid_staff_memberships
+  for each row execute function public.rotation_publication_state_version_bump();
+
+drop trigger if exists rotation_publication_state_version_profiles_trigger
+  on public.profiles;
+create trigger rotation_publication_state_version_profiles_trigger
+  after insert or update or delete on public.profiles
+  for each row execute function public.rotation_publication_state_version_bump();
+
+-- Direct table writes remain possible for trusted maintenance tooling and
+-- service-role work, so RLS alone is not sufficient.  Preserve the existing
+-- Saturday eligibility trigger but extend it to require the same exact,
+-- positive availability record as the guarded publication functions.  This
+-- keeps every newly-written active assignment behind the same database rule;
+-- historical rows are deliberately not rewritten by this rollout.
+create or replace function public.teacher_rotation_row_scope_matches()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if tg_table_name = 'cohort_rotation_settings' then
+    if not exists (
+      select 1
+      from public.cohorts
+      where cohorts.id = new.cohort_id
+        and cohorts.masjid_id = new.masjid_id
+    ) then
+      raise exception 'cohort_id must belong to masjid_id';
+    end if;
+
+    return new;
+  end if;
+
+  if tg_table_name = 'teacher_rotation_availability' then
+    if not exists (
+      select 1
+      from public.cohorts
+      where cohorts.id = new.cohort_id
+        and cohorts.masjid_id = new.masjid_id
+    ) then
+      raise exception 'cohort_id must belong to masjid_id';
+    end if;
+
+    if not private.raw_teacher_has_halaqa_saturday_eligibility(
+      new.teacher_id,
+      new.masjid_id,
+      new.week_start
+    ) then
+      raise exception 'teacher_id must have active teacher staff membership through the Saturday halaqa date.';
+    end if;
+
+    return new;
+  end if;
+
+  if tg_table_name = 'group_teacher_assignments' then
+    if new.active and (
+      not private.raw_teacher_has_halaqa_saturday_eligibility(
+        new.teacher_id,
+        private.raw_group_masjid_id(new.group_id),
+        new.week_start
+      )
+      or not exists (
+        select 1
+        from public.halaqa_groups as groups
+        join public.cohorts on cohorts.id = groups.cohort_id
+        join public.teacher_rotation_availability as availability
+          on availability.teacher_id = new.teacher_id
+          and availability.masjid_id = cohorts.masjid_id
+          and availability.cohort_id = groups.cohort_id
+          and availability.week_start = new.week_start
+          and availability.available = true
+        where groups.id = new.group_id
+          and groups.active = true
+          and cohorts.active = true
+      )
+    ) then
+      raise exception using
+        errcode = '23514',
+        message = 'teacher_assignment_requires_exact_available_teacher_rotation_availability';
+    end if;
+
+    return new;
+  end if;
+
+  raise exception 'teacher_rotation_row_scope_matches is not attached to table %', tg_table_name;
+end;
+$$;
+
 create or replace function public.prepare_teacher_rotation_publication(
   input_request_id uuid,
   input_actor_id uuid,
@@ -853,6 +1169,7 @@ declare
   normalized_assignments jsonb;
   request_payload jsonb;
   result_payload jsonb;
+  current_state jsonb;
 begin
   if input_request_id is null
     or input_actor_id is null
@@ -878,7 +1195,6 @@ begin
   perform pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended('workflow-request:' || input_request_id::text, 0)
   );
-  perform private.assert_rotation_publication_actor(input_actor_id, input_cohort_id);
 
   select snapshots.*
   into existing_snapshot
@@ -887,6 +1203,7 @@ begin
   for update;
 
   if not found then
+    perform private.assert_rotation_publication_actor(input_actor_id, input_cohort_id);
     raise exception using errcode = 'P0002', message = 'rotation_publication_not_prepared';
   end if;
 
@@ -894,6 +1211,7 @@ begin
     or existing_snapshot.actor_id <> input_actor_id
     or existing_snapshot.target_id <> input_cohort_id
     or existing_snapshot.expected_state is distinct from input_expected_state then
+    perform private.assert_rotation_publication_actor(input_actor_id, input_cohort_id);
     raise exception using errcode = 'PT412', message = 'rotation_publication_stale_state';
   end if;
 
@@ -904,6 +1222,7 @@ begin
   for update;
 
   if found then
+    perform private.assert_rotation_publication_actor(input_actor_id, input_cohort_id);
     if existing_request.workflow <> 'teacher_rotation_publication'
       or existing_request.actor_id <> input_actor_id
       or existing_request.target_id <> input_cohort_id
@@ -911,6 +1230,15 @@ begin
       raise exception using errcode = '22023', message = 'rotation_publication_request_reused';
     end if;
     return existing_request.result;
+  end if;
+
+  -- Compare before the active-scope/actor guard in the mutation helper so a
+  -- legitimately prepared request reports a deterministic stale conflict when
+  -- its cohort or masjid is deactivated. The final locked comparison inside
+  -- private.apply_rotation_publication remains authoritative against races.
+  current_state := private.rotation_publication_state(input_cohort_id, input_week_start);
+  if current_state is distinct from input_expected_state then
+    raise exception using errcode = 'PT412', message = 'rotation_publication_stale_state';
   end if;
 
   result_payload := private.apply_rotation_publication(
@@ -1004,6 +1332,12 @@ revoke all on function private.assert_rotation_publication_setup(jsonb)
   from public, anon, authenticated, service_role;
 revoke all on function private.apply_rotation_publication(uuid, uuid, date, jsonb, jsonb, uuid, text)
   from public, anon, authenticated, service_role;
+revoke all on function private.ensure_rotation_publication_state_version(uuid)
+  from public, anon, authenticated, service_role;
+revoke all on function private.bump_rotation_publication_state_version(uuid)
+  from public, anon, authenticated, service_role;
+revoke all on function public.rotation_publication_state_version_bump()
+  from public, anon, authenticated, service_role;
 
 revoke all on function public.prepare_teacher_rotation_publication(uuid, uuid, uuid, date)
   from public, anon, authenticated, service_role;
@@ -1084,6 +1418,7 @@ as $$
     'public.protect_foundation_row_identity()',
     'public.refresh_current_profile_role()',
     'public.recalculate_student_checkin_score()',
+    'public.rotation_publication_state_version_bump()',
     'public.set_student_scope_snapshot()',
     'public.set_halaqa_grade_scope_snapshot()',
     'public.student_cohort_for_week(uuid,date)',

@@ -89,6 +89,7 @@ with runtime as (
         assignment_scope.teacher_id,
         assignment_scope.group_id,
         assignment_scope.week_start
+        )
     end
 
   union all
