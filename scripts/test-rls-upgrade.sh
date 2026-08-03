@@ -33,7 +33,7 @@ base_commit="$(git rev-parse "${base_ref}^{commit}")"
 base_migrations=()
 while IFS= read -r migration_path; do
   base_migrations+=("$migration_path")
-done < <(git ls-tree -r --name-only "$base_commit" supabase/migrations | rg '\.sql$' | sort)
+done < <(git ls-tree -r --name-only "$base_commit" supabase/migrations | grep -E '\.sql$' | sort)
 
 if ((${#base_migrations[@]} == 0)); then
   echo "Configured base ${base_ref} (${base_commit}) contains no migrations." >&2
@@ -275,12 +275,12 @@ docker exec -i "$db_container" psql \
   --set ON_ERROR_STOP=1 --username postgres --dbname postgres --no-psqlrc \
   < "$repo_root/scripts/audit-historical-report-populations.sql" > "$historical_audit_output"
 for audit_section in checkins partner_recitations halaqa_grades accountability_obligations paid_or_waived_obligation_scope_mismatches; do
-  if ! rg -q "$audit_section" "$historical_audit_output"; then
+  if ! grep -q "$audit_section" "$historical_audit_output"; then
     echo "Historical audit did not enumerate fixture section: ${audit_section}." >&2
     exit 1
   fi
 done
-if ! rg -q 'scores_changed_by_scope_exclusion[[:space:]]+\|[[:space:]]+[1-9]' "$historical_audit_output"; then
+if ! grep -Eq 'scores_changed_by_scope_exclusion[[:space:]]+\|[[:space:]]+[1-9]' "$historical_audit_output"; then
   echo "Historical audit did not count scores changed by malformed activity exclusion." >&2
   exit 1
 fi
@@ -301,6 +301,6 @@ sed -n '1,80p' "$base_audit_output"
 echo "Historical population audit completed; sample ID-only fixture output:"
 sed -n '1,80p' "$historical_audit_output"
 echo "Historical scope mismatch fixture sections:"
-rg 'checkins|partner_recitations|halaqa_grades|accountability_obligations|paid_or_waived|scores_changed_by_scope_exclusion' "$historical_audit_output" | tail -20
+grep -E 'checkins|partner_recitations|halaqa_grades|accountability_obligations|paid_or_waived|scores_changed_by_scope_exclusion' "$historical_audit_output" | tail -20
 echo "Historical population query plans completed; bounded fixture summary:"
-rg 'Execution Time|actual time=.*rows=' "$query_plan_output" | tail -20
+grep -E 'Execution Time|actual time=.*rows=' "$query_plan_output" | tail -20
