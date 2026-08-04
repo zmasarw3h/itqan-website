@@ -3005,16 +3005,10 @@ async function runAssertions(ids: SeedIds) {
   assert.equal(attestedObligationError, null, attestedObligationError?.message);
   assert.equal(attestedObligation?.length, 1, "student self-attestation did not update its valid obligation");
   assert.equal(attestedObligation?.[0]?.status, "attested_paid");
-  const settledBeforeReconcile = await requireData<{
-    id: string;
-    weekly_percentage: number;
-    amount_cents: number;
-    status: string;
-    attested_paid_at: string;
-  }>(
+  const settledBeforeReconcile = await requireData<Record<string, unknown>>(
     "read settled obligation before reconciliation",
     service.from("accountability_obligations")
-      .select("id,weekly_percentage,amount_cents,status,attested_paid_at")
+      .select("*")
       .eq("id", reconciledObligation.id)
       .single()
   );
@@ -3027,7 +3021,7 @@ async function runAssertions(ids: SeedIds) {
   const settledAfterReconcile = await requireData<typeof settledBeforeReconcile>(
     "read settled obligation after reconciliation",
     service.from("accountability_obligations")
-      .select("id,weekly_percentage,amount_cents,status,attested_paid_at")
+      .select("*")
       .eq("id", reconciledObligation.id)
       .single()
   );

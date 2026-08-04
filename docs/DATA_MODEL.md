@@ -122,7 +122,8 @@ These student-owned operational tables snapshot scope with nullable `masjid_id`,
 Historical membership—not an activity snapshot—determines report population and
 display placement. Report scoring attributes exact and same-masjid activity to
 that membership placement, accepts legacy null-masjid activity only with one
-unambiguous membership, and excludes explicit cross-masjid activity. Exact
+unambiguous membership, and excludes activity when any stored masjid, cohort
+owner, or group owner supplies cross-masjid evidence. Exact
 snapshot equality remains required for new writes and pending obligations.
 
 ## Existing Student Records

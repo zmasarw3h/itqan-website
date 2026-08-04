@@ -19,6 +19,7 @@ insert into public.profiles (id, name, email, role, active, score_starts_on) val
   ('40000000-0000-0000-0000-000000000001', 'Attribution Student', 'attribution@local.invalid', 'student', true, '2026-06-07'),
   ('40000000-0000-0000-0000-000000000002', 'No Membership', 'no-membership@local.invalid', 'student', true, '2026-06-07'),
   ('40000000-0000-0000-0000-000000000003', 'Not Scoring Yet', 'not-scoring@local.invalid', 'student', true, '2026-06-14'),
+  ('40000000-0000-0000-0000-000000000004', 'Scope Evidence Student', 'scope-evidence@local.invalid', 'student', true, '2026-06-07'),
   ('40000000-0000-0000-0000-000000000008', 'Attribution Admin', 'attribution-admin@local.invalid', 'admin', true, null),
   ('40000000-0000-0000-0000-000000000009', 'Attribution Teacher', 'attribution-teacher@local.invalid', 'teacher', true, null),
   ('40000000-0000-0000-0000-000000000010', 'Attribution Super Admin', 'attribution-super@local.invalid', 'super_admin', true, null);
@@ -29,7 +30,8 @@ values
   ('40000000-0000-0000-0000-000000000009', '10000000-0000-0000-0000-000000000001', 'teacher', true, '1900-01-01');
 insert into public.student_group_memberships (id, student_id, group_id, starts_on, ends_on) values
   ('50000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', '1900-01-01', '2026-06-13'),
-  ('50000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000001', '1900-01-01', '2026-06-13');
+  ('50000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000001', '1900-01-01', '2026-06-13'),
+  ('50000000-0000-0000-0000-000000000004', '40000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000001', '1900-01-01', '2026-06-13');
 
 insert into public.checkins
   (id, student_id, date, completed, earned_weight, total_weight, daily_score, masjid_id, cohort_id, halaqa_group_id)
@@ -37,7 +39,14 @@ values
   ('60000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', '2026-06-07', true, 100, 100, 100, '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001'),
   ('60000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000001', '2026-06-08', true, 100, 100, 100, '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002'),
   ('60000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000001', '2026-06-09', true, 100, 100, 100, null, null, null),
-  ('60000000-0000-0000-0000-000000000004', '40000000-0000-0000-0000-000000000001', '2026-06-10', true, 100, 100, 100, '10000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000004');
+  ('60000000-0000-0000-0000-000000000004', '40000000-0000-0000-0000-000000000001', '2026-06-10', true, 100, 100, 100, '10000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000004'),
+  ('60000000-0000-0000-0000-000000000011', '40000000-0000-0000-0000-000000000004', '2026-06-07', true, 100, 100, 100, null, '20000000-0000-0000-0000-000000000003', null),
+  ('60000000-0000-0000-0000-000000000012', '40000000-0000-0000-0000-000000000004', '2026-06-08', true, 100, 100, 100, null, null, '30000000-0000-0000-0000-000000000004'),
+  ('60000000-0000-0000-0000-000000000013', '40000000-0000-0000-0000-000000000004', '2026-06-09', true, 100, 100, 100, '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000001'),
+  ('60000000-0000-0000-0000-000000000014', '40000000-0000-0000-0000-000000000004', '2026-06-10', true, 100, 100, 100, '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000004'),
+  ('60000000-0000-0000-0000-000000000015', '40000000-0000-0000-0000-000000000004', '2026-06-11', true, 100, 100, 100, null, '20000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000001'),
+  ('60000000-0000-0000-0000-000000000016', '40000000-0000-0000-0000-000000000004', '2026-06-12', true, 100, 100, 100, null, '20000000-0000-0000-0000-000000000001', null),
+  ('60000000-0000-0000-0000-000000000017', '40000000-0000-0000-0000-000000000004', '2026-06-13', true, 100, 100, 100, null, null, '30000000-0000-0000-0000-000000000001');
 insert into public.partner_recitations
   (id, student_id, week_start, round, points, masjid_id, cohort_id, halaqa_group_id)
 values
@@ -73,6 +82,53 @@ begin
   if not private.raw_historical_report_activity_is_attributable('40000000-0000-0000-0000-000000000001', '2026-06-07', null, null, null) then
     raise exception 'unambiguous legacy null-masjid activity was not attributed';
   end if;
+  if private.raw_historical_report_activity_disposition('40000000-0000-0000-0000-000000000001', '2026-06-07', null, null, null)
+      <> 'counted_legacy_missing_masjid_by_unambiguous_membership' then
+    raise exception 'all-null legacy scope received the wrong disposition';
+  end if;
+  if private.raw_historical_report_activity_disposition('40000000-0000-0000-0000-000000000001', '2026-06-07', null,
+      '20000000-0000-0000-0000-000000000002', null)
+      <> 'counted_legacy_missing_masjid_by_unambiguous_membership' then
+    raise exception 'null masjid with same-masjid cohort was not attributed';
+  end if;
+  if private.raw_historical_report_activity_disposition('40000000-0000-0000-0000-000000000001', '2026-06-07', null, null,
+      '30000000-0000-0000-0000-000000000003')
+      <> 'counted_legacy_missing_masjid_by_unambiguous_membership' then
+    raise exception 'null masjid with same-masjid group was not attributed';
+  end if;
+  if private.raw_historical_report_activity_disposition('40000000-0000-0000-0000-000000000001', '2026-06-07', null,
+      '20000000-0000-0000-0000-000000000003', null) <> 'excluded_cross_masjid_cohort' then
+    raise exception 'null masjid with cross-masjid cohort was attributed';
+  end if;
+  if private.raw_historical_report_activity_disposition('40000000-0000-0000-0000-000000000001', '2026-06-07', null, null,
+      '30000000-0000-0000-0000-000000000004') <> 'excluded_cross_masjid_group' then
+    raise exception 'null masjid with cross-masjid group was attributed';
+  end if;
+  if private.raw_historical_report_activity_disposition('40000000-0000-0000-0000-000000000001', '2026-06-07',
+      '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000003', null)
+      <> 'excluded_cross_masjid_cohort' then
+    raise exception 'matching masjid with cross-masjid cohort was attributed';
+  end if;
+  if private.raw_historical_report_activity_disposition('40000000-0000-0000-0000-000000000001', '2026-06-07',
+      '10000000-0000-0000-0000-000000000001', null, '30000000-0000-0000-0000-000000000004')
+      <> 'excluded_cross_masjid_group' then
+    raise exception 'matching masjid with cross-masjid group was attributed';
+  end if;
+  if private.raw_historical_report_activity_disposition('40000000-0000-0000-0000-000000000001', '2026-06-07', null,
+      '20000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000001')
+      <> 'excluded_conflicting_stored_scope' then
+    raise exception 'cohort/group masjid conflict was not excluded';
+  end if;
+  if private.raw_historical_report_activity_disposition('40000000-0000-0000-0000-000000000001', '2026-06-07',
+      '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001',
+      '30000000-0000-0000-0000-000000000001') <> 'counted_exact_scope' then
+    raise exception 'exact scope received the wrong disposition';
+  end if;
+  if private.raw_historical_report_activity_disposition('40000000-0000-0000-0000-000000000001', '2026-06-07',
+      '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000002',
+      '30000000-0000-0000-0000-000000000003') <> 'counted_same_masjid_placement_mismatch' then
+    raise exception 'ordinary same-masjid placement mismatch was not attributed';
+  end if;
   if private.raw_historical_report_activity_is_attributable('40000000-0000-0000-0000-000000000002', '2026-06-07', null, null, null) then
     raise exception 'no-membership activity was attributed';
   end if;
@@ -92,6 +148,35 @@ begin
 end;
 $$;
 
+-- A pre-existing malformed same-masjid grade remains report-attributable, but
+-- current writes may not normalize or otherwise edit it through UPDATE/UPSERT.
+set local session_replication_role = origin;
+do $$
+begin
+  update public.halaqa_grades
+  set attendance_points = 90
+  where id = '80000000-0000-0000-0000-000000000001';
+  raise exception 'existing malformed grade update unexpectedly succeeded';
+exception
+  when check_violation then null;
+end;
+$$;
+do $$
+begin
+  insert into public.halaqa_grades
+    (id, student_id, week_start, attended, attendance_points, recitation_points)
+  values
+    ('80000000-0000-0000-0000-000000000099',
+     '40000000-0000-0000-0000-000000000001', '2026-06-07', true, 90, 50)
+  on conflict (student_id, week_start) do update
+  set attendance_points = excluded.attendance_points;
+  raise exception 'existing malformed grade upsert unexpectedly succeeded';
+exception
+  when check_violation then null;
+end;
+$$;
+set local session_replication_role = replica;
+
 -- Direct-role checks cover the SECURITY DEFINER projection, not only its
 -- private attribution predicate. It must recover legacy null-scope rows for a
 -- currently scoped admin without disclosing explicit cross-masjid activity.
@@ -109,15 +194,22 @@ declare
 begin
   select count(*),
          count(*) filter (where masjid_id is null),
-         count(*) filter (where masjid_id = '10000000-0000-0000-0000-000000000002')
+         count(*) filter (where row_id in (
+           '60000000-0000-0000-0000-000000000004',
+           '60000000-0000-0000-0000-000000000011',
+           '60000000-0000-0000-0000-000000000012',
+           '60000000-0000-0000-0000-000000000013',
+           '60000000-0000-0000-0000-000000000014',
+           '60000000-0000-0000-0000-000000000015'
+         ))
   into projected_count, legacy_count, cross_masjid_count
   from public.historical_reporting_activity_for_weeks(array['2026-06-07'::date]);
 
-  if projected_count <> 6 then
-    raise exception 'scoped admin received % attributable rows instead of 6', projected_count;
+  if projected_count <> 8 then
+    raise exception 'scoped admin received % attributable rows instead of 8', projected_count;
   end if;
-  if legacy_count <> 2 then
-    raise exception 'scoped admin did not receive both attributable legacy null-masjid rows';
+  if legacy_count <> 4 then
+    raise exception 'scoped admin did not receive all attributable legacy null-masjid rows';
   end if;
   if cross_masjid_count <> 0 then
     raise exception 'scoped admin received explicit cross-masjid report activity';
@@ -136,12 +228,46 @@ declare
   cross_masjid_count integer;
 begin
   select count(*),
-         count(*) filter (where masjid_id = '10000000-0000-0000-0000-000000000002')
+         count(*) filter (where row_id in (
+           '60000000-0000-0000-0000-000000000004',
+           '60000000-0000-0000-0000-000000000011',
+           '60000000-0000-0000-0000-000000000012',
+           '60000000-0000-0000-0000-000000000013',
+           '60000000-0000-0000-0000-000000000014',
+           '60000000-0000-0000-0000-000000000015'
+         ))
+  into projected_count, cross_masjid_count
+  from public.historical_reporting_activity_for_weeks(array['2026-06-07'::date]);
+
+  if projected_count <> 8 or cross_masjid_count <> 0 then
+    raise exception 'super-admin report projection bypassed attribution rules';
+  end if;
+end;
+$$;
+
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"40000000-0000-0000-0000-000000000001","role":"authenticated"}',
+  true
+);
+do $$
+declare
+  projected_count integer;
+  cross_masjid_count integer;
+begin
+  select count(*), count(*) filter (where row_id in (
+    '60000000-0000-0000-0000-000000000004',
+    '60000000-0000-0000-0000-000000000011',
+    '60000000-0000-0000-0000-000000000012',
+    '60000000-0000-0000-0000-000000000013',
+    '60000000-0000-0000-0000-000000000014',
+    '60000000-0000-0000-0000-000000000015'
+  ))
   into projected_count, cross_masjid_count
   from public.historical_reporting_activity_for_weeks(array['2026-06-07'::date]);
 
   if projected_count <> 6 or cross_masjid_count <> 0 then
-    raise exception 'super-admin report projection bypassed attribution rules';
+    raise exception 'student report projection exposed cross-masjid activity';
   end if;
 end;
 $$;

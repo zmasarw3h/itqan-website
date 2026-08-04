@@ -23,6 +23,16 @@ from public.historical_reporting_students_for_weeks(
   array(select week_start from public.historical_reporting_available_weeks())
 );
 
+-- The sanitized scoring projection applies current authorization plus the
+-- authoritative stored-scope masjid-evidence disposition.
+\echo === sanitized historical reporting activity RPC ===
+explain (analyze, buffers, settings)
+select *
+from public.historical_reporting_activity_for_weeks(
+  array(select week_start from public.historical_reporting_available_weeks())
+);
+\echo === end sanitized historical reporting activity RPC ===
+
 -- Admin leaderboard activity ranges use the bounded batch population and
 -- immutable historical scope snapshots.
 explain (analyze, buffers, settings)

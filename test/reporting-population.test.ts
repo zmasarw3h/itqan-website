@@ -70,28 +70,55 @@ describe("historical reporting population", () => {
       student_id: "student-a",
       masjid_id: "masjid-a",
       cohort_id: "cohort-other",
-      halaqa_group_id: "group-other"
+      halaqa_group_id: "group-other",
+      attribution_disposition: "counted_same_masjid_placement_mismatch"
     }, "2026-06-07", byWeek)).toBe(true);
     expect(activityCountsForHistoricalReport({
       student_id: "student-a",
       masjid_id: null,
       cohort_id: null,
-      halaqa_group_id: null
+      halaqa_group_id: null,
+      attribution_disposition: "counted_legacy_missing_masjid_by_unambiguous_membership"
     }, "2026-06-07", byWeek)).toBe(true);
     expect(activityCountsForHistoricalReport({
       student_id: "student-a",
       masjid_id: "masjid-b",
       cohort_id: "cohort-a",
-      halaqa_group_id: "group-a"
+      halaqa_group_id: "group-a",
+      attribution_disposition: "excluded_cross_masjid_explicit_masjid"
     }, "2026-06-07", byWeek)).toBe(false);
     expect(activityCountsForHistoricalReport({
       student_id: "student-b",
-      masjid_id: "masjid-a"
+      masjid_id: "masjid-a",
+      attribution_disposition: "counted_exact_scope"
     }, "2026-06-07", byWeek)).toBe(false);
     expect(activityCountsForHistoricalReport({
       student_id: "student-a",
-      masjid_id: "masjid-a"
+      masjid_id: "masjid-a",
+      attribution_disposition: "counted_exact_scope"
     }, "2026-06-14", byWeek)).toBe(false);
+  });
+
+  it.each([
+    ["null scope", "counted_legacy_missing_masjid_by_unambiguous_membership", true],
+    ["null masjid with same-masjid cohort", "counted_legacy_missing_masjid_by_unambiguous_membership", true],
+    ["null masjid with same-masjid group", "counted_legacy_missing_masjid_by_unambiguous_membership", true],
+    ["null masjid with cross-masjid cohort", "excluded_cross_masjid_cohort", false],
+    ["null masjid with cross-masjid group", "excluded_cross_masjid_group", false],
+    ["matching masjid with cross-masjid cohort", "excluded_cross_masjid_cohort", false],
+    ["matching masjid with cross-masjid group", "excluded_cross_masjid_group", false],
+    ["conflicting cohort and group", "excluded_conflicting_stored_scope", false],
+    ["exact scope", "counted_exact_scope", true],
+    ["same-masjid placement mismatch", "counted_same_masjid_placement_mismatch", true]
+  ] as const)("uses server attribution for %s", (_label, attribution_disposition, expected) => {
+    const byWeek = historicalPopulationByStudentWeek([population()]);
+    expect(activityCountsForHistoricalReport({
+      student_id: "student-a",
+      masjid_id: "masjid-a",
+      cohort_id: "cohort-a",
+      halaqa_group_id: "group-a",
+      attribution_disposition
+    }, "2026-06-07", byWeek)).toBe(expected);
   });
 
   it("excludes activity when duplicate population rows make placement ambiguous", () => {
@@ -102,7 +129,8 @@ describe("historical reporting population", () => {
 
     expect(activityCountsForHistoricalReport({
       student_id: "student-a",
-      masjid_id: "masjid-a"
+      masjid_id: "masjid-a",
+      attribution_disposition: "counted_exact_scope"
     }, "2026-06-07", byWeek)).toBe(false);
   });
 

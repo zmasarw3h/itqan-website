@@ -188,7 +188,8 @@ For the historical-reporting rollout, use this database-first order:
    validating their values from authoritative historical data. Membership
    controls population, placement, and authorization; report scoring counts
    same-masjid placement mismatches and unambiguous legacy null-masjid activity,
-   while excluding explicit cross-masjid activity. Exact scope remains required
+   while excluding cross-masjid evidence from the stored masjid, cohort owner,
+   group owner, or conflicting scope fields. Exact scope remains required
    for new writes and pending obligations, and settled obligations remain immutable.
 2. Run `npm run test:rls:compat`, smoke test staging, and deploy the application
    version that uses the service-role reconciliation RPC.

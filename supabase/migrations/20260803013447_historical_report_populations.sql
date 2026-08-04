@@ -36,9 +36,77 @@ as $$
   from candidates;
 $$;
 
--- Historical report attribution follows the student/week and membership
--- masjid. Same-masjid placement mismatches and unscoped legacy rows count,
--- while explicit cross-masjid, missing-membership, and ambiguous rows do not.
+-- Report attribution resolves the masjid evidence carried by every stored
+-- scope identifier. Cohort/group placement may differ from membership and
+-- still count, but no resolvable stored identifier may point to another
+-- masjid. The disposition is also the authoritative audit classification.
+create or replace function private.raw_historical_report_activity_disposition(
+  input_student_id uuid,
+  input_week_start date,
+  input_masjid_id uuid,
+  input_cohort_id uuid,
+  input_group_id uuid
+)
+returns text
+language sql
+stable
+set search_path = ''
+as $$
+  with candidates as (
+    select memberships.id as membership_id,
+           groups.id as group_id,
+           cohorts.id as cohort_id,
+           cohorts.masjid_id
+      from public.student_group_memberships as memberships
+      join public.halaqa_groups as groups on groups.id = memberships.group_id
+      join public.cohorts on cohorts.id = groups.cohort_id
+      where memberships.student_id = input_student_id
+        and memberships.starts_on <= input_week_start
+        and (memberships.ends_on is null or memberships.ends_on >= input_week_start)
+  ), membership as (
+    select count(*) as membership_count,
+           (array_agg(candidates.masjid_id order by candidates.membership_id))[1] as masjid_id,
+           (array_agg(candidates.cohort_id order by candidates.membership_id))[1] as cohort_id,
+           (array_agg(candidates.group_id order by candidates.membership_id))[1] as group_id
+    from candidates
+  ), stored_scope as (
+    select membership.*,
+           (select cohorts.masjid_id from public.cohorts
+             where cohorts.id = input_cohort_id) as cohort_masjid_id,
+           (select cohorts.masjid_id
+              from public.halaqa_groups as groups
+              join public.cohorts on cohorts.id = groups.cohort_id
+             where groups.id = input_group_id) as group_masjid_id
+    from membership
+  )
+  select case
+    when input_week_start is null
+      or input_week_start <> public.week_start_for_date(input_week_start)
+      then 'excluded_invalid_tracker_week'
+    when membership_count = 0 then 'excluded_no_historical_membership'
+    when membership_count > 1 then 'excluded_ambiguous_historical_membership'
+    when input_cohort_id is not null and cohort_masjid_id is null
+      then 'excluded_conflicting_stored_scope'
+    when input_group_id is not null and group_masjid_id is null
+      then 'excluded_conflicting_stored_scope'
+    when cohort_masjid_id is not null and group_masjid_id is not null
+      and cohort_masjid_id is distinct from group_masjid_id
+      then 'excluded_conflicting_stored_scope'
+    when input_masjid_id is not null and input_masjid_id is distinct from masjid_id
+      then 'excluded_cross_masjid_explicit_masjid'
+    when cohort_masjid_id is not null and cohort_masjid_id is distinct from masjid_id
+      then 'excluded_cross_masjid_cohort'
+    when group_masjid_id is not null and group_masjid_id is distinct from masjid_id
+      then 'excluded_cross_masjid_group'
+    when input_masjid_id is null
+      then 'counted_legacy_missing_masjid_by_unambiguous_membership'
+    when input_cohort_id is distinct from cohort_id or input_group_id is distinct from group_id
+      then 'counted_same_masjid_placement_mismatch'
+    else 'counted_exact_scope'
+  end
+  from stored_scope;
+$$;
+
 create or replace function private.raw_historical_report_activity_is_attributable(
   input_student_id uuid,
   input_week_start date,
@@ -51,19 +119,17 @@ language sql
 stable
 set search_path = ''
 as $$
-  with candidates as (
-    select cohorts.masjid_id
-      from public.student_group_memberships as memberships
-      join public.halaqa_groups as groups on groups.id = memberships.group_id
-      join public.cohorts on cohorts.id = groups.cohort_id
-      where memberships.student_id = input_student_id
-        and memberships.starts_on <= input_week_start
-        and (memberships.ends_on is null or memberships.ends_on >= input_week_start)
-  )
-  select input_week_start = public.week_start_for_date(input_week_start)
-    and count(*) = 1
-    and coalesce(bool_and(input_masjid_id is null or masjid_id = input_masjid_id), false)
-  from candidates;
+  select private.raw_historical_report_activity_disposition(
+    input_student_id,
+    input_week_start,
+    input_masjid_id,
+    input_cohort_id,
+    input_group_id
+  ) in (
+    'counted_exact_scope',
+    'counted_same_masjid_placement_mismatch',
+    'counted_legacy_missing_masjid_by_unambiguous_membership'
+  );
 $$;
 
 create or replace function private.raw_can_open_current_student_profile(
@@ -459,7 +525,8 @@ returns table (
   recitation_points numeric,
   masjid_id uuid,
   cohort_id uuid,
-  halaqa_group_id uuid
+  halaqa_group_id uuid,
+  attribution_disposition text
 )
 language sql
 stable
@@ -500,15 +567,22 @@ as $$
            grades.cohort_id, grades.halaqa_group_id
     from public.halaqa_grades as grades
   )
-  select activity.*
+  select activity.*, attribution.attribution_disposition
   from population
   join activity using (student_id, week_start)
-  where private.raw_historical_report_activity_is_attributable(
-    activity.student_id,
-    activity.week_start,
-    activity.masjid_id,
-    activity.cohort_id,
-    activity.halaqa_group_id
+  cross join lateral (
+    select private.raw_historical_report_activity_disposition(
+      activity.student_id,
+      activity.week_start,
+      activity.masjid_id,
+      activity.cohort_id,
+      activity.halaqa_group_id
+    ) as attribution_disposition
+  ) as attribution
+  where attribution.attribution_disposition in (
+    'counted_exact_scope',
+    'counted_same_masjid_placement_mismatch',
+    'counted_legacy_missing_masjid_by_unambiguous_membership'
   )
   order by activity.week_start, activity.student_id, activity.activity_kind,
            activity.activity_date, activity.row_id;
@@ -1336,6 +1410,8 @@ create trigger enforce_student_accountability_attestation_trigger
 
 revoke all on function private.raw_historical_report_activity_is_attributable(uuid, date, uuid, uuid, uuid)
   from public, anon, authenticated, service_role;
+revoke all on function private.raw_historical_report_activity_disposition(uuid, date, uuid, uuid, uuid)
+  from public, anon, authenticated, service_role;
 revoke all on function private.raw_historical_scope_matches(uuid, date, uuid, uuid, uuid)
   from public, anon, authenticated, service_role;
 revoke all on function private.raw_can_open_current_student_profile(uuid, uuid)
@@ -1379,7 +1455,7 @@ comment on function public.historical_reporting_students_for_weeks(date[]) is
 comment on function public.historical_reporting_available_weeks() is
   'Bounded canonical report weeks from report-bearing evidence plus the current tracker week, intersected with historical membership, scoring eligibility, and current viewer scope.';
 comment on function public.historical_reporting_activity_for_weeks(date[]) is
-  'Sanitized score inputs attributable to the caller-authorized historical population; includes same-masjid and unambiguous legacy null-masjid activity without exposing raw operational content.';
+  'Sanitized score inputs and authoritative attribution dispositions for the caller-authorized historical population; every stored masjid/cohort/group owner must resolve to the membership masjid.';
 comment on function public.student_leaderboard_available_weeks() is
   'Student-selectable canonical Sundays, bounded to evidence-backed historical cohort scopes plus the current tracker week; never returns future weeks.';
 

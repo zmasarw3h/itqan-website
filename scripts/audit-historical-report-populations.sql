@@ -238,6 +238,19 @@ with activity_rows as (
     order by candidates.starts_on desc, candidates.id desc
     limit 1
   ) expected on true
+), classified as (
+  select evaluated.*,
+         (select cohorts.masjid_id from public.cohorts
+           where cohorts.id = evaluated.cohort_id) as stored_cohort_masjid_id,
+         (select cohorts.masjid_id
+            from public.halaqa_groups groups
+            join public.cohorts on cohorts.id = groups.cohort_id
+           where groups.id = evaluated.halaqa_group_id) as stored_group_masjid_id,
+         private.raw_historical_report_activity_disposition(
+           evaluated.student_id, evaluated.scope_week, evaluated.masjid_id,
+           evaluated.cohort_id, evaluated.halaqa_group_id
+         ) as scoring_disposition
+  from evaluated
 )
 select source_table as audit_section, row_id, student_id, report_date,
        masjid_id as stored_masjid_id, cohort_id as stored_cohort_id,
@@ -246,29 +259,21 @@ select source_table as audit_section, row_id, student_id, report_date,
        masjid_id is null as missing_stored_masjid,
        membership_count = 1 and masjid_id is not null
          and masjid_id is distinct from expected_masjid_id as cross_masjid_mismatch,
+       membership_count = 1 and stored_cohort_masjid_id is not null
+         and stored_cohort_masjid_id is distinct from expected_masjid_id as cross_masjid_cohort,
+       membership_count = 1 and stored_group_masjid_id is not null
+         and stored_group_masjid_id is distinct from expected_masjid_id as cross_masjid_group,
+       membership_count = 1 and stored_cohort_masjid_id is not null
+         and stored_group_masjid_id is not null
+         and stored_cohort_masjid_id is distinct from stored_group_masjid_id
+         as conflicting_stored_scope,
        membership_count = 1
          and cohort_id is distinct from expected_cohort_id as exact_cohort_mismatch,
        membership_count = 1
          and halaqa_group_id is distinct from expected_group_id as exact_group_mismatch,
-       case
-         when coalesce(membership_count, 0) = 0 then 'no_historical_membership'
-         when membership_count > 1 then 'ambiguous_historical_membership'
-         when masjid_id is null then 'missing_stored_masjid'
-         when masjid_id is distinct from expected_masjid_id then 'cross_masjid_scope_mismatch'
-         when cohort_id is distinct from expected_cohort_id then 'cohort_scope_mismatch'
-         else 'group_scope_mismatch'
-       end as reason_code,
-       case
-         when coalesce(membership_count, 0) = 0 then 'excluded_no_historical_membership'
-         when membership_count > 1 then 'excluded_ambiguous_historical_membership'
-         when masjid_id is null then 'counted_legacy_missing_masjid_by_unambiguous_membership'
-         when masjid_id is distinct from expected_masjid_id then 'excluded_cross_masjid_scope_mismatch'
-         when cohort_id is distinct from expected_cohort_id
-           or halaqa_group_id is distinct from expected_group_id
-           then 'counted_same_masjid_placement_mismatch'
-         else 'counted_exact_scope'
-       end as scoring_disposition
-from evaluated
+       scoring_disposition as reason_code,
+       scoring_disposition
+from classified
 where coalesce(membership_count, 0) <> 1
    or masjid_id is null
    or masjid_id is distinct from expected_masjid_id
@@ -290,36 +295,11 @@ with activity_rows as (
   select grades.student_id, grades.week_start,
          grades.masjid_id, grades.cohort_id, grades.halaqa_group_id
   from public.halaqa_grades grades
-), evaluated as (
-  select activity_rows.*, expected.membership_count,
-         expected.masjid_id expected_masjid_id, expected.cohort_id expected_cohort_id,
-         expected.group_id expected_group_id
-  from activity_rows
-  left join lateral (
-    select count(*) over () membership_count, cohorts.masjid_id,
-           cohorts.id cohort_id, groups.id group_id,
-           memberships.starts_on, memberships.id
-    from public.student_group_memberships memberships
-    join public.halaqa_groups groups on groups.id = memberships.group_id
-    join public.cohorts cohorts on cohorts.id = groups.cohort_id
-    where memberships.student_id = activity_rows.student_id
-      and memberships.starts_on <= activity_rows.scope_week
-      and (memberships.ends_on is null or memberships.ends_on >= activity_rows.scope_week)
-    order by memberships.starts_on desc, memberships.id desc
-    limit 1
-  ) expected on true
 ), dispositions as (
-  select case
-    when coalesce(membership_count, 0) = 0 then 'excluded_no_historical_membership'
-    when membership_count > 1 then 'excluded_ambiguous_historical_membership'
-    when masjid_id is null then 'counted_legacy_missing_masjid_by_unambiguous_membership'
-    when masjid_id is distinct from expected_masjid_id then 'excluded_cross_masjid_scope_mismatch'
-    when cohort_id is distinct from expected_cohort_id
-      or halaqa_group_id is distinct from expected_group_id
-      then 'counted_same_masjid_placement_mismatch'
-    else 'counted_exact_scope'
-  end scoring_disposition
-  from evaluated
+  select private.raw_historical_report_activity_disposition(
+    student_id, scope_week, masjid_id, cohort_id, halaqa_group_id
+  ) as scoring_disposition
+  from activity_rows
 )
 select 'activity_scoring_dispositions' audit_section, scoring_disposition, count(*) row_count
 from dispositions

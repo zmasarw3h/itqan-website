@@ -30,7 +30,20 @@ export type HistoricalActivityScope = {
   masjid_id?: string | null;
   cohort_id?: string | null;
   halaqa_group_id?: string | null;
+  attribution_disposition?: HistoricalReportAttributionDisposition;
 };
+
+export type HistoricalReportAttributionDisposition =
+  | "counted_exact_scope"
+  | "counted_same_masjid_placement_mismatch"
+  | "counted_legacy_missing_masjid_by_unambiguous_membership"
+  | "excluded_cross_masjid_explicit_masjid"
+  | "excluded_cross_masjid_cohort"
+  | "excluded_cross_masjid_group"
+  | "excluded_conflicting_stored_scope"
+  | "excluded_no_historical_membership"
+  | "excluded_ambiguous_historical_membership"
+  | "excluded_invalid_tracker_week";
 
 export type HistoricalReportingActivity = HistoricalActivityScope & {
   activity_kind: "checkin" | "partner_recitation" | "halaqa_grade";
@@ -42,6 +55,7 @@ export type HistoricalReportingActivity = HistoricalActivityScope & {
   partner_points: number | null;
   attendance_points: number | null;
   recitation_points: number | null;
+  attribution_disposition: HistoricalReportAttributionDisposition;
 };
 
 function populationKey(studentId: string, weekStart: string) {
@@ -133,8 +147,10 @@ export function activityCountsForHistoricalReport(
 
   if (!population) return false;
 
-  return activity.masjid_id === null || activity.masjid_id === undefined ||
-    activity.masjid_id === population.masjid_id;
+  return activity.attribution_disposition === "counted_exact_scope"
+    || activity.attribution_disposition === "counted_same_masjid_placement_mismatch"
+    || activity.attribution_disposition ===
+      "counted_legacy_missing_masjid_by_unambiguous_membership";
 }
 
 export function reportingPopulationKey(studentId: string, weekStart: string) {

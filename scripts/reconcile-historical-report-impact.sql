@@ -187,16 +187,10 @@ mismatches as (
         then 'membership_boundary_conflict'
       else 'stored_scope_mismatch'
     end as reason_code,
-    case
-      when membership_count > 1 then 'excluded_ambiguous_historical_membership'
-      when expected_group_id is null then 'excluded_no_historical_membership'
-      when stored_masjid_id is null then 'counted_legacy_missing_masjid_by_unambiguous_membership'
-      when stored_masjid_id is distinct from expected_masjid_id then 'excluded_cross_masjid_scope_mismatch'
-      when stored_cohort_id is distinct from expected_cohort_id
-        or stored_group_id is distinct from expected_group_id
-        then 'counted_same_masjid_placement_mismatch'
-      else 'counted_exact_scope'
-    end as scoring_disposition,
+    private.raw_historical_report_activity_disposition(
+      ae.student_id, ae.week_start, ae.stored_masjid_id,
+      ae.stored_cohort_id, ae.stored_group_id
+    ) as scoring_disposition,
     case ae.source_table
       when 'checkins' then coalesce((
         select least(700::numeric, sum(coalesce(ci.daily_score, 0))) <>
