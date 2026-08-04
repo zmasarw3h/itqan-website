@@ -39,3 +39,7 @@ RLS_SUPABASE_URL="$API_URL" \
 RLS_SUPABASE_ANON_KEY="$ANON_KEY" \
 RLS_SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
 npx tsx scripts/test-rls.ts
+
+docker exec -i supabase_db_itqan-lite-phase-1-rls \
+  psql --set ON_ERROR_STOP=1 --username postgres --dbname postgres \
+  < scripts/test-historical-report-attribution.sql

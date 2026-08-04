@@ -19,7 +19,7 @@ function leaderboardExportHref(weekStart: string, below70Only: boolean) {
 
 export default async function AdminPage({ searchParams }: { searchParams: Promise<LeaderboardSearchParams & { status?: string }> }) {
   const resolvedSearchParams = await searchParams;
-  const { supabase, profile } = await requireProfile(["admin"]);
+  const { supabase, profile } = await requireProfile(["admin", "super_admin"]);
   const data = await loadLeaderboardData(supabase, resolvedSearchParams);
 
   return (

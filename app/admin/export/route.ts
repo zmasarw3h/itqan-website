@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const { supabase, profile } = await getCurrentProfile();
 
-  if (!profile || profile.role !== "admin") {
+  if (!profile || !["admin", "super_admin"].includes(profile.role)) {
     return new NextResponse("Not found", { status: 404 });
   }
 

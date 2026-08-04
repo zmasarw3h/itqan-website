@@ -8,6 +8,11 @@ function leaderboardRow(overrides: Partial<LeaderboardRow> = {}): LeaderboardRow
     studentName: "Student One",
     studentEmail: "student@example.com",
     studentPhone: "+1 555 0101",
+    masjidName: "Masjid A",
+    cohortName: "Brothers",
+    groupName: "Group A",
+    canViewCurrentContact: true,
+    canOpenCurrentProfile: true,
     score: {
       daily_points: 700,
       partner_points: 150,
@@ -57,6 +62,19 @@ describe("leaderboard CSV export", () => {
         halaqaGradeByWeek: new Map()
       })
     ).toBe(0);
+  });
+
+  it("breaks a streak when the student is absent from one historical population", () => {
+    expect(
+      calculateBelow70Streak({
+        completedWeekStartsDescending: ["2026-06-14", "2026-06-07", "2026-05-31"],
+        minimumWeekStart: "2026-05-31",
+        eligibleWeekStarts: new Set(["2026-06-14", "2026-05-31"]),
+        checkinsByWeek: new Map(),
+        partnerRecitationsByWeek: new Map(),
+        halaqaGradeByWeek: new Map()
+      })
+    ).toBe(1);
   });
 
   it("escapes spreadsheet formula prefixes in user-controlled fields", () => {

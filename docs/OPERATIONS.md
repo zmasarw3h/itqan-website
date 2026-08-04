@@ -181,6 +181,35 @@ For the scoring-boundary/accountability rollout, follow
 repair must be applied before the matching app deployment; the repair script is
 manual and must never be run against production without explicit approval.
 
+For the historical-reporting rollout, use this database-first order:
+
+1. Apply the Slice 4 Phase A migration. It remains compatible with the deployed
+   service-role direct insert, pending recalculation, and auto-waive paths while
+   validating their values from authoritative historical data. Membership
+   controls population, placement, and authorization; report scoring counts
+   same-masjid placement mismatches and unambiguous legacy null-masjid activity,
+   while excluding cross-masjid evidence from the stored masjid, cohort owner,
+   group owner, or conflicting scope fields. Exact scope remains required
+   for new writes and pending obligations, and settled obligations remain immutable.
+2. Run `npm run test:rls:compat`, smoke test staging, and deploy the application
+   version that uses the service-role reconciliation RPC.
+3. Only after that application is confirmed live, prepare a separate Phase C
+   cleanup migration to remove the legacy write path and obsolete insert policy.
+
+Do not include Phase C in the Slice 4 rollout. Existing authenticated-admin
+writes remain constrained by RLS and by trigger validation of canonical weeks,
+historical scope, scores, amounts, and immutable obligation identity.
+
+The upgrade harness discovers the immutable migration base from
+`UPGRADE_BASE_REF`. Its legacy accountability source/build/compatibility checks
+run only when that base does not contain Slice 4 and Slice 4 is one of the
+forward migrations. For later slices whose base already contains Slice 4, the
+harness skips that temporary application-contract assertion while continuing
+base migration byte checks, clean/upgrade schema parity, RLS, policies, grants,
+triggers, lint, and audit checks. Run `npm run test:rls:upgrade:self-test` to
+exercise the post-Slice-4 mode and the invalid-ref, no-forward, edited-base, and
+deleted/renamed-base fail-closed cases.
+
 After `20260724130111_add_scoped_official_scoring_workflow.sql` is applied, admins
 use the student's **Official scoring** page to preview and activate or move the
 boundary forward. A normal admin is rejected if any affected membership or

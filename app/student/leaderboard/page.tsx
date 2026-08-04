@@ -28,7 +28,7 @@ export default async function StudentLeaderboardPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const { supabase, profile } = await requireProfile(["student"]);
-  const data = await loadStudentLeaderboardData(supabase, profile.id, resolvedSearchParams);
+  const data = await loadStudentLeaderboardData(supabase, resolvedSearchParams);
 
   if (!data.scope) {
     return (

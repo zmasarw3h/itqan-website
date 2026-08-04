@@ -192,6 +192,8 @@ Uploading again during the same week replaces the existing weekly plan record. T
 
 Admins open `/admin/students/[id]` from the student list to view the student's current weekly plan. If a plan exists, the admin sees the file name, upload timestamp, and a signed view/download link. If no plan exists, the page shows `No plan uploaded for this week.`
 
+Historical leaderboards, incentives, rewards, streaks, and their CSV output use each tracker week's effective student membership rather than today's roster. Current viewer authorization and contact privacy remain separate from historical population. See [Historical reporting populations](docs/historical-reporting.md) for the exact population, scoring, privacy, lifetime badge, and naming rules.
+
 Teachers open `/teacher` and choose an assignment week. `week_start` remains the Sunday tracker-week
 storage key, while the halaqa event date is the following Saturday. Teacher staff eligibility for the
 assignment is evaluated on that Saturday, not on the Sunday storage key. Rotation navigation uses Toronto civil

@@ -7,6 +7,34 @@ import {
   computedBadgeAwardFromRow,
   type WeeklyIncentiveScoreRow
 } from "@/lib/weekly-incentives";
+import type { HistoricalReportingStudent } from "@/lib/reporting-population";
+
+function populationFor(
+  students: Array<{ id: string; name: string; email: string; phone: string | null; score_starts_on: string | null }>,
+  weekStarts: string[]
+): HistoricalReportingStudent[] {
+  return weekStarts.flatMap((weekStart) => students.map((student) => ({
+    week_start: weekStart,
+    student_id: student.id,
+    student_name: student.name,
+    student_email: student.email,
+    student_phone: student.phone,
+    student_created_at: null,
+    membership_starts_on: "2026-01-01",
+    membership_ends_on: null,
+    score_starts_on: student.score_starts_on,
+    scoring_eligible: Boolean(student.score_starts_on && student.score_starts_on <= weekStart),
+    masjid_id: "masjid-a",
+    masjid_name: "Masjid A",
+    cohort_id: "cohort-a",
+    cohort_kind: "brothers",
+    cohort_name: "Brothers",
+    group_id: "group-a",
+    group_name: "Group A",
+    can_view_current_contact: true,
+    can_open_current_profile: true
+  })));
+}
 
 function row(overrides: Partial<WeeklyIncentiveScoreRow> = {}): WeeklyIncentiveScoreRow {
   const weeklyPercentage = overrides.weeklyPercentage ?? 95;
@@ -16,6 +44,11 @@ function row(overrides: Partial<WeeklyIncentiveScoreRow> = {}): WeeklyIncentiveS
     studentName: "Student A",
     studentEmail: "student-a@itqan.local",
     studentPhone: null,
+    canViewCurrentContact: true,
+    canOpenCurrentProfile: true,
+    masjidName: "Masjid A",
+    cohortName: "Brothers",
+    groupName: "Group A",
     weekStart: "2026-05-31",
     weeklyPercentage,
     badgesAwarded: weeklyPercentage > 90 ? Math.floor(weeklyPercentage) - 90 : 0,
@@ -76,7 +109,7 @@ describe("weekly incentive reports", () => {
 
   it("does not generate incentive rows before a student's score baseline", () => {
     const rows = buildWeeklyIncentiveRows({
-      students: [
+      population: populationFor([
         {
           id: "student-a",
           name: "Student A",
@@ -84,8 +117,7 @@ describe("weekly incentive reports", () => {
           phone: null,
           score_starts_on: "2026-07-05"
         }
-      ],
-      weekStarts: ["2026-06-28", "2026-07-05"],
+      ], ["2026-06-28", "2026-07-05"]),
       checkins: [],
       partnerRecitations: [],
       halaqaGrades: []
@@ -96,7 +128,7 @@ describe("weekly incentive reports", () => {
 
   it("treats a missing score baseline as not eligible instead of scoring all history", () => {
     const rows = buildWeeklyIncentiveRows({
-      students: [
+      population: populationFor([
         {
           id: "student-a",
           name: "Student A",
@@ -104,8 +136,7 @@ describe("weekly incentive reports", () => {
           phone: null,
           score_starts_on: null
         }
-      ],
-      weekStarts: ["2026-05-31", "2026-06-07", "2026-07-12"],
+      ], ["2026-05-31", "2026-06-07", "2026-07-12"]),
       checkins: [],
       partnerRecitations: [],
       halaqaGrades: []
@@ -116,7 +147,7 @@ describe("weekly incentive reports", () => {
 
   it("does not score completed weeks for a student onboarding in the current week", () => {
     const rows = buildWeeklyIncentiveRows({
-      students: [
+      population: populationFor([
         {
           id: "student-a",
           name: "Student A",
@@ -124,8 +155,7 @@ describe("weekly incentive reports", () => {
           phone: null,
           score_starts_on: "2026-07-19"
         }
-      ],
-      weekStarts: ["2026-07-05", "2026-07-12"],
+      ], ["2026-07-05", "2026-07-12"]),
       checkins: [],
       partnerRecitations: [],
       halaqaGrades: []
@@ -136,7 +166,7 @@ describe("weekly incentive reports", () => {
 
   it("does not score a student whose first eligible week is in the future", () => {
     const rows = buildWeeklyIncentiveRows({
-      students: [
+      population: populationFor([
         {
           id: "student-a",
           name: "Student A",
@@ -144,8 +174,7 @@ describe("weekly incentive reports", () => {
           phone: null,
           score_starts_on: "2026-07-26"
         }
-      ],
-      weekStarts: ["2026-07-12", "2026-07-19"],
+      ], ["2026-07-12", "2026-07-19"]),
       checkins: [],
       partnerRecitations: [],
       halaqaGrades: []
@@ -156,7 +185,7 @@ describe("weekly incentive reports", () => {
 
   it("keeps valid below-70 accountability rows after the score baseline", () => {
     const rows = buildWeeklyIncentiveRows({
-      students: [
+      population: populationFor([
         {
           id: "student-a",
           name: "Student A",
@@ -164,8 +193,7 @@ describe("weekly incentive reports", () => {
           phone: null,
           score_starts_on: "2026-07-12"
         }
-      ],
-      weekStarts: ["2026-07-12"],
+      ], ["2026-07-12"]),
       checkins: [],
       partnerRecitations: [],
       halaqaGrades: []
@@ -194,6 +222,16 @@ describe("weekly incentive reports", () => {
     });
 
     expect(report.below70TwoWeeksStraight.map((studentRow) => studentRow.studentId)).toEqual(["student-a"]);
+  });
+
+  it("does not fabricate a two-week streak when the student joined in the selected week", () => {
+    const report = buildWeeklyIncentiveReport({
+      selectedWeekStart: "2026-06-07",
+      completedWeekStartsDescending: ["2026-06-07", "2026-05-31"],
+      rows: [row({ studentId: "new-student", weekStart: "2026-06-07", weeklyPercentage: 40 })]
+    });
+
+    expect(report.below70TwoWeeksStraight).toEqual([]);
   });
 
   it("does not count pre-cutoff weeks for two-week below-70 streak reports", () => {

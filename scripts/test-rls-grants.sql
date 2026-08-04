@@ -32,6 +32,9 @@ insert into expected_authenticated_definers (signature) values
   ('current_partner_recitation_round()'),
   ('current_toronto_civil_date()'),
   ('group_masjid_id(uuid)'),
+  ('historical_reporting_available_weeks()'),
+  ('historical_reporting_activity_for_weeks(date[])'),
+  ('historical_reporting_students_for_weeks(date[])'),
   ('is_active_admin()'),
   ('is_active_student()'),
   ('is_active_super_admin()'),
@@ -45,6 +48,7 @@ insert into expected_authenticated_definers (signature) values
   ('student_cohort_leaderboard_for_week(date)'),
   ('student_current_group_id(uuid)'),
   ('student_group_for_week(uuid,date)'),
+  ('student_historical_reporting_scope_for_week(date)'),
   ('student_leaderboard_available_weeks()'),
   ('student_masjid_for_week(uuid,date)'),
   ('student_scope_snapshot_matches(uuid,date,uuid,uuid,uuid)'),
@@ -230,6 +234,7 @@ begin
       ('get_person_access_state(uuid,uuid)'),
       ('prepare_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date)'),
       ('preview_official_scoring_start_change(uuid,uuid,date)'),
+      ('reconcile_historical_accountability_obligation(uuid,date)'),
       ('get_scoped_user_setup_auth_recovery(uuid,uuid,text,text,text,text,date,date,uuid,uuid)'),
       ('get_scoped_user_setup_request_result(uuid,uuid,text,text,text,text,date,date,uuid,uuid)')
     ) expected_service(signature)
@@ -323,6 +328,10 @@ begin
   ) or not has_function_privilege(
     'service_role',
     'public.access_transition_rollout_diagnostic()',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.reconcile_historical_accountability_obligation(uuid,date)',
     'EXECUTE'
   ) then
     raise exception 'service_role lacks transactional workflow RPC EXECUTE';
