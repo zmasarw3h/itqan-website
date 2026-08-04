@@ -216,17 +216,89 @@ with activity_rows as (
          grades.week_start, grades.week_start,
          grades.masjid_id, grades.cohort_id, grades.halaqa_group_id
   from public.halaqa_grades grades
-  union all
-  select 'accountability_obligations', obligations.id, obligations.student_id,
-         obligations.week_start, obligations.week_start,
-         obligations.masjid_id, obligations.cohort_id, obligations.halaqa_group_id
-  from public.accountability_obligations obligations
 ), evaluated as (
-  select activity_rows.*, expected.masjid_id as expected_masjid_id,
+  select activity_rows.*, expected.membership_count,
+         expected.masjid_id as expected_masjid_id,
          expected.cohort_id as expected_cohort_id, expected.group_id as expected_group_id
   from activity_rows
   left join lateral (
-    select cohorts.masjid_id, cohorts.id as cohort_id, groups.id as group_id
+    select candidates.membership_count, candidates.masjid_id,
+           candidates.cohort_id, candidates.group_id
+    from (
+      select count(*) over () as membership_count,
+             cohorts.masjid_id, cohorts.id as cohort_id, groups.id as group_id,
+             memberships.starts_on, memberships.id
+      from public.student_group_memberships memberships
+      join public.halaqa_groups groups on groups.id = memberships.group_id
+      join public.cohorts cohorts on cohorts.id = groups.cohort_id
+      where memberships.student_id = activity_rows.student_id
+        and memberships.starts_on <= activity_rows.scope_week
+        and (memberships.ends_on is null or memberships.ends_on >= activity_rows.scope_week)
+    ) candidates
+    order by candidates.starts_on desc, candidates.id desc
+    limit 1
+  ) expected on true
+)
+select source_table as audit_section, row_id, student_id, report_date,
+       masjid_id as stored_masjid_id, cohort_id as stored_cohort_id,
+       halaqa_group_id as stored_group_id, expected_masjid_id,
+       expected_cohort_id, expected_group_id,
+       masjid_id is null as missing_stored_masjid,
+       membership_count = 1 and masjid_id is not null
+         and masjid_id is distinct from expected_masjid_id as cross_masjid_mismatch,
+       membership_count = 1
+         and cohort_id is distinct from expected_cohort_id as exact_cohort_mismatch,
+       membership_count = 1
+         and halaqa_group_id is distinct from expected_group_id as exact_group_mismatch,
+       case
+         when coalesce(membership_count, 0) = 0 then 'no_historical_membership'
+         when membership_count > 1 then 'ambiguous_historical_membership'
+         when masjid_id is null then 'missing_stored_masjid'
+         when masjid_id is distinct from expected_masjid_id then 'cross_masjid_scope_mismatch'
+         when cohort_id is distinct from expected_cohort_id then 'cohort_scope_mismatch'
+         else 'group_scope_mismatch'
+       end as reason_code,
+       case
+         when coalesce(membership_count, 0) = 0 then 'excluded_no_historical_membership'
+         when membership_count > 1 then 'excluded_ambiguous_historical_membership'
+         when masjid_id is null then 'counted_legacy_missing_masjid_by_unambiguous_membership'
+         when masjid_id is distinct from expected_masjid_id then 'excluded_cross_masjid_scope_mismatch'
+         when cohort_id is distinct from expected_cohort_id
+           or halaqa_group_id is distinct from expected_group_id
+           then 'counted_same_masjid_placement_mismatch'
+         else 'counted_exact_scope'
+       end as scoring_disposition
+from evaluated
+where coalesce(membership_count, 0) <> 1
+   or masjid_id is null
+   or masjid_id is distinct from expected_masjid_id
+   or cohort_id is distinct from expected_cohort_id
+   or halaqa_group_id is distinct from expected_group_id
+order by source_table, report_date desc, student_id, row_id;
+
+-- Bounded aggregate disposition counts keep data-quality and scoring treatment
+-- separate without exposing names or activity content.
+with activity_rows as (
+  select checkins.student_id, public.week_start_for_date(checkins.date) scope_week,
+         checkins.masjid_id, checkins.cohort_id, checkins.halaqa_group_id
+  from public.checkins
+  union all
+  select recitations.student_id, recitations.week_start,
+         recitations.masjid_id, recitations.cohort_id, recitations.halaqa_group_id
+  from public.partner_recitations recitations
+  union all
+  select grades.student_id, grades.week_start,
+         grades.masjid_id, grades.cohort_id, grades.halaqa_group_id
+  from public.halaqa_grades grades
+), evaluated as (
+  select activity_rows.*, expected.membership_count,
+         expected.masjid_id expected_masjid_id, expected.cohort_id expected_cohort_id,
+         expected.group_id expected_group_id
+  from activity_rows
+  left join lateral (
+    select count(*) over () membership_count, cohorts.masjid_id,
+           cohorts.id cohort_id, groups.id group_id,
+           memberships.starts_on, memberships.id
     from public.student_group_memberships memberships
     join public.halaqa_groups groups on groups.id = memberships.group_id
     join public.cohorts cohorts on cohorts.id = groups.cohort_id
@@ -236,24 +308,27 @@ with activity_rows as (
     order by memberships.starts_on desc, memberships.id desc
     limit 1
   ) expected on true
+), dispositions as (
+  select case
+    when coalesce(membership_count, 0) = 0 then 'excluded_no_historical_membership'
+    when membership_count > 1 then 'excluded_ambiguous_historical_membership'
+    when masjid_id is null then 'counted_legacy_missing_masjid_by_unambiguous_membership'
+    when masjid_id is distinct from expected_masjid_id then 'excluded_cross_masjid_scope_mismatch'
+    when cohort_id is distinct from expected_cohort_id
+      or halaqa_group_id is distinct from expected_group_id
+      then 'counted_same_masjid_placement_mismatch'
+    else 'counted_exact_scope'
+  end scoring_disposition
+  from evaluated
 )
-select source_table as audit_section, row_id, student_id, report_date,
-       masjid_id as stored_masjid_id, cohort_id as stored_cohort_id,
-       halaqa_group_id as stored_group_id, expected_masjid_id,
-       expected_cohort_id, expected_group_id,
-       case
-         when expected_group_id is null then 'no_historical_membership'
-         else 'stored_scope_mismatch'
-       end as reason_code
-from evaluated
-where expected_group_id is null
-   or masjid_id is distinct from expected_masjid_id
-   or cohort_id is distinct from expected_cohort_id
-   or halaqa_group_id is distinct from expected_group_id
-order by source_table, report_date desc, student_id, row_id;
+select 'activity_scoring_dispositions' audit_section, scoring_disposition, count(*) row_count
+from dispositions
+group by scoring_disposition
+order by scoring_disposition;
 
 -- Count only bounded, scoring-eligible student/weeks whose numeric score
--- actually changes when malformed activity snapshots are excluded.
+-- changes under revised report attribution. Same-masjid placement mismatches
+-- and unambiguous legacy null-masjid activity remain counted.
 with eligible as (
   select distinct scopes.week_start, memberships.student_id
   from private.raw_historical_report_week_scopes() scopes
@@ -287,7 +362,7 @@ with eligible as (
       select sum(coalesce(checkins.daily_score, 0)) from public.checkins
       where checkins.student_id = eligible.student_id
         and checkins.date between eligible.week_start and eligible.week_start + 6
-        and private.raw_historical_activity_scope_matches(
+        and private.raw_historical_report_activity_is_attributable(
           eligible.student_id, eligible.week_start, checkins.masjid_id,
           checkins.cohort_id, checkins.halaqa_group_id)
     ), 0)::numeric))
@@ -295,7 +370,7 @@ with eligible as (
       select sum(recitations.points) from public.partner_recitations recitations
       where recitations.student_id = eligible.student_id
         and recitations.week_start = eligible.week_start
-        and private.raw_historical_activity_scope_matches(
+        and private.raw_historical_report_activity_is_attributable(
           eligible.student_id, eligible.week_start, recitations.masjid_id,
           recitations.cohort_id, recitations.halaqa_group_id)
     ), 0)::numeric))
@@ -303,13 +378,13 @@ with eligible as (
       select grades.attendance_points + grades.recitation_points from public.halaqa_grades grades
       where grades.student_id = eligible.student_id
         and grades.week_start = eligible.week_start
-        and private.raw_historical_activity_scope_matches(
+        and private.raw_historical_report_activity_is_attributable(
           eligible.student_id, eligible.week_start, grades.masjid_id,
           grades.cohort_id, grades.halaqa_group_id)
     ), 0)::numeric)) as validated_points
   from eligible
 )
-select 'scores_changed_by_scope_exclusion' as audit_section,
+select 'scores_changed_by_report_attribution' as audit_section,
        count(*) as changed_student_week_scores
 from score_comparison
 where unvalidated_points is distinct from validated_points;

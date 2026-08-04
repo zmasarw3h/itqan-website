@@ -12,8 +12,9 @@ import {
 } from "@/lib/incentives";
 import { calculateWeekScoreForStudent, weekIsComplete } from "@/lib/leaderboard";
 import {
-  activityMatchesHistoricalPopulation,
+  activityCountsForHistoricalReport,
   historicalPopulationByStudentWeek,
+  loadHistoricalReportingActivityForWeeks,
   loadHistoricalReportingAvailableWeeks,
   loadHistoricalReportingStudentsForWeeks,
   type HistoricalReportingStudent
@@ -268,66 +269,35 @@ export async function loadComputedWeeklyIncentiveRows(input: {
     return [];
   }
 
-  const orderedWeekStarts = [...input.weekStarts].sort();
-  const firstWeekStart = orderedWeekStarts[0];
-  const lastWeekStart = orderedWeekStarts.at(-1)!;
-  const studentIdChunks = chunksOf(studentIds);
-  const [checkins, partnerRecitations, halaqaGrades] = await Promise.all([
-    Promise.all(studentIdChunks.map((studentIdChunk) =>
-      loadAllSupabasePages<WeeklyCheckIn>((from, to) =>
-        input.supabase
-          .from("checkins")
-          .select("student_id,date,daily_score,masjid_id,cohort_id,halaqa_group_id")
-          .in("student_id", studentIdChunk)
-          .gte("date", firstWeekStart)
-          .lte("date", addDays(lastWeekStart, 6))
-          .order("student_id")
-          .order("date")
-          .range(from, to)
-          .returns<WeeklyCheckIn[]>()
-      )
-    )).then((pages) => pages.flat()),
-    Promise.all(studentIdChunks.map((studentIdChunk) =>
-      loadAllSupabasePages<WeeklyPartnerRecitation>((from, to) =>
-        input.supabase
-          .from("partner_recitations")
-          .select("student_id,week_start,round,points,masjid_id,cohort_id,halaqa_group_id")
-          .in("student_id", studentIdChunk)
-          .gte("week_start", firstWeekStart)
-          .lte("week_start", lastWeekStart)
-          .order("student_id")
-          .order("week_start")
-          .order("round")
-          .range(from, to)
-          .returns<WeeklyPartnerRecitation[]>()
-      )
-    )).then((pages) => pages.flat()),
-    Promise.all(studentIdChunks.map((studentIdChunk) =>
-      loadAllSupabasePages<WeeklyHalaqaGrade>((from, to) =>
-        input.supabase
-          .from("halaqa_grades")
-          .select("student_id,week_start,attendance_points,recitation_points,masjid_id,cohort_id,halaqa_group_id")
-          .in("student_id", studentIdChunk)
-          .gte("week_start", firstWeekStart)
-          .lte("week_start", lastWeekStart)
-          .order("student_id")
-          .order("week_start")
-          .range(from, to)
-          .returns<WeeklyHalaqaGrade[]>()
-      )
-    )).then((pages) => pages.flat())
-  ]);
+  const activity = await loadHistoricalReportingActivityForWeeks(input.supabase, input.weekStarts);
+  const checkins: WeeklyCheckIn[] = activity
+    .filter((row) => row.activity_kind === "checkin")
+    .map((row) => ({ ...row, date: row.activity_date, daily_score: row.daily_score ?? 0 }));
+  const partnerRecitations: WeeklyPartnerRecitation[] = activity
+    .filter((row) => row.activity_kind === "partner_recitation")
+    .map((row) => ({
+      ...row,
+      round: row.recitation_round as PartnerRecitation["round"],
+      points: row.partner_points ?? 0
+    }));
+  const halaqaGrades: WeeklyHalaqaGrade[] = activity
+    .filter((row) => row.activity_kind === "halaqa_grade")
+    .map((row) => ({
+      ...row,
+      attendance_points: row.attendance_points ?? 0,
+      recitation_points: row.recitation_points ?? 0
+    }));
 
   return buildWeeklyIncentiveRows({
     population,
     checkins: checkins.filter((row) =>
-      activityMatchesHistoricalPopulation(row, weekStartForDate(row.date), populationByWeek)
+      activityCountsForHistoricalReport(row, weekStartForDate(row.date), populationByWeek)
     ),
     partnerRecitations: partnerRecitations.filter((row) =>
-      activityMatchesHistoricalPopulation(row, row.week_start, populationByWeek)
+      activityCountsForHistoricalReport(row, row.week_start, populationByWeek)
     ),
     halaqaGrades: halaqaGrades.filter((row) =>
-      activityMatchesHistoricalPopulation(row, row.week_start, populationByWeek)
+      activityCountsForHistoricalReport(row, row.week_start, populationByWeek)
     )
   });
 }

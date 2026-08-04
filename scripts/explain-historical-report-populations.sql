@@ -143,7 +143,7 @@ with activity_rows as (
   from public.accountability_obligations
 )
 select count(*) from activity_rows
-where not private.raw_historical_activity_scope_matches(
+where not private.raw_historical_scope_matches(
   student_id, week_start, masjid_id, cohort_id, halaqa_group_id
 );
 

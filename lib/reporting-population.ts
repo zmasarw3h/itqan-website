@@ -32,6 +32,18 @@ export type HistoricalActivityScope = {
   halaqa_group_id?: string | null;
 };
 
+export type HistoricalReportingActivity = HistoricalActivityScope & {
+  activity_kind: "checkin" | "partner_recitation" | "halaqa_grade";
+  row_id: string;
+  activity_date: string;
+  week_start: string;
+  daily_score: number | null;
+  recitation_round: string | null;
+  partner_points: number | null;
+  attendance_points: number | null;
+  recitation_points: number | null;
+};
+
 function populationKey(studentId: string, weekStart: string) {
   return `${studentId}:${weekStart}`;
 }
@@ -68,16 +80,39 @@ export async function loadHistoricalReportingAvailableWeeks(supabase: SupabaseCl
   }
 }
 
-export function historicalPopulationByStudentWeek(population: HistoricalReportingStudent[]) {
-  return new Map(
-    population.map((student) => [populationKey(student.student_id, student.week_start), student])
-  );
+export async function loadHistoricalReportingActivityForWeeks(
+  supabase: SupabaseClient,
+  weekStarts: string[]
+) {
+  const uniqueWeekStarts = [...new Set(weekStarts)];
+  if (!uniqueWeekStarts.length) return [];
+
+  try {
+    return await loadAllSupabasePages<HistoricalReportingActivity>((from, to) =>
+      supabase
+        .rpc("historical_reporting_activity_for_weeks", { input_week_starts: uniqueWeekStarts })
+        .range(from, to)
+    );
+  } catch {
+    throw new Error("Unable to load historical reporting activity.");
+  }
 }
 
-export function activityMatchesHistoricalPopulation(
+export function historicalPopulationByStudentWeek(population: HistoricalReportingStudent[]) {
+  const byStudentWeek = new Map<string, HistoricalReportingStudent | null>();
+
+  for (const student of population) {
+    const key = populationKey(student.student_id, student.week_start);
+    byStudentWeek.set(key, byStudentWeek.has(key) ? null : student);
+  }
+
+  return byStudentWeek;
+}
+
+export function activityExactlyMatchesHistoricalPopulation(
   activity: HistoricalActivityScope,
   weekStart: string,
-  populationByWeek: ReadonlyMap<string, HistoricalReportingStudent>
+  populationByWeek: ReadonlyMap<string, HistoricalReportingStudent | null>
 ) {
   const population = populationByWeek.get(populationKey(activity.student_id, weekStart));
 
@@ -87,6 +122,19 @@ export function activityMatchesHistoricalPopulation(
       activity.cohort_id === population.cohort_id &&
       activity.halaqa_group_id === population.group_id
   );
+}
+
+export function activityCountsForHistoricalReport(
+  activity: HistoricalActivityScope,
+  weekStart: string,
+  populationByWeek: ReadonlyMap<string, HistoricalReportingStudent | null>
+) {
+  const population = populationByWeek.get(populationKey(activity.student_id, weekStart));
+
+  if (!population) return false;
+
+  return activity.masjid_id === null || activity.masjid_id === undefined ||
+    activity.masjid_id === population.masjid_id;
 }
 
 export function reportingPopulationKey(studentId: string, weekStart: string) {

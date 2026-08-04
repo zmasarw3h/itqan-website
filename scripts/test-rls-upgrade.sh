@@ -180,6 +180,7 @@ from unnest(array[
   'public.apply_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date,jsonb)',
   'public.apply_super_admin_staff_membership_end(uuid,uuid,uuid,uuid,date,jsonb)',
   'public.historical_reporting_available_weeks()',
+  'public.historical_reporting_activity_for_weeks(date[])',
   'public.historical_reporting_students_for_weeks(date[])',
   'public.student_historical_reporting_scope_for_week(date)',
   'public.student_cohort_leaderboard_for_week(date)',
@@ -189,7 +190,8 @@ from unnest(array[
   'public.set_student_scope_snapshot()',
   'public.validate_accountability_obligation_scope()',
   'private.raw_profile_access_projection(uuid,date)',
-  'private.raw_historical_activity_scope_matches(uuid,date,uuid,uuid,uuid)',
+  'private.raw_historical_scope_matches(uuid,date,uuid,uuid,uuid)',
+  'private.raw_historical_report_activity_is_attributable(uuid,date,uuid,uuid,uuid)',
   'private.raw_can_open_current_student_profile(uuid,uuid)',
   'private.raw_historical_report_week_scopes()',
   'private.raw_student_reporting_week_is_allowed(uuid,date)',
@@ -237,6 +239,7 @@ from unnest(array[
   'public.apply_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date,jsonb)',
   'public.apply_super_admin_staff_membership_end(uuid,uuid,uuid,uuid,date,jsonb)',
   'public.historical_reporting_available_weeks()',
+  'public.historical_reporting_activity_for_weeks(date[])',
   'public.historical_reporting_students_for_weeks(date[])',
   'public.student_historical_reporting_scope_for_week(date)',
   'public.student_cohort_leaderboard_for_week(date)',
@@ -246,7 +249,8 @@ from unnest(array[
   'public.set_student_scope_snapshot()',
   'public.validate_accountability_obligation_scope()',
   'private.raw_profile_access_projection(uuid,date)',
-  'private.raw_historical_activity_scope_matches(uuid,date,uuid,uuid,uuid)',
+  'private.raw_historical_scope_matches(uuid,date,uuid,uuid,uuid)',
+  'private.raw_historical_report_activity_is_attributable(uuid,date,uuid,uuid,uuid)',
   'private.raw_can_open_current_student_profile(uuid,uuid)',
   'private.raw_historical_report_week_scopes()',
   'private.raw_student_reporting_week_is_allowed(uuid,date)',
@@ -302,14 +306,14 @@ docker exec -i "$db_container" psql \
 docker exec -i "$db_container" psql \
   --set ON_ERROR_STOP=1 --username postgres --dbname postgres --no-psqlrc \
   < "$repo_root/scripts/audit-historical-report-populations.sql" > "$historical_audit_output"
-for audit_section in checkins partner_recitations halaqa_grades accountability_obligations paid_or_waived_obligation_scope_mismatches; do
+for audit_section in checkins partner_recitations halaqa_grades paid_or_waived_obligation_scope_mismatches obligations_outside_historical_eligibility; do
   if ! grep -q "$audit_section" "$historical_audit_output"; then
     echo "Historical audit did not enumerate fixture section: ${audit_section}." >&2
     exit 1
   fi
 done
-if ! grep -Eq 'scores_changed_by_scope_exclusion[[:space:]]+\|[[:space:]]+[1-9]' "$historical_audit_output"; then
-  echo "Historical audit did not count scores changed by malformed activity exclusion." >&2
+if ! grep -Eq 'scores_changed_by_report_attribution[[:space:]]+\|[[:space:]]+[1-9]' "$historical_audit_output"; then
+  echo "Historical audit did not count scores changed by cross-masjid or otherwise unattributable activity." >&2
   exit 1
 fi
 query_plan_output="$temp_root/historical-population-query-plans.txt"

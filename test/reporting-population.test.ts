@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  activityMatchesHistoricalPopulation,
+  activityCountsForHistoricalReport,
+  activityExactlyMatchesHistoricalPopulation,
   historicalPopulationByStudentWeek,
   loadHistoricalReportingAvailableWeeks,
   type HistoricalReportingStudent
@@ -49,20 +50,59 @@ describe("historical reporting population", () => {
     );
   });
 
-  it("accepts activity only when its immutable scope matches that student-week population", () => {
+  it("separates exact integrity from same-masjid report attribution", () => {
     const byWeek = historicalPopulationByStudentWeek([population()]);
 
-    expect(activityMatchesHistoricalPopulation({
+    expect(activityExactlyMatchesHistoricalPopulation({
       student_id: "student-a",
       masjid_id: "masjid-a",
       cohort_id: "cohort-a",
       halaqa_group_id: "group-a"
     }, "2026-06-07", byWeek)).toBe(true);
-    expect(activityMatchesHistoricalPopulation({
+    expect(activityExactlyMatchesHistoricalPopulation({
       student_id: "student-a",
       masjid_id: "masjid-b",
       cohort_id: "cohort-b",
       halaqa_group_id: "group-b"
+    }, "2026-06-07", byWeek)).toBe(false);
+
+    expect(activityCountsForHistoricalReport({
+      student_id: "student-a",
+      masjid_id: "masjid-a",
+      cohort_id: "cohort-other",
+      halaqa_group_id: "group-other"
+    }, "2026-06-07", byWeek)).toBe(true);
+    expect(activityCountsForHistoricalReport({
+      student_id: "student-a",
+      masjid_id: null,
+      cohort_id: null,
+      halaqa_group_id: null
+    }, "2026-06-07", byWeek)).toBe(true);
+    expect(activityCountsForHistoricalReport({
+      student_id: "student-a",
+      masjid_id: "masjid-b",
+      cohort_id: "cohort-a",
+      halaqa_group_id: "group-a"
+    }, "2026-06-07", byWeek)).toBe(false);
+    expect(activityCountsForHistoricalReport({
+      student_id: "student-b",
+      masjid_id: "masjid-a"
+    }, "2026-06-07", byWeek)).toBe(false);
+    expect(activityCountsForHistoricalReport({
+      student_id: "student-a",
+      masjid_id: "masjid-a"
+    }, "2026-06-14", byWeek)).toBe(false);
+  });
+
+  it("excludes activity when duplicate population rows make placement ambiguous", () => {
+    const byWeek = historicalPopulationByStudentWeek([
+      population(),
+      population({ group_id: "group-b", group_name: "Group B" })
+    ]);
+
+    expect(activityCountsForHistoricalReport({
+      student_id: "student-a",
+      masjid_id: "masjid-a"
     }, "2026-06-07", byWeek)).toBe(false);
   });
 

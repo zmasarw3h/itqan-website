@@ -3005,6 +3005,33 @@ async function runAssertions(ids: SeedIds) {
   assert.equal(attestedObligationError, null, attestedObligationError?.message);
   assert.equal(attestedObligation?.length, 1, "student self-attestation did not update its valid obligation");
   assert.equal(attestedObligation?.[0]?.status, "attested_paid");
+  const settledBeforeReconcile = await requireData<{
+    id: string;
+    weekly_percentage: number;
+    amount_cents: number;
+    status: string;
+    attested_paid_at: string;
+  }>(
+    "read settled obligation before reconciliation",
+    service.from("accountability_obligations")
+      .select("id,weekly_percentage,amount_cents,status,attested_paid_at")
+      .eq("id", reconciledObligation.id)
+      .single()
+  );
+  const settledReconcile = await service.rpc("reconcile_historical_accountability_obligation", {
+    input_student_id: ids.users.studentA2,
+    input_week_start: ids.previousWeekStart
+  });
+  assert.equal(settledReconcile.error, null, settledReconcile.error?.message);
+  assert.equal(settledReconcile.data, null, "settled reconciliation returned a mutable obligation");
+  const settledAfterReconcile = await requireData<typeof settledBeforeReconcile>(
+    "read settled obligation after reconciliation",
+    service.from("accountability_obligations")
+      .select("id,weekly_percentage,amount_cents,status,attested_paid_at")
+      .eq("id", reconciledObligation.id)
+      .single()
+  );
+  assert.deepEqual(settledAfterReconcile, settledBeforeReconcile, "settled reconciliation changed stored bytes");
   await assertVisible(studentA, "badge_awards", ids.badgeA);
   await assertHidden(studentA, "badge_awards", ids.badgeB);
   await assertHidden(studentA, "profiles", ids.users.studentA2);
@@ -3091,6 +3118,18 @@ async function runAssertions(ids: SeedIds) {
   assert.equal(writerPartner?.masjid_id, ids.masjidA);
   assert.equal(writerPartner?.cohort_id, ids.cohortWriter);
   assert.equal(writerPartner?.halaqa_group_id, ids.groupWriter);
+
+  await assertInsertBlocked(service, "halaqa_grades", {
+    student_id: ids.users.studentWriter,
+    week_start: ids.weekStart,
+    attended: true,
+    attendance_points: 100,
+    recitation_points: 50,
+    graded_by: ids.users.adminA,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    halaqa_group_id: ids.groupA
+  });
 
   const { data: ownAutosave, error: ownAutosaveError } = await studentA
     .from("checkins")
@@ -5067,6 +5106,7 @@ async function runAssertions(ids: SeedIds) {
     ["student_cohort_leaderboard_for_week", { input_week_start: ids.weekStart }],
     ["student_leaderboard_available_weeks"],
     ["historical_reporting_available_weeks"],
+    ["historical_reporting_activity_for_weeks", { input_week_starts: [ids.weekStart] }],
     ["historical_reporting_students_for_weeks", { input_week_starts: [ids.weekStart] }],
     ["student_historical_reporting_scope_for_week", { input_week_start: ids.weekStart }],
     ["admin_students_for_week", { input_week_start: ids.weekStart }],

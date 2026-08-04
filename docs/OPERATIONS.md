@@ -185,7 +185,11 @@ For the historical-reporting rollout, use this database-first order:
 
 1. Apply the Slice 4 Phase A migration. It remains compatible with the deployed
    service-role direct insert, pending recalculation, and auto-waive paths while
-   validating their values from authoritative historical data.
+   validating their values from authoritative historical data. Membership
+   controls population, placement, and authorization; report scoring counts
+   same-masjid placement mismatches and unambiguous legacy null-masjid activity,
+   while excluding explicit cross-masjid activity. Exact scope remains required
+   for new writes and pending obligations, and settled obligations remain immutable.
 2. Run `npm run test:rls:compat`, smoke test staging, and deploy the application
    version that uses the service-role reconciliation RPC.
 3. Only after that application is confirmed live, prepare a separate Phase C

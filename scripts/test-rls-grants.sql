@@ -33,6 +33,7 @@ insert into expected_authenticated_definers (signature) values
   ('current_toronto_civil_date()'),
   ('group_masjid_id(uuid)'),
   ('historical_reporting_available_weeks()'),
+  ('historical_reporting_activity_for_weeks(date[])'),
   ('historical_reporting_students_for_weeks(date[])'),
   ('is_active_admin()'),
   ('is_active_student()'),

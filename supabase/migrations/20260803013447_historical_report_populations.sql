@@ -5,7 +5,9 @@
 -- the caller. Current names are projected, while contact fields are returned
 -- only when the actor can also open the student's current operational profile.
 
-create or replace function private.raw_historical_activity_scope_matches(
+-- Exact historical placement is an integrity/write-boundary predicate. It is
+-- intentionally stricter than report attribution below.
+create or replace function private.raw_historical_scope_matches(
   input_student_id uuid,
   input_week_start date,
   input_masjid_id uuid,
@@ -17,18 +19,51 @@ language sql
 stable
 set search_path = ''
 as $$
-  select exists (
-    select 1
+  with candidates as (
+    select groups.id as group_id, cohorts.id as cohort_id,
+           cohorts.masjid_id
     from public.student_group_memberships as memberships
     join public.halaqa_groups as groups on groups.id = memberships.group_id
     join public.cohorts on cohorts.id = groups.cohort_id
     where memberships.student_id = input_student_id
       and memberships.starts_on <= input_week_start
       and (memberships.ends_on is null or memberships.ends_on >= input_week_start)
-      and groups.id = input_group_id
-      and cohorts.id = input_cohort_id
-      and cohorts.masjid_id = input_masjid_id
-  );
+  )
+  select count(*) = 1
+    and coalesce(bool_and(group_id = input_group_id
+      and cohort_id = input_cohort_id
+      and masjid_id = input_masjid_id), false)
+  from candidates;
+$$;
+
+-- Historical report attribution follows the student/week and membership
+-- masjid. Same-masjid placement mismatches and unscoped legacy rows count,
+-- while explicit cross-masjid, missing-membership, and ambiguous rows do not.
+create or replace function private.raw_historical_report_activity_is_attributable(
+  input_student_id uuid,
+  input_week_start date,
+  input_masjid_id uuid,
+  input_cohort_id uuid,
+  input_group_id uuid
+)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  with candidates as (
+    select cohorts.masjid_id
+      from public.student_group_memberships as memberships
+      join public.halaqa_groups as groups on groups.id = memberships.group_id
+      join public.cohorts on cohorts.id = groups.cohort_id
+      where memberships.student_id = input_student_id
+        and memberships.starts_on <= input_week_start
+        and (memberships.ends_on is null or memberships.ends_on >= input_week_start)
+  )
+  select input_week_start = public.week_start_for_date(input_week_start)
+    and count(*) = 1
+    and coalesce(bool_and(input_masjid_id is null or masjid_id = input_masjid_id), false)
+  from candidates;
 $$;
 
 create or replace function private.raw_can_open_current_student_profile(
@@ -405,6 +440,80 @@ begin
 end;
 $$;
 
+-- Sanitized report inputs. Raw-table RLS intentionally continues to reject
+-- legacy rows with no scope snapshot; this definer projects only score fields
+-- after resolving current viewer authorization through historical membership.
+create or replace function public.historical_reporting_activity_for_weeks(
+  input_week_starts date[]
+)
+returns table (
+  activity_kind text,
+  row_id uuid,
+  student_id uuid,
+  activity_date date,
+  week_start date,
+  daily_score numeric,
+  recitation_round text,
+  partner_points numeric,
+  attendance_points numeric,
+  recitation_points numeric,
+  masjid_id uuid,
+  cohort_id uuid,
+  halaqa_group_id uuid
+)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  with population as (
+    select reporting.week_start, reporting.student_id
+    from public.historical_reporting_students_for_weeks(input_week_starts) as reporting
+    where reporting.scoring_eligible
+  ), activity as (
+    select 'checkin'::text as activity_kind,
+           checkins.id as row_id,
+           checkins.student_id,
+           checkins.date as activity_date,
+           public.week_start_for_date(checkins.date) as week_start,
+           checkins.daily_score::numeric as daily_score,
+           null::text as recitation_round,
+           null::numeric as partner_points,
+           null::numeric as attendance_points,
+           null::numeric as recitation_points,
+           checkins.masjid_id,
+           checkins.cohort_id,
+           checkins.halaqa_group_id
+    from public.checkins
+    union all
+    select 'partner_recitation', recitations.id, recitations.student_id,
+           recitations.week_start, recitations.week_start, null::numeric,
+           recitations.round::text, recitations.points::numeric,
+           null::numeric, null::numeric, recitations.masjid_id,
+           recitations.cohort_id, recitations.halaqa_group_id
+    from public.partner_recitations as recitations
+    union all
+    select 'halaqa_grade', grades.id, grades.student_id,
+           grades.week_start, grades.week_start, null::numeric, null::text,
+           null::numeric, grades.attendance_points::numeric,
+           grades.recitation_points::numeric, grades.masjid_id,
+           grades.cohort_id, grades.halaqa_group_id
+    from public.halaqa_grades as grades
+  )
+  select activity.*
+  from population
+  join activity using (student_id, week_start)
+  where private.raw_historical_report_activity_is_attributable(
+    activity.student_id,
+    activity.week_start,
+    activity.masjid_id,
+    activity.cohort_id,
+    activity.halaqa_group_id
+  )
+  order by activity.week_start, activity.student_id, activity.activity_kind,
+           activity.activity_date, activity.row_id;
+$$;
+
 create or replace function public.student_historical_reporting_scope_for_week(
   input_week_start date
 )
@@ -571,7 +680,7 @@ begin
              from public.checkins
              where checkins.student_id = students.id
                and checkins.date between input_week_start and input_week_start + 6
-               and private.raw_historical_activity_scope_matches(
+               and private.raw_historical_report_activity_is_attributable(
                  students.id, input_week_start, checkins.masjid_id,
                  checkins.cohort_id, checkins.halaqa_group_id
                )
@@ -581,7 +690,7 @@ begin
              from public.partner_recitations as recitations
              where recitations.student_id = students.id
                and recitations.week_start = input_week_start
-               and private.raw_historical_activity_scope_matches(
+               and private.raw_historical_report_activity_is_attributable(
                  students.id, input_week_start, recitations.masjid_id,
                  recitations.cohort_id, recitations.halaqa_group_id
                )
@@ -591,7 +700,7 @@ begin
              from public.halaqa_grades as grades
              where grades.student_id = students.id
                and grades.week_start = input_week_start
-               and private.raw_historical_activity_scope_matches(
+               and private.raw_historical_report_activity_is_attributable(
                  students.id, input_week_start, grades.masjid_id,
                  grades.cohort_id, grades.halaqa_group_id
                )
@@ -631,7 +740,7 @@ begin
         from public.checkins
         where checkins.student_id = students.id
           and checkins.date between input_week_start - 7 and input_week_start - 1
-          and private.raw_historical_activity_scope_matches(
+          and private.raw_historical_report_activity_is_attributable(
             students.id, input_week_start - 7, checkins.masjid_id,
             checkins.cohort_id, checkins.halaqa_group_id
           )
@@ -640,7 +749,7 @@ begin
         from public.partner_recitations as recitations
         where recitations.student_id = students.id
           and recitations.week_start = input_week_start - 7
-          and private.raw_historical_activity_scope_matches(
+          and private.raw_historical_report_activity_is_attributable(
             students.id, input_week_start - 7, recitations.masjid_id,
             recitations.cohort_id, recitations.halaqa_group_id
           )
@@ -649,7 +758,7 @@ begin
         from public.halaqa_grades as grades
         where grades.student_id = students.id
           and grades.week_start = input_week_start - 7
-          and private.raw_historical_activity_scope_matches(
+          and private.raw_historical_report_activity_is_attributable(
             students.id, input_week_start - 7, grades.masjid_id,
             grades.cohort_id, grades.halaqa_group_id
           )
@@ -664,7 +773,7 @@ begin
              from public.checkins
              where checkins.student_id = students.id
                and checkins.date between input_week_start - 7 and input_week_start - 1
-               and private.raw_historical_activity_scope_matches(
+               and private.raw_historical_report_activity_is_attributable(
                  students.id, input_week_start - 7, checkins.masjid_id,
                  checkins.cohort_id, checkins.halaqa_group_id
                )
@@ -674,7 +783,7 @@ begin
              from public.partner_recitations as recitations
              where recitations.student_id = students.id
                and recitations.week_start = input_week_start - 7
-               and private.raw_historical_activity_scope_matches(
+               and private.raw_historical_report_activity_is_attributable(
                  students.id, input_week_start - 7, recitations.masjid_id,
                  recitations.cohort_id, recitations.halaqa_group_id
                )
@@ -684,7 +793,7 @@ begin
              from public.halaqa_grades as grades
              where grades.student_id = students.id
                and grades.week_start = input_week_start - 7
-               and private.raw_historical_activity_scope_matches(
+               and private.raw_historical_report_activity_is_attributable(
                  students.id, input_week_start - 7, grades.masjid_id,
                  grades.cohort_id, grades.halaqa_group_id
                )
@@ -759,7 +868,7 @@ as $$
         from public.checkins
         where checkins.student_id = input_student_id
           and checkins.date between input_week_start and input_week_start + 6
-          and private.raw_historical_activity_scope_matches(
+          and private.raw_historical_report_activity_is_attributable(
             input_student_id, input_week_start, checkins.masjid_id,
             checkins.cohort_id, checkins.halaqa_group_id
           )
@@ -769,7 +878,7 @@ as $$
         from public.partner_recitations as recitations
         where recitations.student_id = input_student_id
           and recitations.week_start = input_week_start
-          and private.raw_historical_activity_scope_matches(
+          and private.raw_historical_report_activity_is_attributable(
             input_student_id, input_week_start, recitations.masjid_id,
             recitations.cohort_id, recitations.halaqa_group_id
           )
@@ -779,7 +888,7 @@ as $$
         from public.halaqa_grades as grades
         where grades.student_id = input_student_id
           and grades.week_start = input_week_start
-          and private.raw_historical_activity_scope_matches(
+          and private.raw_historical_report_activity_is_attributable(
             input_student_id, input_week_start, grades.masjid_id,
             grades.cohort_id, grades.halaqa_group_id
           )
@@ -820,6 +929,41 @@ begin
 end;
 $$;
 
+-- Historical reporting compatibility never relaxes grade writes. Omitted
+-- scope IDs are populated from the exact teacher-grade scope; explicitly
+-- supplied or edited mismatched IDs are rejected instead of normalized.
+create or replace function public.set_halaqa_grade_scope_snapshot()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  scope_group_id uuid;
+  scope_cohort_id uuid;
+  scope_masjid_id uuid;
+begin
+  select resolved.group_id, resolved.cohort_id, resolved.masjid_id
+  into scope_group_id, scope_cohort_id, scope_masjid_id
+  from private.raw_student_scope_for_grade_week(new.student_id, new.week_start) as resolved;
+
+  if scope_group_id is null or scope_cohort_id is null or scope_masjid_id is null then
+    raise exception using errcode = '23514', message = 'Exact grade scope is required.';
+  end if;
+
+  if (new.halaqa_group_id is not null and new.halaqa_group_id <> scope_group_id)
+    or (new.cohort_id is not null and new.cohort_id <> scope_cohort_id)
+    or (new.masjid_id is not null and new.masjid_id <> scope_masjid_id) then
+    raise exception using errcode = '23514', message = 'Grade scope must match the exact historical placement.';
+  end if;
+
+  new.halaqa_group_id := scope_group_id;
+  new.cohort_id := scope_cohort_id;
+  new.masjid_id := scope_masjid_id;
+  return new;
+end;
+$$;
+
 create or replace function public.validate_accountability_obligation_scope()
 returns trigger
 language plpgsql
@@ -831,7 +975,7 @@ begin
     return new;
   end if;
 
-  if not private.raw_historical_activity_scope_matches(
+  if not private.raw_historical_scope_matches(
     new.student_id,
     new.week_start,
     new.masjid_id,
@@ -854,7 +998,7 @@ end;
 $$;
 
 -- Reconciliation is server-only and atomic. The database recomputes the score
--- from scope-matching activity, so neither a browser nor the server can submit
+-- from report-attributable activity, so neither a browser nor the server can submit
 -- a forged percentage or amount.
 create or replace function public.reconcile_historical_accountability_obligation(
   input_student_id uuid,
@@ -1190,7 +1334,9 @@ create trigger enforce_student_accountability_attestation_trigger
   for each row
   execute function public.enforce_student_accountability_attestation();
 
-revoke all on function private.raw_historical_activity_scope_matches(uuid, date, uuid, uuid, uuid)
+revoke all on function private.raw_historical_report_activity_is_attributable(uuid, date, uuid, uuid, uuid)
+  from public, anon, authenticated, service_role;
+revoke all on function private.raw_historical_scope_matches(uuid, date, uuid, uuid, uuid)
   from public, anon, authenticated, service_role;
 revoke all on function private.raw_can_open_current_student_profile(uuid, uuid)
   from public, anon, authenticated, service_role;
@@ -1205,12 +1351,15 @@ revoke all on function public.historical_reporting_students_for_weeks(date[])
   from public, anon, authenticated, service_role;
 revoke all on function public.historical_reporting_available_weeks()
   from public, anon, authenticated, service_role;
+revoke all on function public.historical_reporting_activity_for_weeks(date[])
+  from public, anon, authenticated, service_role;
 revoke all on function public.student_historical_reporting_scope_for_week(date)
   from public, anon, authenticated, service_role;
 revoke all on function public.reconcile_historical_accountability_obligation(uuid, date)
   from public, anon, authenticated, service_role;
 grant execute on function public.historical_reporting_students_for_weeks(date[]) to authenticated;
 grant execute on function public.historical_reporting_available_weeks() to authenticated;
+grant execute on function public.historical_reporting_activity_for_weeks(date[]) to authenticated;
 grant execute on function public.student_historical_reporting_scope_for_week(date) to authenticated;
 grant execute on function public.reconcile_historical_accountability_obligation(uuid, date)
   to service_role;
@@ -1229,6 +1378,8 @@ comment on function public.historical_reporting_students_for_weeks(date[]) is
   'Batch historical student population by canonical Sunday; current authorization and contact visibility are evaluated at request time.';
 comment on function public.historical_reporting_available_weeks() is
   'Bounded canonical report weeks from report-bearing evidence plus the current tracker week, intersected with historical membership, scoring eligibility, and current viewer scope.';
+comment on function public.historical_reporting_activity_for_weeks(date[]) is
+  'Sanitized score inputs attributable to the caller-authorized historical population; includes same-masjid and unambiguous legacy null-masjid activity without exposing raw operational content.';
 comment on function public.student_leaderboard_available_weeks() is
   'Student-selectable canonical Sundays, bounded to evidence-backed historical cohort scopes plus the current tracker week; never returns future weeks.';
 
@@ -1281,6 +1432,7 @@ as $$
     'public.get_scoped_user_setup_request_result(uuid,uuid,text,text,text,text,date,date,uuid,uuid)',
     'public.group_masjid_id(uuid)',
     'public.historical_reporting_available_weeks()',
+    'public.historical_reporting_activity_for_weeks(date[])',
     'public.historical_reporting_students_for_weeks(date[])',
     'public.is_active_admin()',
     'public.is_active_student()',

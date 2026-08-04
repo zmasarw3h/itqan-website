@@ -13,12 +13,12 @@ import {
   weekStartForDate
 } from "@/lib/dates";
 import {
-  activityMatchesHistoricalPopulation,
+  activityCountsForHistoricalReport,
   historicalPopulationByStudentWeek,
+  loadHistoricalReportingActivityForWeeks,
   loadHistoricalReportingAvailableWeeks,
   loadHistoricalReportingStudentsForWeeks
 } from "@/lib/reporting-population";
-import { chunksOf, loadAllSupabasePages } from "@/lib/supabase-pagination";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn, HalaqaGrade, PartnerRecitation } from "@/lib/types";
 
@@ -179,7 +179,6 @@ export async function loadLeaderboardData(
     canViewCurrentContact: student.can_view_current_contact,
     canOpenCurrentProfile: student.can_open_current_profile
   }));
-  const studentIds = [...new Set(population.filter((student) => student.scoring_eligible).map((student) => student.student_id))];
   const minimumWeekStartByStudent = new Map(
     selectedPopulation.map((student) => [student.student_id, student.score_starts_on])
   );
@@ -193,67 +192,33 @@ export async function loadLeaderboardData(
   }
 
   const orderedWeekStarts = [...allWeekStarts].sort();
-  const firstWeekStart = orderedWeekStarts[0];
-  const lastWeekStart = orderedWeekStarts.at(-1)!;
-  const firstDate = firstWeekStart;
-  const lastDate = addDays(lastWeekStart, 6);
-  const studentIdChunks = chunksOf(studentIds);
-  const [checkins, partnerRecitations, halaqaGrades] = studentIds.length
-    ? await Promise.all([
-        Promise.all(studentIdChunks.map((studentIdChunk) =>
-          loadAllSupabasePages<LeaderboardCheckIn>((from, to) =>
-            supabase
-              .from("checkins")
-              .select("student_id,date,daily_score,masjid_id,cohort_id,halaqa_group_id")
-              .in("student_id", studentIdChunk)
-              .gte("date", firstDate)
-              .lte("date", lastDate)
-              .order("student_id")
-              .order("date")
-              .range(from, to)
-              .returns<LeaderboardCheckIn[]>()
-          )
-        )).then((pages) => pages.flat()),
-        Promise.all(studentIdChunks.map((studentIdChunk) =>
-          loadAllSupabasePages<LeaderboardPartnerRecitation>((from, to) =>
-            supabase
-              .from("partner_recitations")
-              .select("student_id,week_start,round,points,masjid_id,cohort_id,halaqa_group_id")
-              .in("student_id", studentIdChunk)
-              .gte("week_start", firstWeekStart)
-              .lte("week_start", lastWeekStart)
-              .order("student_id")
-              .order("week_start")
-              .order("round")
-              .range(from, to)
-              .returns<LeaderboardPartnerRecitation[]>()
-          )
-        )).then((pages) => pages.flat()),
-        Promise.all(studentIdChunks.map((studentIdChunk) =>
-          loadAllSupabasePages<LeaderboardHalaqaGrade>((from, to) =>
-            supabase
-              .from("halaqa_grades")
-              .select("student_id,week_start,attendance_points,recitation_points,masjid_id,cohort_id,halaqa_group_id")
-              .in("student_id", studentIdChunk)
-              .gte("week_start", firstWeekStart)
-              .lte("week_start", lastWeekStart)
-              .order("student_id")
-              .order("week_start")
-              .range(from, to)
-              .returns<LeaderboardHalaqaGrade[]>()
-          )
-        )).then((pages) => pages.flat())
-      ])
-    : [[], [], []];
+  const activity = await loadHistoricalReportingActivityForWeeks(supabase, orderedWeekStarts);
+  const checkins: LeaderboardCheckIn[] = activity
+    .filter((row) => row.activity_kind === "checkin")
+    .map((row) => ({ ...row, date: row.activity_date, daily_score: row.daily_score ?? 0 }));
+  const partnerRecitations: LeaderboardPartnerRecitation[] = activity
+    .filter((row) => row.activity_kind === "partner_recitation")
+    .map((row) => ({
+      ...row,
+      round: row.recitation_round as PartnerRecitation["round"],
+      points: row.partner_points ?? 0
+    }));
+  const halaqaGrades: LeaderboardHalaqaGrade[] = activity
+    .filter((row) => row.activity_kind === "halaqa_grade")
+    .map((row) => ({
+      ...row,
+      attendance_points: row.attendance_points ?? 0,
+      recitation_points: row.recitation_points ?? 0
+    }));
 
   const validCheckins = checkins.filter((checkin) =>
-    activityMatchesHistoricalPopulation(checkin, weekStartForDate(checkin.date), populationByWeek)
+    activityCountsForHistoricalReport(checkin, weekStartForDate(checkin.date), populationByWeek)
   );
   const validPartnerRecitations = partnerRecitations.filter((recitation) =>
-    activityMatchesHistoricalPopulation(recitation, recitation.week_start, populationByWeek)
+    activityCountsForHistoricalReport(recitation, recitation.week_start, populationByWeek)
   );
   const validHalaqaGrades = halaqaGrades.filter((grade) =>
-    activityMatchesHistoricalPopulation(grade, grade.week_start, populationByWeek)
+    activityCountsForHistoricalReport(grade, grade.week_start, populationByWeek)
   );
   const selectedWeekDates = new Set(weekDatesFromStart(selectedWeekStart));
   const selectedWeekCheckinsByStudent = groupCheckinsByStudent(
