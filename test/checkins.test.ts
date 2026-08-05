@@ -148,6 +148,38 @@ describe("check-in rules", () => {
     expect(payloads.every((payload) => payload.student_id === "student-1")).toBe(true);
   });
 
+  it("uses the corrected canonical version when initializing a Thursday checklist", () => {
+    const payloads = blankCheckInItemPayloads({
+      checkinId: "checkin-1",
+      studentId: "student-1",
+      date: "2026-08-13"
+    });
+
+    expect(payloads).toHaveLength(5);
+    expect(payloads.find((payload) => payload.task_key === "tafsir")).toBeUndefined();
+    expect(payloads.find((payload) => payload.task_key === "repeat_new_memorization_3x_listen_1x")).toMatchObject({
+      weight: 30
+    });
+    expect(payloads.reduce((sum, payload) => sum + payload.weight, 0)).toBe(100);
+  });
+
+  it("uses the corrected canonical version for saved Friday item snapshots", () => {
+    const payloads = checkInItemPayloads({
+      checkinId: "checkin-1",
+      studentId: "student-1",
+      date: "2026-08-14",
+      completedTaskKeys: ["repeat_new_memorization_5x_listen_1x"]
+    });
+
+    expect(payloads).toHaveLength(5);
+    expect(payloads.find((payload) => payload.task_key === "tafsir")).toBeUndefined();
+    expect(payloads.find((payload) => payload.task_key === "repeat_new_memorization_5x_listen_1x")).toMatchObject({
+      weight: 30,
+      completed: true
+    });
+    expect(payloads.reduce((sum, payload) => sum + payload.weight, 0)).toBe(100);
+  });
+
   it("keeps one item payload per task when building a saved checklist snapshot", () => {
     const payloads = checkInItemPayloads({
       checkinId: "checkin-1",

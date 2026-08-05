@@ -182,6 +182,14 @@ Students use `Today's Check-In` to save weighted Quran checklist tasks throughou
 
 Admins, history, grades, and leaderboard views continue to use the latest saved `checkins.daily_score` after refresh.
 
+Checklist definitions are versioned by the canonical Sunday tracker-week start. Dates before Sunday
+2026-08-09 use the original Thursday/Friday definition, including the 10-point `Tafsir` task. Starting
+with the 2026-08-09 tracker week, Thursday and Friday remove that task and increase the existing new-
+memorization task from 20 to 30 points. Sunday-Wednesday, Saturday, the 100-point daily maximum, and the
+700-point weekly daily-checklist maximum are unchanged. Each saved `checkin_items` row remains a snapshot
+of the definition used for that date, so historical labels, weights, scores, exports, and reports are not
+rewritten by a later version.
+
 ## Weekly Plans
 
 Students use the `Weekly Plan` navigation link to upload one plan file for the current Sunday-Saturday tracker week. `week_start` is stored as the Sunday date. Starting Sunday, the daily check-in page is blocked until the current week's plan is uploaded.

@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  CHECKLIST_VERSION_EFFECTIVE_DATE,
+  DAILY_CHECKLIST_POINTS,
+  DAILY_WEEKLY_POINTS,
   calculateDailySubmission,
   calculateDailyScoreProgress,
   calculateHalaqaGrade,
   calculateWeeklyAverage,
   calculateWeeklyScore,
+  checklistVersionForDate,
   isPartnerRoundAvailable,
   partnerRoundForDate,
   recitationMarkToStoredPoints,
@@ -88,6 +92,67 @@ describe("weighted Quran tracker scoring", () => {
     const result = calculateDailySubmission("2026-05-16", ["tafsir_reflection_group", "repeat_week_memorization_2x"]);
 
     expect(result).toMatchObject({ earnedWeight: 100, totalWeight: 100, dailyScore: 100 });
+  });
+
+  it("selects the legacy and corrected checklist versions at the canonical Sunday boundary", () => {
+    expect(CHECKLIST_VERSION_EFFECTIVE_DATE).toBe("2026-08-09");
+    expect(checklistVersionForDate("2026-08-08")).toBe("legacy");
+    expect(checklistVersionForDate("2026-08-09")).toBe("reallocated_thursday_friday");
+
+    expect(tasksForDate("2026-08-06")).toEqual([
+      {
+        key: "repeat_new_memorization_3x_listen_1x",
+        label: "Repeat new memorization 3 times & listen one time",
+        weight: 20
+      },
+      { key: "revise_old", label: "Revise old", weight: 40 },
+      { key: "revise_new", label: "Revise new", weight: 20 },
+      { key: "tafsir", label: "Tafsir", weight: 10 },
+      { key: "recite_next_week_memorization", label: "Recite next week memorization", weight: 5 },
+      { key: "read_during_salat", label: "Read during Salat", weight: 5 }
+    ]);
+    expect(tasksForDate("2026-08-13")).toEqual([
+      {
+        key: "repeat_new_memorization_3x_listen_1x",
+        label: "Repeat new memorization 3 times & listen one time",
+        weight: 30
+      },
+      { key: "revise_old", label: "Revise old", weight: 40 },
+      { key: "revise_new", label: "Revise new", weight: 20 },
+      { key: "recite_next_week_memorization", label: "Recite next week memorization", weight: 5 },
+      { key: "read_during_salat", label: "Read during Salat", weight: 5 }
+    ]);
+    expect(tasksForDate("2026-08-07").find((task) => task.key === "tafsir")?.weight).toBe(10);
+    expect(tasksForDate("2026-08-14").find((task) => task.key === "tafsir")).toBeUndefined();
+    expect(tasksForDate("2026-08-14").find((task) => task.key === "repeat_new_memorization_5x_listen_1x")?.weight).toBe(30);
+  });
+
+  it("keeps Sunday-Wednesday and Saturday unchanged in the corrected version", () => {
+    expect(tasksForDate("2026-08-09")).toEqual(tasksForDate("2026-05-10"));
+    expect(tasksForDate("2026-08-15")).toEqual([
+      { key: "tafsir_reflection_group", label: "Tafsir and sharing reflection on the group", weight: 50 },
+      { key: "repeat_week_memorization_2x", label: "Repeat the memorization of the week 2 times", weight: 50 }
+    ]);
+  });
+
+  it("keeps every daily checklist at 100 points across both versions", () => {
+    const dates = [
+      "2026-08-05",
+      "2026-08-06",
+      "2026-08-07",
+      "2026-08-08",
+      "2026-08-09",
+      "2026-08-10",
+      "2026-08-11",
+      "2026-08-12",
+      "2026-08-13",
+      "2026-08-14",
+      "2026-08-15"
+    ];
+
+    expect(DAILY_CHECKLIST_POINTS).toBe(100);
+    expect(dates.every((date) => calculateDailySubmission(date, []).totalWeight === DAILY_CHECKLIST_POINTS)).toBe(true);
+    expect(DAILY_WEEKLY_POINTS).toBe(700);
   });
 
   it("scores partial completion", () => {
@@ -217,6 +282,17 @@ describe("weighted Quran tracker scoring", () => {
       total_points: 890,
       total_possible: 1000,
       percentage: 89
+    });
+  });
+
+  it("caps seven complete daily checklists at 700 points", () => {
+    expect(
+      calculateWeeklyScore({
+        dailyScores: Array.from({ length: 7 }, () => DAILY_CHECKLIST_POINTS)
+      })
+    ).toMatchObject({
+      daily_points: DAILY_WEEKLY_POINTS,
+      total_possible: 1000
     });
   });
 });
