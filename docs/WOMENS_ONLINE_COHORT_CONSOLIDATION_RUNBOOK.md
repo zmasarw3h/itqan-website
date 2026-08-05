@@ -68,11 +68,11 @@ The broader affected-student audit also found pre-existing same-masjid placement
 
 Historical reporting currently has evidence for this cohort at tracker weeks `2026-07-26` and `2026-08-02`; the effective-placement preview returned 14 and 18 placement rows respectively. A cutover on `2026-08-09` leaves both existing report weeks unchanged and makes the shared Group 1 the effective placement for later weeks.
 
-## Recommended effective date
+## Effective date
 
-Recommended effective date: Sunday `2026-08-09`, run after the Toronto civil date rolls to `2026-08-09` and before normal writes resume.
+The original recommended effective date was Sunday `2026-08-09`. The approved immediate option may instead use the current Toronto civil date, provided it is no later than that tracker week's halaqa Saturday and all fresh-preview gates pass.
 
-This keeps the in-progress `2026-08-02` week intact, including Group 2’s current-week check-ins, plans, partner recitations, and any Saturday grading. The source interval is closed on the inclusive day before the cutover (`2026-08-08`), and the replacement interval begins on the cutover Sunday (`2026-08-09`). The execution script refuses to mutate if `public.current_toronto_civil_date()` is not exactly the approved effective date.
+A Sunday cutover keeps the in-progress `2026-08-02` week intact. An immediate midweek cutover preserves existing Group 2 check-ins, plans, partner recitations, grades, and assignments as immutable historical snapshots, closes Group 2 memberships on the day before the cutover, and begins replacement Group 1 memberships on the approved date. Teacher roster and grading authorization resolve the membership effective on the week's halaqa Saturday, so an immediate cutover before Saturday makes Group 1 authoritative for that Saturday. The execution script refuses to mutate unless `public.current_toronto_civil_date()` is exactly the approved effective date.
 
 If this date passes, do not run the script with an old digest. Re-run the read-only preview, obtain a new approval, take a fresh backup, and use the new digest.
 
@@ -80,7 +80,7 @@ If this date passes, do not run the script with an old digest. Re-run the read-o
 
 The later approved execution is one `SERIALIZABLE` transaction protected by an advisory lock derived from the cohort ID. It performs these actions in order:
 
-1. Require an active super-admin actor, an explicit confirmation token, exact hierarchy UUIDs, the approved Sunday, and the digest produced by the final read-only preview.
+1. Require an active super-admin actor, an explicit confirmation token, exact hierarchy UUIDs, the approved civil date, and the digest produced by the final read-only preview.
 2. Lock the masjid, cohort, both groups, the active rotation setting, affected profiles, memberships, and assignments. Recheck the hierarchy and all ambiguity conditions.
 3. Abort before any write if there is a future-only Group 2 membership, an ambiguous effective placement, a retained-group overlap, a Group 2 assignment at/after cutover, a Group 2 operational snapshot at/after cutover, an unexpected rotation setting, a changed active-group topology, or a changed canonical digest.
 4. Close each Group 2 membership that spans the cutover at `2026-08-08`.

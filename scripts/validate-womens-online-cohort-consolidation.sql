@@ -99,7 +99,7 @@ with params as (
          null::jsonb
   union all
   select 'no_retired_current_or_future_assignment',
-         case when not exists (select 1 from public.group_teacher_assignments assignments cross join params where assignments.group_id=params.retired_group_id and assignments.week_start >= params.effective_date)
+         case when not exists (select 1 from public.group_teacher_assignments assignments cross join params where assignments.group_id=params.retired_group_id and assignments.week_start >= public.week_start_for_date(params.effective_date))
               then 'PASS' else 'FAIL' end,
          null::jsonb
   union all
