@@ -66,6 +66,10 @@ const pureAdminFixture = authFixture(
   ["E2E_TEST_PURE_ADMIN_PHONE", "E2E_TEST_PURE_ADMIN_PASSWORD"],
   "pure-admin"
 );
+const superAdminFixture = authFixture(
+  ["E2E_TEST_SUPER_ADMIN_PHONE", "E2E_TEST_SUPER_ADMIN_PASSWORD"],
+  "super-admin"
+);
 
 test.describe("authenticated student flow", () => {
   test.skip(!studentFixture.enabled, studentFixture.reason);
@@ -248,5 +252,20 @@ test.describe("authenticated pure-admin flow", () => {
     }
 
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+});
+
+test.describe("authenticated super-admin flow", () => {
+  test.skip(!superAdminFixture.enabled, superAdminFixture.reason);
+
+  test("super admin signs in to the guarded super-admin console", async ({ page }) => {
+    await signIn(
+      page,
+      process.env.E2E_TEST_SUPER_ADMIN_PHONE ?? "",
+      process.env.E2E_TEST_SUPER_ADMIN_PASSWORD ?? ""
+    );
+
+    await expect(page).toHaveURL(/\/super-admin(?:\/|\?|$)/);
+    await expect(page.getByRole("heading", { name: "Operations overview" })).toBeVisible();
   });
 });
