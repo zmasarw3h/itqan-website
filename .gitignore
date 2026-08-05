@@ -33,3 +33,4 @@ data/backups/
 *.pem
 *.key
 supabase/.temp/
+.vercel
