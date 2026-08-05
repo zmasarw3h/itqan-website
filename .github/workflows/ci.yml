@@ -33,6 +33,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -41,4 +43,50 @@ jobs:
 
       - run: npm ci
       - run: npm run test:rls
-      - run: npm run test:rls:upgrade
+
+      - name: Detect migration changes
+        id: migration_changes
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          UPGRADE_BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet "$UPGRADE_BASE_REF" HEAD -- supabase/migrations; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Detect upgrade harness changes
+        id: upgrade_harness_changes
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          UPGRADE_BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet "$UPGRADE_BASE_REF" HEAD -- \
+            .github/workflows/ci.yml \
+            scripts/test-rls-upgrade.sh \
+            scripts/test-rls-upgrade-self-test.sh; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Test upgrade harness
+        if: >
+          github.event_name == 'pull_request' &&
+          steps.upgrade_harness_changes.outputs.changed == 'true'
+        run: npm run test:rls:upgrade:self-test
+
+      - name: Test production upgrade path
+        if: >
+          github.event_name == 'pull_request' &&
+          steps.migration_changes.outputs.changed == 'true'
+        run: npm run test:rls:upgrade
+        env:
+          UPGRADE_BASE_REF: ${{ github.event.pull_request.base.sha }}
