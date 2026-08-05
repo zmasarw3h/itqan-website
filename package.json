@@ -15,6 +15,7 @@
     "test:rls:compat": "bash scripts/test-historical-report-rollout-compatibility.sh",
     "test:rls:upgrade": "bash scripts/test-rls-upgrade.sh",
     "test:rls:upgrade:self-test": "bash scripts/test-rls-upgrade-self-test.sh",
+    "test:rotation:audit:compat": "bash scripts/test-rotation-audit-pre-migration.sh",
     "test:rotation:compat": "bash scripts/test-rotation-publication-compatibility.sh",
     "test:e2e": "playwright test",
     "check": "npm run lint && npm run typecheck && npm run test && npm run build"
