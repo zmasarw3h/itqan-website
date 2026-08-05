@@ -6,6 +6,7 @@
     "dev": "next dev",
     "import-users": "tsx scripts/import-users.ts",
     "backup:db": "bash scripts/backup-db.sh",
+    "backup:cohort-plans": "tsx scripts/backup-womens-online-cohort-files.ts",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint .",
