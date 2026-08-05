@@ -35,16 +35,16 @@ const OPERATION_COPY: Record<
   GuidedAccessOperation,
   { description: string; icon: typeof ChalkboardTeacher }
 > = {
-  add_teacher: {
-    description: "Add teaching capability at one masjid while preserving existing admin access.",
+  set_teacher_only: {
+    description: "Set one selected masjid to teacher access and end admin access there. Other masajid stay unchanged.",
     icon: ChalkboardTeacher
   },
-  add_admin: {
-    description: "Add management capability at one masjid while preserving existing teacher access.",
+  set_admin_only: {
+    description: "Set one selected masjid to admin access and end teacher access there. Other masajid stay unchanged.",
     icon: ShieldCheck
   },
-  add_admin_teacher: {
-    description: "Ensure both admin and teacher capability at one masjid.",
+  set_admin_teacher: {
+    description: "Set one selected masjid to both admin and teacher access without removing access elsewhere.",
     icon: Buildings
   },
   assign_student: {
@@ -314,7 +314,7 @@ function DateStep({
       </p>
       <label className="mt-5 block max-w-md">
         <span className="text-sm font-semibold text-ink">
-          {deactivation ? "Stops on" : "Starts on"}
+          {deactivation ? "Deactivates on" : "Starts on"}
         </span>
         <span className="relative mt-2 block">
           <CalendarBlank aria-hidden="true" className="pointer-events-none absolute left-3 top-3 text-stone-500" size={20} />
@@ -336,7 +336,7 @@ function DateStep({
           <p>Account deactivation is immediate. Future-dated global deactivation is not supported.</p>
         ) : (
           <p>
-            Future membership-only additions are allowed when the person’s global default role remains coherent. A role-changing conversion must use today ({today}).
+            Future-dated access changes are allowed only when the global role and active state remain unchanged when the operation becomes effective. Role-changing future transitions must be applied today or redesigned as a same-role capability change.
           </p>
         )}
       </div>

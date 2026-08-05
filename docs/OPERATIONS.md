@@ -181,6 +181,35 @@ For the scoring-boundary/accountability rollout, follow
 repair must be applied before the matching app deployment; the repair script is
 manual and must never be run against production without explicit approval.
 
+For the historical-reporting rollout, use this database-first order:
+
+1. Apply the Slice 4 Phase A migration. It remains compatible with the deployed
+   service-role direct insert, pending recalculation, and auto-waive paths while
+   validating their values from authoritative historical data. Membership
+   controls population, placement, and authorization; report scoring counts
+   same-masjid placement mismatches and unambiguous legacy null-masjid activity,
+   while excluding cross-masjid evidence from the stored masjid, cohort owner,
+   group owner, or conflicting scope fields. Exact scope remains required
+   for new writes and pending obligations, and settled obligations remain immutable.
+2. Run `npm run test:rls:compat`, smoke test staging, and deploy the application
+   version that uses the service-role reconciliation RPC.
+3. Only after that application is confirmed live, prepare a separate Phase C
+   cleanup migration to remove the legacy write path and obsolete insert policy.
+
+Do not include Phase C in the Slice 4 rollout. Existing authenticated-admin
+writes remain constrained by RLS and by trigger validation of canonical weeks,
+historical scope, scores, amounts, and immutable obligation identity.
+
+The upgrade harness discovers the immutable migration base from
+`UPGRADE_BASE_REF`. Its legacy accountability source/build/compatibility checks
+run only when that base does not contain Slice 4 and Slice 4 is one of the
+forward migrations. For later slices whose base already contains Slice 4, the
+harness skips that temporary application-contract assertion while continuing
+base migration byte checks, clean/upgrade schema parity, RLS, policies, grants,
+triggers, lint, and audit checks. Run `npm run test:rls:upgrade:self-test` to
+exercise the post-Slice-4 mode and the invalid-ref, no-forward, edited-base, and
+deleted/renamed-base fail-closed cases.
+
 After `20260724130111_add_scoped_official_scoring_workflow.sql` is applied, admins
 use the student's **Official scoring** page to preview and activate or move the
 boundary forward. A normal admin is rejected if any affected membership or
@@ -264,6 +293,12 @@ Manual in the app:
 
 ## Weekly Teacher Rotation
 
+Deploy the rotation-publication migration before its application code. The page prepares a request UUID;
+availability, group setup/order, staff eligibility, or another publication can make that plan stale, in
+which case reload and publish the newly prepared state. Availability is opt-in and exact: no row for the
+selected cohort/Sunday means unavailable. See `docs/ROTATION_PUBLICATION.md` for rollout, replay,
+concurrency, run history, temporary legacy compatibility, and later cleanup.
+
 Admin workflow in the app:
 
 1. Sign in as an admin.
@@ -333,17 +368,32 @@ Super admin workflow in the app:
 4. Open the masjid detail page to edit the masjid, create or deactivate cohorts, and create or deactivate groups.
 5. Grant the first admin or admin-teacher from an existing active person by email or phone.
 
-Staff grants use one stable form request UUID and the guarded transactional workflow. Profile promotion,
-student-membership reconciliation, one or both staff memberships, and all audit events commit or roll back
-together. An ambiguous response is retried with the same UUID and reports `staff-grant-uncertain` if its
-result still cannot be established. After commit, the same UUID and stable grant inputs replay the stored
-result even when the current expected-state token has changed; actor, target, masjid, grant, and effective
-date remain part of replay identity. Active masajid must retain continuous future admin coverage through
-all scheduled handoffs and ultimately have open-ended admin coverage.
+Masjid-page staff grants use one stable form request UUID and the guarded transactional workflow. The
+choices are additive: `Add admin access`, `Add teacher access`, and `Add admin + teacher access`. The
+workflow inserts only missing capabilities at the selected masjid, never ends an existing staff row, and
+does not reconcile away a student placement. The form previews the current and resulting masjid access
+before the operator submits. An ambiguous response is retried with the same UUID and reports
+`staff-grant-uncertain` if its result still cannot be established. After commit, the same UUID and stable
+grant inputs replay the stored result even when the current expected-state token has changed; actor,
+target, masjid, grant, and effective date remain part of replay identity. Active masajid must retain
+continuous future admin coverage through all scheduled handoffs and ultimately have open-ended admin
+coverage. Use the service-role-only, read-only `access_transition_rollout_diagnostic()` before rollout to
+list stored/projection mismatches, future membership transitions that violate the unchanged-role/active
+rule, assignments affected by immediate deactivation, and masjids at last-admin coverage risk.
+Coverage is evaluated at the current date and every future admin start or inclusive end boundary, so a
+reported risk identifies the exact civil date at which an active masjid would have no projected admin.
+
+Guided Change is the replacement workflow. `Set Teacher only`, `Set Admin only`, and `Set Admin + Teacher`
+operate on the explicitly selected masjid and leave every other masjid untouched. The projected global
+role is recomputed from all currently effective staff and student memberships. A future replacement does
+not change the current global role early. Teacher capability removal is assignment-aware: the database
+rejects a closure that would leave an active assignment beyond the membership's inclusive end date.
+Account deactivation is immediate on the current application date and closes current access atomically;
+future-dated deactivation is not supported.
 
 Masjid edits and active-state changes use one guarded transaction for the row update and audit event.
 Reactivation locks against concurrent admin-access changes and is rejected unless coverage is continuous
-from the current effective date through an open-ended administrator. An ambiguous update preserves its
+from the current Toronto civil date through an open-ended administrator. An ambiguous update preserves its
 validated request UUID in the form so the exact desired update can be replayed; changed inputs with that UUID are rejected.
 
 Setup changes are audited in `super_admin_audit_events`. The UI does not delete masajid, cohorts, groups,

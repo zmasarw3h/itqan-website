@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { calculateDailySubmission, tasksForDate } from "../lib/scoring";
@@ -22,6 +23,7 @@ type UserName =
   | "adminB"
   | "teacherA"
   | "teacherB"
+  | "saturdayStartTeacher"
   | "fridayOnlyTeacher"
   | "expiredTeacher"
   | "futureTeacher"
@@ -32,6 +34,7 @@ type UserName =
   | "studentA2"
   | "studentWriter"
   | "studentNoMembership"
+  | "sentinelStudent"
   | "expiredMembershipStudent"
   | "futureMembershipStudent"
   | "studentB"
@@ -63,6 +66,7 @@ type SeedIds = {
   groupAdminTeacher: string;
   groupFridayOnly: string;
   groupWriter: string;
+  civilToday: string;
   today: string;
   weekStart: string;
   startsOn: string;
@@ -164,6 +168,56 @@ function localClient(key: string) {
   });
 }
 
+function startLocalPsqlTransaction(sql: string, readyMarker: string) {
+  const dbContainer = process.env.RLS_DB_CONTAINER;
+  if (!dbContainer) {
+    throw new Error("Missing RLS_DB_CONTAINER for the rotation publication transaction race test.");
+  }
+
+  const writer = spawn(
+    "docker",
+    ["exec", "-i", dbContainer, "psql", "--set", "ON_ERROR_STOP=1", "--username", "postgres", "--dbname", "postgres"],
+    { stdio: ["pipe", "pipe", "pipe"] }
+  );
+  let output = "";
+  let stderr = "";
+  let readySettled = false;
+  let resolveReady: (() => void) | undefined;
+  let rejectReady: ((reason: Error) => void) | undefined;
+  const ready = new Promise<void>((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+  const completion = new Promise<void>((resolve, reject) => {
+    writer.on("error", reject);
+    writer.on("close", (code) => {
+      if (!readySettled) {
+        readySettled = true;
+        rejectReady?.(new Error(`transaction writer exited before ${readyMarker}: ${stderr || output}`));
+      }
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`transaction writer failed with exit code ${code}: ${stderr || output}`));
+      }
+    });
+  });
+
+  writer.stdout.on("data", (chunk: Buffer) => {
+    output += chunk.toString();
+    if (!readySettled && output.includes(readyMarker)) {
+      readySettled = true;
+      resolveReady?.();
+    }
+  });
+  writer.stderr.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString();
+  });
+  writer.stdin.end(sql);
+
+  return { ready, completion };
+}
+
 async function requireData<T>(label: string, promise: PromiseLike<{ data: T | null; error: { message: string } | null }>) {
   const { data, error } = await promise;
   assert.equal(error, null, `${label}: ${error?.message ?? "missing data"}`);
@@ -201,6 +255,7 @@ async function seed(): Promise<SeedIds> {
     "adminB",
     "teacherA",
     "teacherB",
+    "saturdayStartTeacher",
     "fridayOnlyTeacher",
     "expiredTeacher",
     "futureTeacher",
@@ -211,6 +266,7 @@ async function seed(): Promise<SeedIds> {
     "studentA2",
     "studentWriter",
     "studentNoMembership",
+    "sentinelStudent",
     "expiredMembershipStudent",
     "futureMembershipStudent",
     "studentB",
@@ -324,6 +380,15 @@ async function seed(): Promise<SeedIds> {
   const yesterday = addDays(civilToday, -1);
   const tomorrow = addDays(civilToday, 1);
 
+  await requireData(
+    "mark intentionally inactive profile",
+    admin
+      .from("profiles")
+      .update({ access_deactivated_on: civilToday })
+      .eq("id", users.inactiveAdmin)
+      .select("id")
+  );
+
   const studentMemberships = await requireData<Array<{ id: string; student_id: string; group_id: string }>>(
     "insert student memberships",
     admin.from("student_group_memberships").insert([
@@ -333,7 +398,7 @@ async function seed(): Promise<SeedIds> {
       { student_id: users.studentB, group_id: groupB, starts_on: startsOn, assigned_by: users.superAdmin },
       {
         student_id: users.staffGrantTarget,
-        group_id: inactiveMasjidGroup,
+        group_id: groupA,
         starts_on: startsOn,
         assigned_by: users.superAdmin
       },
@@ -384,7 +449,15 @@ async function seed(): Promise<SeedIds> {
     .in("id", scoredStudentIds);
   assert.equal(scoredStudentUpdate.error, null, scoredStudentUpdate.error?.message);
 
-  const staffMemberships = await requireData<Array<{ id: string; profile_id: string }>>(
+  const staffMemberships = await requireData<Array<{
+    id: string;
+    profile_id: string;
+    masjid_id: string;
+    staff_role: "admin" | "teacher";
+    active: boolean;
+    starts_on: string;
+    ends_on: string | null;
+  }>>(
     "insert staff memberships",
     admin.from("masjid_staff_memberships").insert([
       { profile_id: users.adminA, masjid_id: masjidA, staff_role: "admin", active: true, starts_on: startsOn },
@@ -393,6 +466,13 @@ async function seed(): Promise<SeedIds> {
       { profile_id: users.adminB, masjid_id: masjidB, staff_role: "admin", active: true, starts_on: startsOn },
       { profile_id: users.teacherA, masjid_id: masjidA, staff_role: "teacher", active: true, starts_on: startsOn },
       { profile_id: users.teacherB, masjid_id: masjidB, staff_role: "teacher", active: true, starts_on: startsOn },
+      {
+        profile_id: users.saturdayStartTeacher,
+        masjid_id: masjidA,
+        staff_role: "teacher",
+        active: true,
+        starts_on: addDays(weekStart, 6)
+      },
       {
         profile_id: users.fridayOnlyTeacher,
         masjid_id: masjidA,
@@ -436,15 +516,81 @@ async function seed(): Promise<SeedIds> {
         starts_on: historicalStartsOn,
         ends_on: historicalEndsOn
       }
-    ]).select("id,profile_id")
+    ]).select("id,profile_id,masjid_id,staff_role,active,starts_on,ends_on")
   );
-  const staffMembershipA = staffMemberships.find((row) => row.profile_id === users.adminA)!.id;
-  const staffMembershipB = staffMemberships.find((row) => row.profile_id === users.adminB)!.id;
+  const staffMembershipA = staffMemberships.find(
+    (row) => row.profile_id === users.adminA && row.masjid_id === masjidA && row.staff_role === "admin"
+  )!.id;
+  const staffMembershipB = staffMemberships.find(
+    (row) => row.profile_id === users.adminB && row.masjid_id === masjidB && row.staff_role === "admin"
+  )!.id;
+
+  const adminABeforeMasjidActivation = await requireData<Array<{ role: string; active: boolean }>>(
+    "read Admin A projection before masjid activation",
+    admin.from("profiles").select("role,active").eq("id", users.adminA)
+  );
+  assert.deepEqual(adminABeforeMasjidActivation, [{ role: "admin", active: false }]);
+  const adminAStaffMembershipBeforeMasjidActivation = staffMemberships.find((row) => row.id === staffMembershipA)!;
+  assert.deepEqual(adminAStaffMembershipBeforeMasjidActivation, {
+    id: staffMembershipA,
+    profile_id: users.adminA,
+    masjid_id: masjidA,
+    staff_role: "admin",
+    active: true,
+    starts_on: startsOn,
+    ends_on: null
+  });
 
   await requireData(
     "activate seeded masajid after hierarchy and admin setup",
     admin.from("masajid").update({ active: true }).in("id", [masjidA, masjidB]).select("id")
   );
+
+  const adminAAfterMasjidActivation = await requireData<Array<{ role: string; active: boolean }>>(
+    "read Admin A projection after masjid activation",
+    admin.from("profiles").select("role,active").eq("id", users.adminA)
+  );
+  assert.deepEqual(adminAAfterMasjidActivation, [{ role: "admin", active: true }]);
+  console.log(
+    JSON.stringify({
+      rlsProjectionFixture: {
+        membership_id: staffMembershipA,
+        profile_id: users.adminA,
+        masjid_id: masjidA,
+        staff_role: "admin",
+        starts_on: startsOn,
+        ends_on: null,
+        membership_active: true,
+        profile_before_hierarchy_activation: adminABeforeMasjidActivation[0],
+        profile_after_hierarchy_activation: adminAAfterMasjidActivation[0]
+      }
+    })
+  );
+
+  // Seed exact positive availability before writing active assignments.  The
+  // Slice 5 direct-write trigger deliberately enforces this same invariant
+  // even for service-role maintenance writes. Friday-only and historical
+  // fixtures are valid at insertion time and are subsequently moved across
+  // their intended Saturday-boundary cases below.
+  const availability = await requireData<Array<{ id: string; masjid_id: string; cohort_id: string; teacher_id: string; week_start: string }>>(
+    "insert availability",
+    admin.from("teacher_rotation_availability").insert([
+      { teacher_id: users.teacherA, masjid_id: masjidA, cohort_id: cohortA, week_start: weekStart, available: true },
+      { teacher_id: users.adminA, masjid_id: masjidA, cohort_id: cohortA, week_start: weekStart, available: true },
+      { teacher_id: users.fridayOnlyTeacher, masjid_id: masjidA, cohort_id: cohortA, week_start: weekStart, available: true },
+      { teacher_id: users.teacherA, masjid_id: masjidA, cohort_id: cohortWriter, week_start: weekStart, available: true },
+      { teacher_id: users.teacherA, masjid_id: masjidA, cohort_id: cohortWriter, week_start: previousWeekStart, available: true },
+      { teacher_id: users.teacherB, masjid_id: masjidB, cohort_id: cohortB, week_start: weekStart, available: true },
+      { teacher_id: users.expiredAssignmentTeacher, masjid_id: masjidA, cohort_id: cohortA, week_start: previousWeekStart, available: true },
+      { teacher_id: users.futureAssignmentTeacher, masjid_id: masjidA, cohort_id: cohortA, week_start: addDays(weekStart, 7), available: true }
+    ]).select("id,masjid_id,cohort_id,teacher_id,week_start")
+  );
+  const availabilityA = availability.find(
+    (row) => row.teacher_id === users.teacherA && row.cohort_id === cohortA && row.week_start === weekStart
+  )!.id;
+  const availabilityB = availability.find(
+    (row) => row.teacher_id === users.teacherB && row.cohort_id === cohortB && row.week_start === weekStart
+  )!.id;
 
   const assignments = await requireData<Array<{ id: string; group_id: string; teacher_id: string }>>(
     "insert teacher assignments",
@@ -646,8 +792,8 @@ async function seed(): Promise<SeedIds> {
   const obligations = await requireData<Array<{ id: string; student_id: string }>>(
     "insert obligations",
     admin.from("accountability_obligations").insert([
-      { student_id: users.studentA, week_start: weekStart, weekly_percentage: 50, amount_cents: 1000 },
-      { student_id: users.studentB, week_start: weekStart, weekly_percentage: 50, amount_cents: 1000 }
+      { student_id: users.studentA, week_start: previousWeekStart, weekly_percentage: 13.5, amount_cents: 3000 },
+      { student_id: users.studentB, week_start: previousWeekStart, weekly_percentage: 0, amount_cents: 3500 }
     ]).select("id,student_id")
   );
   const obligationA = obligations.find((row) => row.student_id === users.studentA)!.id;
@@ -656,7 +802,7 @@ async function seed(): Promise<SeedIds> {
     .from("accountability_obligations")
     .insert({
       student_id: users.futureMembershipStudent,
-      week_start: weekStart,
+      week_start: previousWeekStart,
       weekly_percentage: 0,
       amount_cents: 3500
     });
@@ -674,16 +820,6 @@ async function seed(): Promise<SeedIds> {
   );
   const badgeA = badges.find((row) => row.student_id === users.studentA)!.id;
   const badgeB = badges.find((row) => row.student_id === users.studentB)!.id;
-
-  const availability = await requireData<Array<{ id: string; masjid_id: string }>>(
-    "insert availability",
-    admin.from("teacher_rotation_availability").insert([
-      { teacher_id: users.teacherA, masjid_id: masjidA, cohort_id: cohortA, week_start: weekStart, available: true },
-      { teacher_id: users.teacherB, masjid_id: masjidB, cohort_id: cohortB, week_start: weekStart, available: true }
-    ]).select("id,masjid_id")
-  );
-  const availabilityA = availability.find((row) => row.masjid_id === masjidA)!.id;
-  const availabilityB = availability.find((row) => row.masjid_id === masjidB)!.id;
 
   const settings = await requireData<Array<{ id: string; masjid_id: string }>>(
     "insert rotation settings",
@@ -761,6 +897,7 @@ async function seed(): Promise<SeedIds> {
     groupAdminTeacher,
     groupFridayOnly,
     groupWriter,
+    civilToday,
     today,
     weekStart,
     startsOn,
@@ -880,7 +1017,9 @@ async function runAssertions(ids: SeedIds) {
     futureAssignmentTeacher,
     expiredMembershipStudent,
     futureMembershipStudent,
-    superAdmin
+    sentinelStudent,
+    superAdmin,
+    profileTarget
   ] = await Promise.all([
     signIn("adminA"),
     signIn("adminB"),
@@ -900,7 +1039,9 @@ async function runAssertions(ids: SeedIds) {
     signIn("futureAssignmentTeacher"),
     signIn("expiredMembershipStudent"),
     signIn("futureMembershipStudent"),
-    signIn("superAdmin")
+    signIn("sentinelStudent"),
+    signIn("superAdmin"),
+    signIn("profileTarget")
   ]);
 
   const adminScopedTables: Array<[string, string, string]> = [
@@ -1250,6 +1391,43 @@ async function runAssertions(ids: SeedIds) {
   // The guarded server-only RPC remains the sole positive mutation route.
   const service = localClient(serviceRoleKey);
 
+  await requireData(
+    "create access-transition target profile",
+    service
+      .from("profiles")
+      .insert({
+        id: ids.users.profileTarget,
+        name: "profileTarget",
+        email: "profiletarget@rls.local",
+        phone: null,
+        role: "student",
+        active: true
+      })
+      .select("id")
+  );
+
+  const inactiveProfileRefresh = await inactiveAdmin.rpc("refresh_current_profile_role");
+  assert.equal(inactiveProfileRefresh.error, null, inactiveProfileRefresh.error?.message);
+  assert.equal((inactiveProfileRefresh.data as { active?: boolean } | null)?.active, false);
+  const inactiveProfileAfterRefresh = await requireData<{ role: string; active: boolean }>(
+    "read intentionally inactive profile after repair RPC",
+    service.from("profiles").select("role,active").eq("id", ids.users.inactiveAdmin).single()
+  );
+  assert.deepEqual(inactiveProfileAfterRefresh, { role: "admin", active: false });
+
+  const rolloutDiagnostic = await service.rpc("access_transition_rollout_diagnostic");
+  assert.equal(rolloutDiagnostic.error, null, rolloutDiagnostic.error?.message);
+  const rolloutDiagnosticData = rolloutDiagnostic.data as Record<string, unknown> | null;
+  assert.ok(rolloutDiagnosticData, "rollout diagnostic returned no report");
+  for (const key of [
+    "projection_changes",
+    "future_memberships_rejected",
+    "assignments_affected_by_immediate_deactivation",
+    "last_admin_coverage_risks"
+  ]) {
+    assert.ok(Array.isArray(rolloutDiagnosticData?.[key]), `rollout diagnostic omitted ${key}`);
+  }
+
   const setupStudentRequestId = randomUUID();
   const setupStudentArgs = {
     input_request_id: setupStudentRequestId,
@@ -1358,6 +1536,7 @@ async function runAssertions(ids: SeedIds) {
     input_grant: "admin",
     input_starts_on: ids.weekStart
   });
+  await assertRpcDenied(superAdmin, "access_transition_rollout_diagnostic");
   await assertRpcDenied(superAdmin, "apply_super_admin_masjid_staff_grant", {
     input_request_id: randomUUID(),
     input_actor_id: ids.users.superAdmin,
@@ -1372,7 +1551,7 @@ async function runAssertions(ids: SeedIds) {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminB,
     input_membership_id: ids.staffMembershipB,
-    input_ends_on: ids.today,
+    input_ends_on: ids.civilToday,
     input_expected_state: {}
   });
 
@@ -1546,7 +1725,7 @@ async function runAssertions(ids: SeedIds) {
     input_target_profile_id: ids.users.staffGrantTarget,
     input_masjid_id: ids.masjidA,
     input_grant: "admin_teacher",
-    input_starts_on: ids.weekStart,
+    input_starts_on: ids.civilToday,
     input_expected_state: grantStateWithFutureMembership.data
   });
   assert.equal(partialAdminTeacherGrant.error?.code, "22023", "partial admin-teacher grant unexpectedly succeeded");
@@ -1591,7 +1770,7 @@ async function runAssertions(ids: SeedIds) {
     input_target_profile_id: ids.users.staffGrantTarget,
     input_masjid_id: ids.masjidA,
     input_grant: "admin",
-    input_starts_on: ids.weekStart
+    input_starts_on: ids.civilToday
   };
   const preparedGrantState = await service.rpc(
     "prepare_super_admin_masjid_staff_grant",
@@ -1665,12 +1844,289 @@ async function runAssertions(ids: SeedIds) {
     .is("ends_on", null)
     .order("staff_role");
   assert.deepEqual(grantedRoles, [{ staff_role: "admin" }, { staff_role: "teacher" }]);
+  const noOpGrantState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.staffGrantTarget
+  });
+  assert.equal(noOpGrantState.error, null, noOpGrantState.error?.message);
+  const { count: noOpMembershipCountBefore } = await service
+    .from("masjid_staff_memberships")
+    .select("id", { count: "exact", head: true })
+    .eq("profile_id", ids.users.staffGrantTarget)
+    .eq("masjid_id", ids.masjidA);
+  const { count: noOpAuditCountBefore } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.users.staffGrantTarget);
+  const noOpGrant = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    ...adminGrantArgs,
+    input_request_id: randomUUID(),
+    input_grant: "admin_teacher",
+    input_expected_state: noOpGrantState.data
+  });
+  assert.equal(noOpGrant.error, null, noOpGrant.error?.message);
+  const { count: noOpMembershipCountAfter } = await service
+    .from("masjid_staff_memberships")
+    .select("id", { count: "exact", head: true })
+    .eq("profile_id", ids.users.staffGrantTarget)
+    .eq("masjid_id", ids.masjidA);
+  const { count: noOpAuditCountAfter } = await service
+    .from("super_admin_audit_events")
+    .select("id", { count: "exact", head: true })
+    .eq("target_id", ids.users.staffGrantTarget);
+  assert.equal(noOpMembershipCountAfter, noOpMembershipCountBefore, "additive no-op changed staff memberships");
+  assert.equal(noOpAuditCountAfter, noOpAuditCountBefore, "additive no-op wrote an audit mutation");
+
   const staleGrant = await service.rpc("apply_super_admin_masjid_staff_grant", {
     ...adminGrantArgs,
     input_request_id: randomUUID(),
     input_expected_state: grantState.data
   });
   assert.equal(staleGrant.error?.code, "P0001", "stale staff grant was accepted");
+
+  const replacementState = async () => {
+    const result = await service.rpc("get_person_access_state", {
+      input_actor_id: ids.users.superAdmin,
+      input_target_profile_id: ids.users.profileTarget
+    });
+    assert.equal(result.error, null, result.error?.message);
+    assert.ok(result.data, "replacement target access state was missing");
+    return result.data;
+  };
+  const soleAdminGrant = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_masjid_id: ids.masjidA,
+    input_grant: "admin",
+    input_starts_on: ids.civilToday,
+    input_expected_state: await replacementState()
+  });
+  assert.equal(soleAdminGrant.error, null, soleAdminGrant.error?.message);
+  const futureSoleAdminTeacherOnly = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_preset: "teacher",
+    input_starts_on: addDays(ids.civilToday, 1),
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: null,
+    input_expected_state: await replacementState()
+  });
+  assert.equal(futureSoleAdminTeacherOnly.error?.code, "23514", "future sole-admin replacement was accepted");
+  const futureDeactivation = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_preset: "inactive",
+    input_starts_on: addDays(ids.civilToday, 1),
+    input_selected_masjid_id: null,
+    input_selected_group_id: null,
+    input_expected_state: await replacementState()
+  });
+  assert.equal(futureDeactivation.error?.code, "23514", "future account deactivation was accepted");
+  const futureSameRoleTeacherGrant = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_masjid_id: ids.masjidB,
+    input_grant: "teacher",
+    input_starts_on: addDays(ids.civilToday, 2),
+    input_expected_state: await replacementState()
+  });
+  assert.equal(futureSameRoleTeacherGrant.error, null, futureSameRoleTeacherGrant.error?.message);
+  const futureSameRoleTeacherMembership = await requireData<{ id: string }>(
+    "read future same-role teacher grant",
+    service
+      .from("masjid_staff_memberships")
+      .select("id")
+      .eq("profile_id", ids.users.profileTarget)
+      .eq("masjid_id", ids.masjidB)
+      .eq("staff_role", "teacher")
+      .eq("active", true)
+      .eq("starts_on", addDays(ids.civilToday, 2))
+      .single()
+  );
+  const futureSameRoleTeacherPreview = await service.rpc("prepare_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_masjid_id: ids.masjidB,
+    input_grant: "teacher",
+    input_starts_on: addDays(ids.civilToday, 2)
+  });
+  assert.equal(futureSameRoleTeacherPreview.error, null, futureSameRoleTeacherPreview.error?.message);
+  const currentStudentState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.studentA
+  });
+  assert.equal(currentStudentState.error, null, currentStudentState.error?.message);
+  const futureStudentTeacherPreview = await service.rpc("prepare_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.studentA,
+    input_masjid_id: ids.masjidA,
+    input_grant: "teacher",
+    input_starts_on: addDays(ids.civilToday, 2)
+  });
+  assert.equal(
+    futureStudentTeacherPreview.error?.code,
+    "23514",
+    "future student-to-teacher grant preview was accepted"
+  );
+  const futureStudentTeacherGrant = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.studentA,
+    input_masjid_id: ids.masjidA,
+    input_grant: "teacher",
+    input_starts_on: addDays(ids.civilToday, 2),
+    input_expected_state: currentStudentState.data
+  });
+  assert.equal(futureStudentTeacherGrant.error?.code, "23514", "future student-to-teacher conversion was accepted");
+  const teacherState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherA
+  });
+  assert.equal(teacherState.error, null, teacherState.error?.message);
+  const futureTeacherAdminGrant = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherA,
+    input_masjid_id: ids.masjidB,
+    input_grant: "admin",
+    input_starts_on: addDays(ids.civilToday, 2),
+    input_expected_state: teacherState.data
+  });
+  assert.equal(futureTeacherAdminGrant.error?.code, "23514", "future teacher-to-admin conversion was accepted");
+  const futureStaffStudent = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.teacherA,
+    input_target_profile_id: ids.users.teacherA,
+    input_preset: "student",
+    input_starts_on: addDays(ids.civilToday, 2),
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: ids.groupA,
+    input_expected_state: teacherState.data
+  });
+  assert.equal(futureStaffStudent.error?.code, "42501", "non-super-admin future staff-to-student RPC was not denied");
+  const futureStaffStudentBySuperAdmin = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.teacherA,
+    input_preset: "student",
+    input_starts_on: addDays(ids.civilToday, 2),
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: ids.groupA,
+    input_expected_state: teacherState.data
+  });
+  assert.equal(futureStaffStudentBySuperAdmin.error?.code, "23514", "future staff-to-student conversion was accepted");
+  const soleAdminTeacherOnly = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_preset: "teacher",
+    input_starts_on: ids.civilToday,
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: null,
+    input_expected_state: await replacementState()
+  });
+  assert.equal(soleAdminTeacherOnly.error, null, soleAdminTeacherOnly.error?.message);
+  const soleAdminTeacherOnlyProfile = await requireData<{ role: string; active: boolean }>(
+    "read sole-admin teacher-only projection",
+    service.from("profiles").select("role,active").eq("id", ids.users.profileTarget).single()
+  );
+  assert.deepEqual(soleAdminTeacherOnlyProfile, { role: "teacher", active: true });
+  const soleAdminTeacherOnlyMemberships = await requireData<Array<{ masjid_id: string; staff_role: string; ends_on: string | null }>>(
+    "read sole-admin teacher-only memberships",
+    service
+      .from("masjid_staff_memberships")
+      .select("masjid_id,staff_role,ends_on")
+      .eq("profile_id", ids.users.profileTarget)
+      .eq("active", true)
+      .eq("masjid_id", ids.masjidA)
+      .gte("starts_on", ids.civilToday)
+      .order("staff_role")
+  );
+  assert.deepEqual(soleAdminTeacherOnlyMemberships, [{ masjid_id: ids.masjidA, staff_role: "teacher", ends_on: null }]);
+
+  const secondMasjidAdminGrant = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_masjid_id: ids.masjidB,
+    input_grant: "admin",
+    input_starts_on: ids.civilToday,
+    input_expected_state: await replacementState()
+  });
+  assert.equal(secondMasjidAdminGrant.error, null, secondMasjidAdminGrant.error?.message);
+  const restoreAdminAtA = await service.rpc("apply_super_admin_masjid_staff_grant", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_masjid_id: ids.masjidA,
+    input_grant: "admin",
+    input_starts_on: ids.civilToday,
+    input_expected_state: await replacementState()
+  });
+  assert.equal(restoreAdminAtA.error, null, restoreAdminAtA.error?.message);
+  const crossMasjidTeacherOnly = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_preset: "teacher",
+    input_starts_on: ids.civilToday,
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: null,
+    input_expected_state: await replacementState()
+  });
+  assert.equal(crossMasjidTeacherOnly.error, null, crossMasjidTeacherOnly.error?.message);
+  const crossMasjidTeacherOnlyRows = await requireData<Array<{ masjid_id: string; staff_role: string; ends_on: string | null }>>(
+    "read cross-masjid replacement memberships",
+    service
+      .from("masjid_staff_memberships")
+      .select("masjid_id,staff_role,ends_on")
+      .eq("profile_id", ids.users.profileTarget)
+      .eq("active", true)
+      .lte("starts_on", ids.civilToday)
+      .gte("starts_on", ids.civilToday)
+      .order("masjid_id,staff_role")
+  );
+  assert.deepEqual(
+    crossMasjidTeacherOnlyRows,
+    [
+      { masjid_id: ids.masjidA, staff_role: "teacher", ends_on: null },
+      { masjid_id: ids.masjidB, staff_role: "admin", ends_on: null }
+    ].sort((a, b) => a.masjid_id.localeCompare(b.masjid_id)),
+    "selected-masjid replacement removed access at another masjid"
+  );
+  const crossMasjidAdminOnly = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_preset: "admin",
+    input_starts_on: ids.civilToday,
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: null,
+    input_expected_state: await replacementState()
+  });
+  assert.equal(crossMasjidAdminOnly.error, null, crossMasjidAdminOnly.error?.message);
+  const crossMasjidAdminTeacher = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_preset: "admin_teacher",
+    input_starts_on: ids.civilToday,
+    input_selected_masjid_id: ids.masjidA,
+    input_selected_group_id: null,
+    input_expected_state: await replacementState()
+  });
+  assert.equal(crossMasjidAdminTeacher.error, null, crossMasjidAdminTeacher.error?.message);
+  const replacementProfile = await requireData<{ role: string; active: boolean }>(
+    "read final selected-masjid replacement projection",
+    service.from("profiles").select("role,active").eq("id", ids.users.profileTarget).single()
+  );
+  assert.deepEqual(replacementProfile, { role: "admin", active: true });
 
   const setupTeacherArgs = {
     input_request_id: randomUUID(),
@@ -1752,7 +2208,7 @@ async function runAssertions(ids: SeedIds) {
   const staleExpectedState = accessStateResult.data;
   const { error: staleSetupError } = await service
     .from("profiles")
-    .update({ active: false })
+    .update({ role: "admin" })
     .eq("id", ids.users.teacherAccessTarget);
   assert.equal(staleSetupError, null, staleSetupError?.message);
   const staleAccessChange = await service.rpc("apply_super_admin_access_change", {
@@ -1760,7 +2216,7 @@ async function runAssertions(ids: SeedIds) {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.teacherAccessTarget,
     input_preset: "admin_teacher",
-    input_starts_on: ids.weekStart,
+    input_starts_on: ids.civilToday,
     input_selected_masjid_id: ids.masjidA,
     input_selected_group_id: null,
     input_expected_state: staleExpectedState
@@ -1774,7 +2230,7 @@ async function runAssertions(ids: SeedIds) {
   );
   const { error: restoreAccessTargetError } = await service
     .from("profiles")
-    .update({ active: true })
+    .update({ role: "teacher" })
     .eq("id", ids.users.teacherAccessTarget);
   assert.equal(restoreAccessTargetError, null, restoreAccessTargetError?.message);
 
@@ -1789,7 +2245,7 @@ async function runAssertions(ids: SeedIds) {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.teacherAccessTarget,
     input_preset: "admin_teacher",
-    input_starts_on: ids.weekStart,
+    input_starts_on: ids.civilToday,
     input_selected_masjid_id: ids.masjidA,
     input_selected_group_id: null,
     input_expected_state: refreshedAccessState.data
@@ -1815,7 +2271,7 @@ async function runAssertions(ids: SeedIds) {
   const nonSundayAccessChange = await service.rpc("apply_super_admin_access_change", {
     ...accessChangeArgs,
     input_request_id: randomUUID(),
-    input_starts_on: addDays(ids.weekStart, 2),
+    input_starts_on: addDays(ids.civilToday, 2),
     input_expected_state: accessStateAfterChange
   });
   assert.equal(
@@ -1852,7 +2308,7 @@ async function runAssertions(ids: SeedIds) {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.teacherAccessTarget,
     input_membership_id: targetTeacherMembership!.id,
-    input_ends_on: ids.today,
+    input_ends_on: ids.civilToday,
     input_expected_state: membershipEndState.data
   };
   const concurrentMembershipEnds = await Promise.all([
@@ -1877,7 +2333,7 @@ async function runAssertions(ids: SeedIds) {
 
   const changedMembershipEndRequest = await service.rpc("apply_super_admin_staff_membership_end", {
     ...membershipEndArgs,
-    input_ends_on: addDays(ids.today, 1)
+    input_ends_on: addDays(ids.civilToday, 1)
   });
   assert.equal(
     changedMembershipEndRequest.error?.code,
@@ -1891,6 +2347,61 @@ async function runAssertions(ids: SeedIds) {
   assert.equal(staleMembershipEnd.error?.code, "P0001", "stale membership close was not rejected");
   assert.match(staleMembershipEnd.error?.message ?? "", /access state changed/i);
 
+  const isolatedLastAdminMasjid = await requireData<{ id: string }>(
+    "create isolated last-admin masjid",
+    service
+      .from("masajid")
+      .insert({ name: "RLS Isolated Last Admin", slug: "rls-isolated-last-admin", active: false })
+      .select("id")
+      .single()
+  );
+  const isolatedLastAdminCohort = await requireData<{ id: string }>(
+    "create isolated last-admin cohort",
+    service
+      .from("cohorts")
+      .insert({
+        masjid_id: isolatedLastAdminMasjid.id,
+        kind: "brothers",
+        name: "Isolated Last Admin Cohort",
+        active: true,
+        sort_order: 10
+      })
+      .select("id")
+      .single()
+  );
+  await requireData(
+    "create isolated last-admin group",
+    service
+      .from("halaqa_groups")
+      .insert({
+        cohort_id: isolatedLastAdminCohort.id,
+        name: "Isolated Last Admin Group",
+        active: true,
+        sort_order: 10
+      })
+      .select("id")
+  );
+  const isolatedLastAdminMembership = await requireData<{ id: string }>(
+    "create isolated last-admin membership",
+    service
+      .from("masjid_staff_memberships")
+      .insert({
+        profile_id: ids.users.adminB,
+        masjid_id: isolatedLastAdminMasjid.id,
+        staff_role: "admin",
+        active: true,
+        starts_on: ids.startsOn,
+        created_by: ids.users.superAdmin
+      })
+      .select("id")
+      .single()
+  );
+  const isolatedLastAdminActivation = await service
+    .from("masajid")
+    .update({ active: true })
+    .eq("id", isolatedLastAdminMasjid.id);
+  assert.equal(isolatedLastAdminActivation.error, null, isolatedLastAdminActivation.error?.message);
+
   const soleAdminEndState = await service.rpc("get_person_access_state", {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminB
@@ -1899,27 +2410,27 @@ async function runAssertions(ids: SeedIds) {
   const { count: soleAdminEndAuditBefore } = await service
     .from("super_admin_audit_events")
     .select("id", { count: "exact", head: true })
-    .eq("target_id", ids.staffMembershipB)
+    .eq("target_id", isolatedLastAdminMembership.id)
     .eq("action", "staff_membership_ended");
   const soleAdminEnd = await service.rpc("apply_super_admin_staff_membership_end", {
     input_request_id: randomUUID(),
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminB,
-    input_membership_id: ids.staffMembershipB,
-    input_ends_on: ids.today,
+    input_membership_id: isolatedLastAdminMembership.id,
+    input_ends_on: ids.civilToday,
     input_expected_state: soleAdminEndState.data
   });
   assert.equal(soleAdminEnd.error?.code, "23514", "sole masjid admin close was not denied");
   const { data: soleAdminMembershipAfter } = await service
     .from("masjid_staff_memberships")
     .select("ends_on")
-    .eq("id", ids.staffMembershipB)
+    .eq("id", isolatedLastAdminMembership.id)
     .single<{ ends_on: string | null }>();
   assert.equal(soleAdminMembershipAfter?.ends_on, null, "denied membership close was not rolled back");
   const { count: soleAdminEndAuditAfter } = await service
     .from("super_admin_audit_events")
     .select("id", { count: "exact", head: true })
-    .eq("target_id", ids.staffMembershipB)
+    .eq("target_id", isolatedLastAdminMembership.id)
     .eq("action", "staff_membership_ended");
   assert.equal(soleAdminEndAuditAfter, soleAdminEndAuditBefore, "denied membership close left an audit row");
 
@@ -1937,8 +2448,8 @@ async function runAssertions(ids: SeedIds) {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminB,
     input_preset: "teacher",
-    input_starts_on: ids.weekStart,
-    input_selected_masjid_id: ids.masjidB,
+    input_starts_on: ids.civilToday,
+    input_selected_masjid_id: isolatedLastAdminMasjid.id,
     input_selected_group_id: null,
     input_expected_state: lastAdminState.data
   });
@@ -1954,7 +2465,7 @@ async function runAssertions(ids: SeedIds) {
     .from("masjid_staff_memberships")
     .select("staff_role,ends_on")
     .eq("profile_id", ids.users.adminB)
-    .eq("masjid_id", ids.masjidB)
+    .eq("masjid_id", isolatedLastAdminMasjid.id)
     .order("staff_role");
   assert.deepEqual(
     adminBStaffAfterRollback,
@@ -1977,7 +2488,7 @@ async function runAssertions(ids: SeedIds) {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.superAdmin,
     input_preset: "inactive",
-    input_starts_on: ids.weekStart,
+    input_starts_on: ids.civilToday,
     input_selected_masjid_id: null,
     input_selected_group_id: null,
     input_expected_state: superAdminState.data
@@ -2146,12 +2657,12 @@ async function runAssertions(ids: SeedIds) {
   assert.equal(membershipIdentity?.group_id, ids.groupA);
   const { data: closedMembership, error: closeMembershipError } = await adminA
     .from("student_group_memberships")
-    .update({ ends_on: ids.today })
+    .update({ ends_on: ids.civilToday })
     .eq("id", ids.studentMembershipA)
     .select("id,ends_on")
     .single();
   assert.equal(closeMembershipError, null, `deliberate membership closure failed: ${closeMembershipError?.message}`);
-  assert.equal(closedMembership?.ends_on, ids.today);
+  assert.equal(closedMembership?.ends_on, ids.civilToday);
   await assertUpdateBlocked(adminA, "student_group_memberships", ids.studentMembershipA, { ends_on: null });
 
   for (const payload of [
@@ -2494,19 +3005,102 @@ async function runAssertions(ids: SeedIds) {
   }
   await assertVisible(studentA, "accountability_obligations", ids.obligationA);
   await assertHidden(studentA, "accountability_obligations", ids.obligationB);
-  const { data: attestedObligation, error: attestedObligationError } = await studentA
+  await assertInsertBlocked(studentA2, "accountability_obligations", {
+    student_id: ids.users.studentA2,
+    week_start: ids.previousWeekStart,
+    weekly_percentage: 0,
+    amount_cents: 500
+  });
+  await assertInsertBlocked(studentA2, "accountability_obligations", {
+    student_id: ids.users.studentA2,
+    week_start: ids.previousWeekStart,
+    weekly_percentage: 0,
+    amount_cents: 3500
+  });
+  await assertInsertBlocked(futureMembershipStudent, "accountability_obligations", {
+    student_id: ids.users.futureMembershipStudent,
+    week_start: ids.previousWeekStart,
+    weekly_percentage: 0,
+    amount_cents: 3500
+  });
+  await assertRpcDenied(studentA2, "reconcile_historical_accountability_obligation", {
+    input_student_id: ids.users.studentA2,
+    input_week_start: ids.previousWeekStart
+  });
+  const { data: reconciledObligation, error: reconciledObligationError } = await service.rpc(
+    "reconcile_historical_accountability_obligation",
+    {
+      input_student_id: ids.users.studentA2,
+      input_week_start: ids.previousWeekStart
+    }
+  );
+  assert.equal(reconciledObligationError, null, reconciledObligationError?.message);
+  assert.equal(reconciledObligation?.student_id, ids.users.studentA2);
+  assert.equal(reconciledObligation?.week_start, ids.previousWeekStart);
+  assert.equal(Number(reconciledObligation?.weekly_percentage), 0);
+  assert.equal(reconciledObligation?.amount_cents, 3500);
+  assert.equal(reconciledObligation?.status, "pending");
+  const { data: obligationBeforeAttestation, error: obligationBeforeAttestationError } = await studentA2
+    .from("accountability_obligations")
+    .select("student_id,week_start,status,masjid_id,cohort_id,halaqa_group_id")
+    .eq("id", reconciledObligation.id)
+    .single();
+  assert.equal(obligationBeforeAttestationError, null, obligationBeforeAttestationError?.message);
+  assert.deepEqual(
+    obligationBeforeAttestation,
+    {
+      student_id: ids.users.studentA2,
+      week_start: ids.previousWeekStart,
+      status: "pending",
+      masjid_id: ids.masjidA,
+      cohort_id: ids.cohortA,
+      halaqa_group_id: ids.groupA
+    },
+    "student obligation did not retain its authoritative historical snapshot"
+  );
+  const obligationScopeMatch = await studentA2.rpc("student_scope_snapshot_matches", {
+    input_student_id: ids.users.studentA2,
+    input_week_start: ids.previousWeekStart,
+    input_masjid_id: ids.masjidA,
+    input_cohort_id: ids.cohortA,
+    input_group_id: ids.groupA
+  });
+  assert.equal(obligationScopeMatch.error, null, obligationScopeMatch.error?.message);
+  assert.equal(obligationScopeMatch.data, true, "student obligation scope failed its RLS projection");
+  const { data: attestedObligation, error: attestedObligationError } = await studentA2
     .from("accountability_obligations")
     .update({
       status: "attested_paid",
       attested_paid_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     })
-    .eq("id", ids.obligationA)
+    .eq("id", reconciledObligation.id)
     .eq("status", "pending")
     .select("id,status");
   assert.equal(attestedObligationError, null, attestedObligationError?.message);
   assert.equal(attestedObligation?.length, 1, "student self-attestation did not update its valid obligation");
   assert.equal(attestedObligation?.[0]?.status, "attested_paid");
+  const settledBeforeReconcile = await requireData<Record<string, unknown>>(
+    "read settled obligation before reconciliation",
+    service.from("accountability_obligations")
+      .select("*")
+      .eq("id", reconciledObligation.id)
+      .single()
+  );
+  const settledReconcile = await service.rpc("reconcile_historical_accountability_obligation", {
+    input_student_id: ids.users.studentA2,
+    input_week_start: ids.previousWeekStart
+  });
+  assert.equal(settledReconcile.error, null, settledReconcile.error?.message);
+  assert.equal(settledReconcile.data, null, "settled reconciliation returned a mutable obligation");
+  const settledAfterReconcile = await requireData<typeof settledBeforeReconcile>(
+    "read settled obligation after reconciliation",
+    service.from("accountability_obligations")
+      .select("*")
+      .eq("id", reconciledObligation.id)
+      .single()
+  );
+  assert.deepEqual(settledAfterReconcile, settledBeforeReconcile, "settled reconciliation changed stored bytes");
   await assertVisible(studentA, "badge_awards", ids.badgeA);
   await assertHidden(studentA, "badge_awards", ids.badgeB);
   await assertHidden(studentA, "profiles", ids.users.studentA2);
@@ -2594,6 +3188,18 @@ async function runAssertions(ids: SeedIds) {
   assert.equal(writerPartner?.cohort_id, ids.cohortWriter);
   assert.equal(writerPartner?.halaqa_group_id, ids.groupWriter);
 
+  await assertInsertBlocked(service, "halaqa_grades", {
+    student_id: ids.users.studentWriter,
+    week_start: ids.weekStart,
+    attended: true,
+    attendance_points: 100,
+    recitation_points: 50,
+    graded_by: ids.users.adminA,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    halaqa_group_id: ids.groupA
+  });
+
   const { data: ownAutosave, error: ownAutosaveError } = await studentA
     .from("checkins")
     .update({ note: "own autosave" })
@@ -2643,7 +3249,16 @@ async function runAssertions(ids: SeedIds) {
     { input_week_start: ids.weekStart }
   );
   assert.equal(leaderboardError, null, leaderboardError?.message);
-  assert.ok(Array.isArray(leaderboard) && leaderboard.length === 3, "leaderboard should contain only cohort A");
+  const currentHistoricalScope = await studentA.rpc("student_historical_reporting_scope_for_week", {
+    input_week_start: ids.weekStart
+  });
+  assert.equal(currentHistoricalScope.error, null, currentHistoricalScope.error?.message);
+  assert.equal(currentHistoricalScope.data?.[0]?.group_id, ids.groupA);
+  assert.ok(Array.isArray(leaderboard) && leaderboard.length === 4, "leaderboard should contain the historical cohort A population");
+  assert.ok(
+    leaderboard?.some((row: { student_name?: string }) => row.student_name === "staffGrantTarget"),
+    "later role change removed a historically eligible peer"
+  );
   const expectedLeaderboardFields = [
     "is_current_student",
     "previous_rank",
@@ -2665,17 +3280,141 @@ async function runAssertions(ids: SeedIds) {
   const currentLeaderboardRow = (leaderboard ?? []).find((row) => row.is_current_student);
   assert.ok(Number(currentLeaderboardRow?.score_percentage) <= 100, "leaderboard score exceeded 100%");
   assert.equal(currentLeaderboardRow?.previous_rank, null, "inactive prior week fabricated a previous rank");
+  assert.equal(
+    (leaderboard ?? []).find((row) => row.student_name === "studentA2")?.previous_rank,
+    null,
+    "an activity-empty previous leaderboard fabricated ranks for eligible students"
+  );
+  const previousPeerGrade = await requireData<Array<{ id: string }>>(
+    "insert prior-week peer activity",
+    service.from("halaqa_grades").insert({
+      student_id: ids.users.expiredMembershipStudent,
+      week_start: addDays(ids.previousWeekStart, -7),
+      attended: true,
+      attendance_points: 100,
+      recitation_points: 50,
+      graded_by: ids.users.adminA
+    }).select("id")
+  );
+  const leaderboardWithPeerActivity = await studentA2.rpc("student_cohort_leaderboard_for_week", {
+    input_week_start: ids.previousWeekStart
+  });
+  assert.equal(leaderboardWithPeerActivity.error, null, leaderboardWithPeerActivity.error?.message);
+  const zeroActivityPreviousRow = (leaderboardWithPeerActivity.data ?? []).find(
+    (row: { is_current_student?: boolean }) => row.is_current_student
+  );
+  assert.notEqual(
+    zeroActivityPreviousRow?.previous_rank,
+    null,
+    "an individually inactive student lost its zero-score rank in an otherwise active prior leaderboard"
+  );
+  const selectedWeekEntrant = (leaderboard ?? []).find(
+    (row: { student_name?: string }) => row.student_name === "Setup Student"
+  );
+  assert.equal(selectedWeekEntrant?.previous_rank, null, "a student who joined in the selected week received a previous rank");
+  const selectedWeekScoringStart = await service
+    .from("profiles")
+    .update({ score_starts_on: ids.weekStart })
+    .eq("id", ids.users.studentA2);
+  assert.equal(selectedWeekScoringStart.error, null, selectedWeekScoringStart.error?.message);
+  const leaderboardAfterScoringStart = await studentA2.rpc("student_cohort_leaderboard_for_week", {
+    input_week_start: ids.weekStart
+  });
+  assert.equal(leaderboardAfterScoringStart.error, null, leaderboardAfterScoringStart.error?.message);
+  assert.equal(
+    (leaderboardAfterScoringStart.data ?? []).find(
+      (row: { student_name?: string }) => row.student_name === "studentA2"
+    )?.previous_rank,
+    null,
+    "a student whose scoring began in the selected week received a previous rank"
+  );
+  const restoreStudentA2ScoreStart = await service
+    .from("profiles")
+    .update({ score_starts_on: ids.startsOn })
+    .eq("id", ids.users.studentA2);
+  assert.equal(restoreStudentA2ScoreStart.error, null, restoreStudentA2ScoreStart.error?.message);
+  const deletePreviousPeerGrade = await service
+    .from("halaqa_grades")
+    .delete()
+    .eq("id", previousPeerGrade[0].id);
+  assert.equal(deletePreviousPeerGrade.error, null, deletePreviousPeerGrade.error?.message);
+
+  const previousCohortWeek = addDays(ids.startsOn, -7);
+  const previousCohortScoreStart = await service
+    .from("profiles")
+    .update({ score_starts_on: previousCohortWeek })
+    .eq("id", ids.users.studentA);
+  assert.equal(previousCohortScoreStart.error, null, previousCohortScoreStart.error?.message);
+  const previousCohortGrade = await requireData<Array<{ id: string }>>(
+    "insert previous-cohort activity",
+    service.from("halaqa_grades").insert({
+      student_id: ids.users.studentA,
+      week_start: previousCohortWeek,
+      attended: true,
+      attendance_points: 100,
+      recitation_points: 50,
+      graded_by: ids.users.adminB
+    }).select("id")
+  );
+  const transferBoundarySelectedGrade = await requireData<Array<{ id: string }>>(
+    "insert transfer-boundary selected-week activity",
+    service.from("halaqa_grades").insert({
+      student_id: ids.users.studentA,
+      week_start: ids.startsOn,
+      attended: true,
+      attendance_points: 100,
+      recitation_points: 50,
+      graded_by: ids.users.adminA
+    }).select("id")
+  );
+  const transferBoundaryLeaderboard = await studentA.rpc("student_cohort_leaderboard_for_week", {
+    input_week_start: ids.startsOn
+  });
+  assert.equal(transferBoundaryLeaderboard.error, null, transferBoundaryLeaderboard.error?.message);
+  assert.equal(
+    (transferBoundaryLeaderboard.data ?? []).find(
+      (row: { is_current_student?: boolean }) => row.is_current_student
+    )?.previous_rank,
+    1,
+    "previous rank did not follow the caller's previous historical cohort"
+  );
+  const deletePreviousCohortGrade = await service.from("halaqa_grades").delete().eq("id", previousCohortGrade[0].id);
+  assert.equal(deletePreviousCohortGrade.error, null, deletePreviousCohortGrade.error?.message);
+  const deleteTransferBoundarySelectedGrade = await service
+    .from("halaqa_grades")
+    .delete()
+    .eq("id", transferBoundarySelectedGrade[0].id);
+  assert.equal(
+    deleteTransferBoundarySelectedGrade.error,
+    null,
+    deleteTransferBoundarySelectedGrade.error?.message
+  );
+  const restoreStudentAScoreStart = await service
+    .from("profiles")
+    .update({ score_starts_on: ids.startsOn })
+    .eq("id", ids.users.studentA);
+  assert.equal(restoreStudentAScoreStart.error, null, restoreStudentAScoreStart.error?.message);
+  const setupMembershipBackdate = await service
+    .from("student_group_memberships")
+    .update({ starts_on: ids.previousWeekStart })
+    .eq("student_id", ids.users.setupStudent);
+  assert.equal(setupMembershipBackdate.error, null, setupMembershipBackdate.error?.message);
+  const setupProfileBackdate = await service
+    .from("profiles")
+    .update({ score_starts_on: ids.previousWeekStart })
+    .eq("id", ids.users.setupStudent);
+  assert.equal(setupProfileBackdate.error, null, setupProfileBackdate.error?.message);
   const setupObligation = await requireData<Array<{ id: string }>>(
     "insert setup-student pending obligation",
     service.from("accountability_obligations").insert({
       student_id: ids.users.setupStudent,
-      week_start: ids.weekStart,
-      weekly_percentage: 50,
-      amount_cents: 1250
+      week_start: ids.previousWeekStart,
+      weekly_percentage: 0,
+      amount_cents: 3500
     }).select("id")
   );
   const setupObligationId = setupObligation[0].id;
-  const setupNextWeek = addDays(ids.weekStart, 7);
+  const setupNextWeek = ids.weekStart;
   const setupPreview = await service.rpc("preview_official_scoring_start_change", {
     input_actor_id: ids.users.adminA,
     input_student_id: ids.users.setupStudent,
@@ -2684,14 +3423,14 @@ async function runAssertions(ids: SeedIds) {
   assert.equal(setupPreview.error, null, setupPreview.error?.message);
   assert.equal(setupPreview.data?.direction, "forward");
   assert.equal(setupPreview.data?.pending_obligation_count, 1);
-  assert.equal(setupPreview.data?.pending_amount_cents, 1250);
+  assert.equal(setupPreview.data?.pending_amount_cents, 3500);
   const setupScoringRequestId = randomUUID();
   const setupScoringArgs = {
     input_request_id: setupScoringRequestId,
     input_actor_id: ids.users.adminA,
     input_student_id: ids.users.setupStudent,
     input_score_starts_on: setupNextWeek,
-    input_expected_score_starts_on: ids.weekStart,
+    input_expected_score_starts_on: ids.previousWeekStart,
     input_reason: "Stakeholder confirmed orientation should last one week."
   };
   const setupScoringChange = await service.rpc("apply_official_scoring_start_change", setupScoringArgs);
@@ -2740,7 +3479,7 @@ async function runAssertions(ids: SeedIds) {
     input_request_id: randomUUID(),
     input_actor_id: ids.users.adminA,
     input_student_id: ids.users.setupStudent,
-    input_score_starts_on: ids.weekStart,
+    input_score_starts_on: ids.previousWeekStart,
     input_expected_score_starts_on: setupNextWeek,
     input_reason: "Scoped admins must not backdate official scoring."
   });
@@ -2755,7 +3494,7 @@ async function runAssertions(ids: SeedIds) {
     input_request_id: randomUUID(),
     input_actor_id: ids.users.superAdmin,
     input_student_id: ids.users.setupStudent,
-    input_score_starts_on: ids.weekStart,
+    input_score_starts_on: ids.previousWeekStart,
     input_expected_score_starts_on: setupNextWeek,
     input_reason: "Super admin correction restores the confirmed original week."
   });
@@ -2781,7 +3520,256 @@ async function runAssertions(ids: SeedIds) {
   );
   const orientationWeeks = await studentA2.rpc("student_leaderboard_available_weeks");
   assert.equal(orientationWeeks.error, null, orientationWeeks.error?.message);
-  assert.deepEqual(orientationWeeks.data, [], "orientation student received pre-start leaderboard weeks");
+  assert.ok(
+    !(orientationWeeks.data ?? []).some((row: { week_start?: string }) => row.week_start === ids.weekStart),
+    "orientation student discovered a pre-scoring report week"
+  );
+
+  const currentReporting = await adminA.rpc("historical_reporting_students_for_weeks", {
+    input_week_starts: [ids.weekStart, ids.weekStart]
+  });
+  assert.equal(currentReporting.error, null, currentReporting.error?.message);
+  assert.equal(
+    (currentReporting.data ?? []).filter((row: { student_id: string }) => row.student_id === ids.users.studentA).length,
+    1,
+    "duplicate week input duplicated the historical population"
+  );
+  const currentStudentARow = (currentReporting.data ?? []).find(
+    (row: { student_id: string }) => row.student_id === ids.users.studentA
+  ) as { group_id: string; student_email: string | null; can_open_current_profile: boolean } | undefined;
+  assert.deepEqual(
+    currentStudentARow ? {
+      group_id: currentStudentARow.group_id,
+      student_email: currentStudentARow.student_email,
+      can_open_current_profile: currentStudentARow.can_open_current_profile
+    } : null,
+    { group_id: ids.groupA, student_email: "studenta@rls.local", can_open_current_profile: true },
+    "current operational profile visibility was not retained"
+  );
+
+  const transferredWeek = addDays(ids.startsOn, -28);
+  const transferredScoreStart = await service
+    .from("profiles")
+    .update({ score_starts_on: transferredWeek })
+    .eq("id", ids.users.studentA);
+  assert.equal(transferredScoreStart.error, null, transferredScoreStart.error?.message);
+  const transferredWeekEvidence = await requireData<Array<{ id: string }>>(
+    "insert transferred-week report evidence",
+    service.from("checkins").insert({
+      student_id: ids.users.studentA,
+      date: transferredWeek,
+      completed: true,
+      earned_weight: 0,
+      total_weight: 100,
+      daily_score: 0
+    }).select("id")
+  );
+  const adminBHistorical = await adminB.rpc("historical_reporting_students_for_weeks", {
+    input_week_starts: [transferredWeek]
+  });
+  assert.equal(adminBHistorical.error, null, adminBHistorical.error?.message);
+  const historicalStudentA = (adminBHistorical.data ?? []).find(
+    (row: { student_id: string }) => row.student_id === ids.users.studentA
+  ) as {
+    group_id: string;
+    masjid_id: string;
+    student_email: string | null;
+    student_phone: string | null;
+    can_view_current_contact: boolean;
+    can_open_current_profile: boolean;
+  } | undefined;
+  assert.deepEqual(
+    historicalStudentA ? {
+      group_id: historicalStudentA.group_id,
+      masjid_id: historicalStudentA.masjid_id,
+      student_email: historicalStudentA.student_email,
+      student_phone: historicalStudentA.student_phone,
+      can_view_current_contact: historicalStudentA.can_view_current_contact,
+      can_open_current_profile: historicalStudentA.can_open_current_profile
+    } : null,
+    {
+      group_id: ids.groupB,
+      masjid_id: ids.masjidB,
+      student_email: null,
+      student_phone: null,
+      can_view_current_contact: false,
+      can_open_current_profile: false
+    },
+    "historical-only cross-masjid visibility leaked current contact/profile access"
+  );
+
+  const adminACrossMasjidHistory = await adminA.rpc("historical_reporting_students_for_weeks", {
+    input_week_starts: [transferredWeek]
+  });
+  assert.equal(adminACrossMasjidHistory.error, null, adminACrossMasjidHistory.error?.message);
+  assert.ok(
+    !(adminACrossMasjidHistory.data ?? []).some((row: { student_id: string }) => row.student_id === ids.users.studentA),
+    "Admin A received a week historically scoped to Masjid B"
+  );
+
+  const superAdminHistory = await superAdmin.rpc("historical_reporting_students_for_weeks", {
+    input_week_starts: [transferredWeek, ids.weekStart]
+  });
+  assert.equal(superAdminHistory.error, null, superAdminHistory.error?.message);
+  assert.ok(
+    (superAdminHistory.data ?? []).some(
+      (row: { student_id: string; masjid_id: string }) =>
+        row.student_id === ids.users.studentA && row.masjid_id === ids.masjidB
+    ),
+    "super admin did not receive global historical scope"
+  );
+
+  const ownHistoricalPopulation = await studentA.rpc("historical_reporting_students_for_weeks", {
+    input_week_starts: [transferredWeek]
+  });
+  assert.equal(ownHistoricalPopulation.error, null, ownHistoricalPopulation.error?.message);
+  assert.deepEqual(
+    (ownHistoricalPopulation.data ?? []).map((row: { student_id: string }) => row.student_id),
+    [ids.users.studentA],
+    "student reporting population exposed a peer"
+  );
+
+  const historicalScope = await studentA.rpc("student_historical_reporting_scope_for_week", {
+    input_week_start: transferredWeek
+  });
+  assert.equal(historicalScope.error, null, historicalScope.error?.message);
+  assert.deepEqual(
+    (historicalScope.data ?? []).map((row: { group_id: string; masjid_id: string }) => ({
+      group_id: row.group_id,
+      masjid_id: row.masjid_id
+    })),
+    [{ group_id: ids.groupB, masjid_id: ids.masjidB }],
+    "student historical scope used current placement"
+  );
+  const historicalLeaderboard = await studentA.rpc("student_cohort_leaderboard_for_week", {
+    input_week_start: transferredWeek
+  });
+  assert.equal(historicalLeaderboard.error, null, historicalLeaderboard.error?.message);
+  assert.ok(
+    (historicalLeaderboard.data ?? []).some(
+      (row: { is_current_student?: boolean }) => row.is_current_student
+    ),
+    "evidence-backed historical leaderboard omitted the current student"
+  );
+  const deleteTransferredWeekEvidence = await service
+    .from("checkins")
+    .delete()
+    .eq("id", transferredWeekEvidence[0].id);
+  assert.equal(deleteTransferredWeekEvidence.error, null, deleteTransferredWeekEvidence.error?.message);
+  await assertRpcDenied(studentA, "student_historical_reporting_scope_for_week", {
+    input_week_start: transferredWeek
+  });
+  await assertRpcDenied(studentA, "student_cohort_leaderboard_for_week", {
+    input_week_start: transferredWeek
+  });
+  const restoreTransferredScoreStart = await service
+    .from("profiles")
+    .update({ score_starts_on: ids.startsOn })
+    .eq("id", ids.users.studentA);
+  assert.equal(restoreTransferredScoreStart.error, null, restoreTransferredScoreStart.error?.message);
+
+  const historicalScoreStart = addDays(ids.startsOn, -56);
+  const historicalScoreUpdate = await service
+    .from("profiles")
+    .update({ score_starts_on: historicalScoreStart })
+    .eq("id", ids.users.studentA);
+  assert.equal(historicalScoreUpdate.error, null, historicalScoreUpdate.error?.message);
+  const preAppointmentEvidence = await requireData<Array<{ id: string }>>(
+    "insert pre-appointment historical evidence",
+    service.from("checkins").insert({
+      student_id: ids.users.studentA,
+      date: historicalScoreStart,
+      completed: true,
+      earned_weight: 0,
+      total_weight: 100,
+      daily_score: 0
+    }).select("id")
+  );
+  const adminAvailableWeeks = await adminA.rpc("historical_reporting_available_weeks");
+  assert.equal(adminAvailableWeeks.error, null, adminAvailableWeeks.error?.message);
+  assert.ok(
+    (adminAvailableWeeks.data ?? []).some(
+      (row: { week_start: string }) => row.week_start === historicalScoreStart
+    ),
+    "newly appointed administrator could not view earlier Masjid A reporting weeks"
+  );
+  const sentinelProfile = await service
+    .from("profiles")
+    .update({ score_starts_on: "1900-01-07" })
+    .eq("id", ids.users.sentinelStudent);
+  assert.equal(sentinelProfile.error, null, sentinelProfile.error?.message);
+  const sentinelMembership = await requireData<Array<{ id: string }>>(
+    "insert production-shaped sentinel membership",
+    service.from("student_group_memberships").insert({
+      student_id: ids.users.sentinelStudent,
+      group_id: ids.groupA,
+      starts_on: "1900-01-01",
+      assigned_by: ids.users.superAdmin
+    }).select("id")
+  );
+  assert.ok(sentinelMembership[0].id);
+  const boundedWeeks = await adminA.rpc("historical_reporting_available_weeks");
+  assert.equal(boundedWeeks.error, null, boundedWeeks.error?.message);
+  assert.ok((boundedWeeks.data ?? []).length <= 32, "sentinel membership produced an unbounded available-week result");
+  assert.ok(
+    !(boundedWeeks.data ?? []).some((row: { week_start: string }) => row.week_start.startsWith("1900-")),
+    "sentinel membership exposed a 1900-era empty report week"
+  );
+  const sentinelOnlyWeek = await adminA.rpc("historical_reporting_students_for_weeks", {
+    input_week_starts: ["1900-01-07"]
+  });
+  assert.equal(sentinelOnlyWeek.error, null, sentinelOnlyWeek.error?.message);
+  assert.deepEqual(sentinelOnlyWeek.data, [], "a sentinel-only empty week expanded the reporting population");
+  const sentinelAvailableWeeks = await sentinelStudent.rpc("student_leaderboard_available_weeks");
+  assert.equal(sentinelAvailableWeeks.error, null, sentinelAvailableWeeks.error?.message);
+  assert.ok(
+    !(sentinelAvailableWeeks.data ?? []).some(
+      (row: { week_start?: string }) => row.week_start === "1900-01-07"
+    ),
+    "student available weeks exposed a sentinel-only 1900 Sunday"
+  );
+  await assertRpcDenied(sentinelStudent, "student_historical_reporting_scope_for_week", {
+    input_week_start: "1900-01-07"
+  });
+  await assertRpcDenied(sentinelStudent, "student_cohort_leaderboard_for_week", {
+    input_week_start: "1900-01-07"
+  });
+  const nextTrackerWeek = addDays(ids.weekStart, 7);
+  const distantFutureWeek = addDays(ids.weekStart, 364);
+  for (const futureWeek of [nextTrackerWeek, distantFutureWeek]) {
+    await assertRpcDenied(studentA, "student_historical_reporting_scope_for_week", {
+      input_week_start: futureWeek
+    });
+    await assertRpcDenied(studentA, "student_cohort_leaderboard_for_week", {
+      input_week_start: futureWeek
+    });
+  }
+  const deletePreAppointmentEvidence = await service
+    .from("checkins")
+    .delete()
+    .eq("id", preAppointmentEvidence[0].id);
+  assert.equal(deletePreAppointmentEvidence.error, null, deletePreAppointmentEvidence.error?.message);
+  const restoreScoreStart = await service
+    .from("profiles")
+    .update({ score_starts_on: ids.startsOn })
+    .eq("id", ids.users.studentA);
+  assert.equal(restoreScoreStart.error, null, restoreScoreStart.error?.message);
+
+  await assertRpcDenied(adminA, "historical_reporting_students_for_weeks", {
+    input_week_starts: [addDays(ids.weekStart, 2)]
+  });
+  await assertRpcDenied(adminA, "historical_reporting_students_for_weeks", {
+    input_week_starts: []
+  });
+  await assertRpcDenied(teacherA, "historical_reporting_students_for_weeks", {
+    input_week_starts: [ids.weekStart]
+  });
+  await assertRpcDenied(expiredAdmin, "historical_reporting_students_for_weeks", {
+    input_week_starts: [ids.weekStart]
+  });
+  await assertRpcDenied(inactiveAdmin, "historical_reporting_students_for_weeks", {
+    input_week_starts: [ids.weekStart]
+  });
   const midweek = addDays(ids.weekStart, 2);
   await assertRpcDenied(studentA, "student_cohort_leaderboard_for_week", { input_week_start: midweek });
   await assertRpcDenied(studentA, "student_weekly_teacher_name", { input_week_start: midweek });
@@ -2937,9 +3925,10 @@ async function runAssertions(ids: SeedIds) {
     ["expired student", expiredMembershipStudent, ids.users.expiredMembershipStudent, ids.expiredStudentMembership],
     ["future student", futureMembershipStudent, ids.users.futureMembershipStudent, ids.futureStudentMembership]
   ] as const) {
-    // Students retain their own authorization history, but a non-current
-    // relationship to an otherwise active group cannot expose its hierarchy.
-    await assertVisible(client, "student_group_memberships", membershipId);
+    // A profile with no currently effective placement is projected inactive,
+    // so it cannot authenticate to read even its historical membership row.
+    // Super-admin/service-role history reads remain available for operations.
+    await assertHidden(client, "student_group_memberships", membershipId);
     await assertHidden(client, "masajid", ids.masjidA);
     await assertHidden(client, "cohorts", ids.cohortA);
     await assertHidden(client, "halaqa_groups", ids.groupA);
@@ -2971,15 +3960,63 @@ async function runAssertions(ids: SeedIds) {
   }
 
   // Future admin coverage must be gap-free and eventually open-ended.
+  const { data: coverageMasjid, error: coverageMasjidError } = await service
+    .from("masajid")
+    .insert({ name: "RLS Coverage Masjid", slug: "rls-coverage-masjid", active: false })
+    .select("id")
+    .single<{ id: string }>();
+  assert.equal(coverageMasjidError, null, coverageMasjidError?.message);
+  assert.ok(coverageMasjid);
+  const { data: coverageCohort, error: coverageCohortError } = await service
+    .from("cohorts")
+    .insert({
+      masjid_id: coverageMasjid!.id,
+      kind: "brothers",
+      name: "RLS Coverage Cohort",
+      active: true,
+      sort_order: 10
+    })
+    .select("id")
+    .single<{ id: string }>();
+  assert.equal(coverageCohortError, null, coverageCohortError?.message);
+  assert.ok(coverageCohort);
+  const { error: coverageGroupError } = await service
+    .from("halaqa_groups")
+    .insert({
+      cohort_id: coverageCohort!.id,
+      name: "RLS Coverage Group",
+      active: true,
+      sort_order: 10
+    });
+  assert.equal(coverageGroupError, null, coverageGroupError?.message);
+  const { data: coverageMembership, error: coverageMembershipError } = await service
+    .from("masjid_staff_memberships")
+    .insert({
+      profile_id: ids.users.adminB,
+      masjid_id: coverageMasjid!.id,
+      staff_role: "admin",
+      active: true,
+      starts_on: ids.civilToday,
+      created_by: ids.users.superAdmin
+    })
+    .select("id")
+    .single<{ id: string }>();
+  assert.equal(coverageMembershipError, null, coverageMembershipError?.message);
+  assert.ok(coverageMembership);
+  const { error: coverageActivationError } = await service
+    .from("masajid")
+    .update({ active: true })
+    .eq("id", coverageMasjid!.id);
+  assert.equal(coverageActivationError, null, coverageActivationError?.message);
   const { data: finiteReplacement, error: finiteReplacementError } = await service
     .from("masjid_staff_memberships")
     .insert({
       profile_id: ids.users.adminA,
-      masjid_id: ids.masjidB,
+      masjid_id: coverageMasjid!.id,
       staff_role: "admin",
       active: true,
-      starts_on: addDays(ids.today, 1),
-      ends_on: addDays(ids.today, 7),
+      starts_on: addDays(ids.civilToday, 1),
+      ends_on: addDays(ids.civilToday, 7),
       created_by: ids.users.superAdmin
     })
     .select("id")
@@ -2994,8 +4031,8 @@ async function runAssertions(ids: SeedIds) {
     input_request_id: randomUUID(),
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminB,
-    input_membership_id: ids.staffMembershipB,
-    input_ends_on: ids.today,
+    input_membership_id: coverageMembership!.id,
+    input_ends_on: ids.civilToday,
     input_expected_state: adminBCoverageState.data
   });
   assert.equal(noTerminalCoverage.error?.code, "23514", "finite-only coverage was accepted");
@@ -3004,10 +4041,10 @@ async function runAssertions(ids: SeedIds) {
     .from("masjid_staff_memberships")
     .insert({
       profile_id: ids.users.futureAdmin,
-      masjid_id: ids.masjidB,
+      masjid_id: coverageMasjid!.id,
       staff_role: "admin",
       active: true,
-      starts_on: addDays(ids.today, 9),
+      starts_on: addDays(ids.civilToday, 9),
       created_by: ids.users.superAdmin
     })
     .select("id")
@@ -3021,14 +4058,14 @@ async function runAssertions(ids: SeedIds) {
     input_request_id: randomUUID(),
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminB,
-    input_membership_id: ids.staffMembershipB,
-    input_ends_on: ids.today,
+    input_membership_id: coverageMembership!.id,
+    input_ends_on: ids.civilToday,
     input_expected_state: laterGapState.data
   });
   assert.equal(laterGap.error?.code, "23514", "later future coverage gap was accepted");
   const { error: closeGapError } = await service
     .from("masjid_staff_memberships")
-    .update({ starts_on: addDays(ids.today, 8) })
+    .update({ starts_on: addDays(ids.civilToday, 8) })
     .eq("id", openReplacement!.id);
   assert.equal(closeGapError, null, closeGapError?.message);
   const validHandoffState = await service.rpc("get_person_access_state", {
@@ -3039,8 +4076,8 @@ async function runAssertions(ids: SeedIds) {
     input_request_id: randomUUID(),
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminB,
-    input_membership_id: ids.staffMembershipB,
-    input_ends_on: ids.today,
+    input_membership_id: coverageMembership!.id,
+    input_ends_on: ids.civilToday,
     input_expected_state: validHandoffState.data
   });
   assert.equal(validFutureHandoff.error, null, validFutureHandoff.error?.message);
@@ -3079,7 +4116,7 @@ async function runAssertions(ids: SeedIds) {
       masjid_id: concurrencyMasjid!.id,
       staff_role: "admin",
       active: true,
-      starts_on: addDays(ids.today, -1),
+      starts_on: addDays(ids.civilToday, -1),
       created_by: ids.users.superAdmin
     })
     .select("id")
@@ -3104,7 +4141,7 @@ async function runAssertions(ids: SeedIds) {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminB,
     input_membership_id: concurrencyAdminMembership!.id,
-    input_ends_on: ids.today,
+    input_ends_on: ids.civilToday,
     input_expected_state: concurrentEndState.data
   };
   const concurrentGrantArgs = {
@@ -3113,7 +4150,7 @@ async function runAssertions(ids: SeedIds) {
     input_target_profile_id: ids.users.adminA,
     input_masjid_id: concurrencyMasjid!.id,
     input_grant: "admin",
-    input_starts_on: addDays(ids.today, 1),
+    input_starts_on: addDays(ids.civilToday, 1),
     input_expected_state: concurrentGrantState.data
   };
   const [concurrentEnd, concurrentGrant] = await Promise.all([
@@ -3147,7 +4184,7 @@ async function runAssertions(ids: SeedIds) {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminA,
     input_membership_id: inactiveMasjidAdminMembership!.id,
-    input_ends_on: ids.today,
+    input_ends_on: ids.civilToday,
     input_expected_state: inactiveMasjidAdminState.data
   });
   assert.equal(inactiveMasjidEnd.error, null, "inactive masjid incorrectly required future admin coverage");
@@ -3305,7 +4342,7 @@ async function runAssertions(ids: SeedIds) {
         masjid_id: validCoverageMasjid.id,
         staff_role: "admin",
         active: true,
-        starts_on: addDays(ids.today, -1),
+        starts_on: addDays(ids.civilToday, -1),
         created_by: ids.users.superAdmin
       })
       .select("id")
@@ -3375,7 +4412,7 @@ async function runAssertions(ids: SeedIds) {
         masjid_id: concurrencyMasjidClosure.id,
         staff_role: "admin",
         active: true,
-        starts_on: addDays(ids.today, -1),
+        starts_on: addDays(ids.civilToday, -1),
         created_by: ids.users.superAdmin
       })
       .select("id")
@@ -3403,7 +4440,7 @@ async function runAssertions(ids: SeedIds) {
     input_actor_id: ids.users.superAdmin,
     input_target_profile_id: ids.users.adminA,
     input_membership_id: concurrencyCoverageMembership.id,
-    input_ends_on: ids.today,
+    input_ends_on: ids.civilToday,
     input_expected_state: concurrencyCoverageState.data
   };
   const [concurrentReactivationResult, concurrentCoverageEndResult] = await Promise.all([
@@ -3459,7 +4496,7 @@ async function runAssertions(ids: SeedIds) {
     assigned_by: ids.users.superAdmin
   });
   await assertUpdateBlocked(superAdmin, "student_group_memberships", ids.studentMembershipB, {
-    ends_on: ids.today
+    ends_on: ids.civilToday
   });
   await assertDeleteBlocked(superAdmin, "student_group_memberships", ids.studentMembershipB);
   await assertInsertBlocked(superAdmin, "masjid_staff_memberships", {
@@ -3472,7 +4509,7 @@ async function runAssertions(ids: SeedIds) {
     created_by: ids.users.superAdmin
   });
   await assertUpdateBlocked(superAdmin, "masjid_staff_memberships", ids.staffMembershipB, {
-    ends_on: ids.today
+    ends_on: ids.civilToday
   });
   await assertDeleteBlocked(superAdmin, "masjid_staff_memberships", ids.staffMembershipB);
   const { data: superAccountabilityUpdate, error: superAccountabilityError } = await superAdmin
@@ -3503,6 +4540,275 @@ async function runAssertions(ids: SeedIds) {
   });
   assert.ok(superAuditInsert.error, "signed super-admin inserted an audit row directly");
 
+  const deactivationCurrentGroup = await requireData<{ id: string }>(
+    "create immediate-deactivation current group",
+    service
+      .from("halaqa_groups")
+      .insert({
+        cohort_id: ids.cohortA,
+        name: "Immediate Deactivation Current Group",
+        active: true,
+        sort_order: 90
+      })
+      .select("id")
+      .single()
+  );
+  const deactivationFutureGroup = await requireData<{ id: string }>(
+    "create immediate-deactivation future group",
+    service
+      .from("halaqa_groups")
+      .insert({
+        cohort_id: ids.cohortB,
+        name: "Immediate Deactivation Future Group",
+        active: true,
+        sort_order: 90
+      })
+      .select("id")
+      .single()
+  );
+  const deactivationCurrentStudentMembership = await requireData<{ id: string }>(
+    "create current membership for immediate deactivation",
+    service
+      .from("student_group_memberships")
+      .insert({
+        student_id: ids.users.profileTarget,
+        group_id: deactivationCurrentGroup.id,
+        starts_on: ids.startsOn,
+        ends_on: addDays(ids.civilToday, 1),
+        assigned_by: ids.users.superAdmin
+      })
+      .select("id")
+      .single()
+  );
+  const deactivationFutureStudentMembership = await requireData<{ id: string }>(
+    "create future membership for immediate deactivation",
+    service
+      .from("student_group_memberships")
+      .insert({
+        student_id: ids.users.profileTarget,
+        group_id: deactivationFutureGroup.id,
+        starts_on: addDays(ids.civilToday, 2),
+        assigned_by: ids.users.superAdmin
+      })
+      .select("id")
+      .single()
+  );
+  await requireData<{ id: string }>(
+    "create historical student display membership for immediate deactivation",
+    service
+      .from("student_group_memberships")
+      .insert({
+        student_id: ids.users.studentNoMembership,
+        group_id: deactivationCurrentGroup.id,
+        starts_on: ids.previousWeekStart,
+        ends_on: ids.previousWeekStart,
+        assigned_by: ids.users.superAdmin
+      })
+      .select("id")
+      .single()
+  );
+  const deactivationCurrentStaffMembership = await requireData<{ id: string }>(
+    "backdate current staff membership for immediate deactivation",
+    service
+      .from("masjid_staff_memberships")
+      .update({ starts_on: ids.startsOn })
+      .eq("profile_id", ids.users.profileTarget)
+      .eq("masjid_id", ids.masjidA)
+      .eq("staff_role", "teacher")
+      .eq("active", true)
+      .is("ends_on", null)
+      .select("id")
+      .single()
+  );
+  const deactivationSameDayStaffMemberships = await requireData<Array<{ id: string; masjid_id: string }>>(
+    "read same-day staff memberships for immediate deactivation",
+    service
+      .from("masjid_staff_memberships")
+      .select("id,masjid_id")
+      .eq("profile_id", ids.users.profileTarget)
+      .eq("active", true)
+      .eq("starts_on", ids.civilToday)
+  );
+  const deactivationFutureStaffMembership = futureSameRoleTeacherMembership;
+  await requireData<Array<{ id: string }>>(
+    "create exact availability for immediate-deactivation assignments",
+    service
+      .from("teacher_rotation_availability")
+      .insert([
+        {
+          teacher_id: ids.users.profileTarget,
+          masjid_id: ids.masjidA,
+          cohort_id: ids.cohortA,
+          week_start: ids.previousWeekStart,
+          available: true
+        },
+        {
+          teacher_id: ids.users.profileTarget,
+          masjid_id: ids.masjidA,
+          cohort_id: ids.cohortA,
+          week_start: ids.weekStart,
+          available: true
+        },
+        {
+          teacher_id: ids.users.profileTarget,
+          masjid_id: ids.masjidB,
+          cohort_id: ids.cohortB,
+          week_start: addDays(ids.weekStart, 7),
+          available: true
+        }
+      ])
+      .select("id")
+  );
+  const deactivationAssignments = await requireData<Array<{ id: string; week_start: string }>>(
+    "create immediate-deactivation assignments",
+    service
+      .from("group_teacher_assignments")
+      .insert([
+        {
+          group_id: deactivationCurrentGroup.id,
+          teacher_id: ids.users.profileTarget,
+          week_start: ids.previousWeekStart,
+          active: true,
+          assigned_by: ids.users.superAdmin
+        },
+        {
+          group_id: deactivationCurrentGroup.id,
+          teacher_id: ids.users.profileTarget,
+          week_start: ids.weekStart,
+          active: true,
+          assigned_by: ids.users.superAdmin
+        },
+        {
+          group_id: deactivationFutureGroup.id,
+          teacher_id: ids.users.profileTarget,
+          week_start: addDays(ids.weekStart, 7),
+          active: true,
+          assigned_by: ids.users.superAdmin
+        }
+      ])
+      .select("id,week_start")
+  );
+  const deactivationState = await service.rpc("get_person_access_state", {
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget
+  });
+  assert.equal(deactivationState.error, null, deactivationState.error?.message);
+  const immediateDeactivation = await service.rpc("apply_super_admin_access_change", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_target_profile_id: ids.users.profileTarget,
+    input_preset: "inactive",
+    input_starts_on: ids.civilToday,
+    input_selected_masjid_id: null,
+    input_selected_group_id: null,
+    input_expected_state: deactivationState.data
+  });
+  assert.equal(immediateDeactivation.error, null, immediateDeactivation.error?.message);
+  const deactivationResult = immediateDeactivation.data as {
+    deactivation?: { affected_assignment_count?: number; affected_assignment_ids?: string[] };
+  } | null;
+  const expectedDeactivatedAssignmentIds = deactivationAssignments
+    .filter(({ week_start }) => week_start >= ids.weekStart)
+    .map(({ id }) => id)
+    .sort();
+  assert.deepEqual(
+    {
+      count: deactivationResult?.deactivation?.affected_assignment_count,
+      ids: [...(deactivationResult?.deactivation?.affected_assignment_ids ?? [])].sort()
+    },
+    { count: expectedDeactivatedAssignmentIds.length, ids: expectedDeactivatedAssignmentIds },
+    "immediate deactivation did not return affected assignment identifiers"
+  );
+  const deactivatedProfile = await requireData<{ role: string; active: boolean }>(
+    "read profile after immediate deactivation",
+    service.from("profiles").select("role,active").eq("id", ids.users.profileTarget).single()
+  );
+  assert.deepEqual(deactivatedProfile, { role: "admin", active: false });
+  const deactivatedCurrentStudent = await requireData<{ ends_on: string | null }>(
+    "read closed current student membership after deactivation",
+    service.from("student_group_memberships").select("ends_on").eq("id", deactivationCurrentStudentMembership.id).single()
+  );
+  assert.equal(deactivatedCurrentStudent.ends_on, addDays(ids.civilToday, -1));
+  const { data: cancelledFutureStudent, error: cancelledFutureStudentError } = await service
+    .from("student_group_memberships")
+    .select("id")
+    .eq("id", deactivationFutureStudentMembership.id);
+  assert.equal(cancelledFutureStudentError, null, cancelledFutureStudentError?.message);
+  assert.deepEqual(cancelledFutureStudent, [], "future student membership survived deactivation");
+  const deactivatedCurrentStaff = await requireData<{ active: boolean; ends_on: string | null }>(
+    "read closed current staff membership after deactivation",
+    service.from("masjid_staff_memberships").select("active,ends_on").eq("id", deactivationCurrentStaffMembership.id).single()
+  );
+  assert.deepEqual(deactivatedCurrentStaff, { active: true, ends_on: addDays(ids.civilToday, -1) });
+  const deactivatedFutureStaff = await requireData<{ active: boolean; ends_on: string | null }>(
+    "read cancelled future staff membership after deactivation",
+    service.from("masjid_staff_memberships").select("active,ends_on").eq("id", deactivationFutureStaffMembership.id).single()
+  );
+  assert.deepEqual(deactivatedFutureStaff, { active: false, ends_on: addDays(ids.civilToday, 2) });
+  const deactivationAssignmentStates = await requireData<Array<{ id: string; active: boolean }>>(
+    "read assignment states after immediate deactivation",
+    service
+      .from("group_teacher_assignments")
+      .select("id,active")
+      .in("id", deactivationAssignments.map(({ id }) => id))
+      .order("id")
+  );
+  assert.deepEqual(
+    deactivationAssignmentStates,
+    deactivationAssignments.map(({ id, week_start }) => ({ id, active: week_start < ids.weekStart })).sort((a, b) => a.id.localeCompare(b.id)),
+    "deactivation did not preserve past or disable current/future assignments"
+  );
+  const historicalDeactivationTeacher = await adminA.rpc("student_weekly_teacher", {
+    input_student_id: ids.users.studentNoMembership,
+    input_week_start: ids.previousWeekStart
+  });
+  assert.equal(historicalDeactivationTeacher.error, null, historicalDeactivationTeacher.error?.message);
+  assert.deepEqual(
+    historicalDeactivationTeacher.data,
+    [{ teacher_id: ids.users.profileTarget, teacher_name: "profileTarget" }],
+    "immediate deactivation removed historical teacher identity"
+  );
+  const deactivationAuditRows = await requireData<Array<{ action: string; target_id: string }>>(
+    "read immediate deactivation audit rows",
+    service
+      .from("super_admin_audit_events")
+      .select("action,target_id")
+      .in("target_id", [
+        deactivationCurrentStudentMembership.id,
+        deactivationFutureStudentMembership.id,
+        deactivationCurrentStaffMembership.id,
+        deactivationFutureStaffMembership.id,
+        ...deactivationSameDayStaffMemberships.map(({ id }) => id),
+        ...deactivationAssignments.map(({ id }) => id)
+      ])
+      .in("action", [
+        "student_membership_cancelled",
+        "student_membership_closed",
+        "staff_membership_cancelled",
+        "staff_membership_closed",
+        "teacher_assignment_deactivated"
+      ])
+  );
+  assert.equal(
+    deactivationAuditRows.length,
+    8,
+    "immediate deactivation did not audit every affected membership and assignment"
+  );
+  const preservedAuthUser = await service.auth.admin.getUserById(ids.users.profileTarget);
+  assert.equal(preservedAuthUser.error, null, preservedAuthUser.error?.message);
+  assert.equal(preservedAuthUser.data.user?.id, ids.users.profileTarget);
+  const deactivatedProfileRefresh = await profileTarget.rpc("refresh_current_profile_role");
+  assert.equal(deactivatedProfileRefresh.error, null, deactivatedProfileRefresh.error?.message);
+  assert.equal((deactivatedProfileRefresh.data as { active?: boolean } | null)?.active, false);
+  await assertHidden(profileTarget, "masjid_staff_memberships", deactivationCurrentStaffMembership.id);
+  await assertHidden(profileTarget, "student_group_memberships", deactivationCurrentStudentMembership.id);
+
+  const temporaryGroupCleanup = await service
+    .from("halaqa_groups")
+    .update({ active: false })
+    .in("id", [deactivationCurrentGroup.id, deactivationFutureGroup.id]);
+  assert.equal(temporaryGroupCleanup.error, null, temporaryGroupCleanup.error?.message);
+
   // The current week's Saturday is the authorization event. A teacher who
   // starts on that Saturday (and whose membership ends that day) is eligible
   // for this Sunday-Saturday tracker week, even before their first civil day
@@ -3515,6 +4821,14 @@ async function runAssertions(ids: SeedIds) {
     .eq("masjid_id", ids.masjidA)
     .eq("staff_role", "teacher");
   assert.equal(saturdayStartStaff.error, null, saturdayStartStaff.error?.message);
+  const saturdayStartAvailability = await service.from("teacher_rotation_availability").upsert({
+    teacher_id: ids.users.futureTeacher,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  }, { onConflict: "teacher_id,cohort_id,week_start" });
+  assert.equal(saturdayStartAvailability.error, null, saturdayStartAvailability.error?.message);
   const saturdayStartAssignment = await service
     .from("group_teacher_assignments")
     .update({ teacher_id: ids.users.futureTeacher })
@@ -3531,27 +4845,6 @@ async function runAssertions(ids: SeedIds) {
     input_week_start: ids.weekStart
   });
   assert.equal(saturdayStartRoster.error, null, saturdayStartRoster.error?.message);
-
-  for (const [table, id] of [
-    ["halaqa_groups", ids.groupA],
-    ["cohorts", ids.cohortA],
-    ["masajid", ids.masjidA]
-  ] as const) {
-    const { error } = await service.from(table).update({ active: false }).eq("id", id);
-    assert.equal(error, null, `deactivate ${table} historical fixture: ${error?.message}`);
-  }
-
-  const { data: inactiveHistoricalContexts, error: inactiveHistoricalContextsError } =
-    await expiredAssignmentTeacher.rpc("teacher_assignment_contexts");
-  assert.equal(inactiveHistoricalContextsError, null, inactiveHistoricalContextsError?.message);
-  assert.deepEqual(
-    (inactiveHistoricalContexts ?? []).map((row: { group_id: string; week_start: string }) => ({
-      group_id: row.group_id,
-      week_start: row.week_start
-    })),
-    [{ group_id: ids.groupA, week_start: ids.previousWeekStart }],
-    "completed assignment labels disappeared after hierarchy deactivation"
-  );
 
   const { data: historicalTeacherName, error: historicalTeacherNameError } = await studentA.rpc(
     "student_weekly_teacher_name",
@@ -3604,6 +4897,45 @@ async function runAssertions(ids: SeedIds) {
     inactiveProfileHistoricalTeacherName,
     [{ teacher_name: "expiredAssignmentTeacher" }],
     "student lost the historical teacher name after the teacher profile was deactivated"
+  );
+
+  for (const [table, id] of [
+    ["halaqa_groups", ids.groupA],
+    ["cohorts", ids.cohortA],
+    ["masajid", ids.masjidA]
+  ] as const) {
+    const { error } = await service.from(table).update({ active: false }).eq("id", id);
+    assert.equal(error, null, `deactivate ${table} historical fixture: ${error?.message}`);
+  }
+  const inactiveHierarchyHistory = await superAdmin.rpc("historical_reporting_students_for_weeks", {
+    input_week_starts: [ids.weekStart]
+  });
+  assert.equal(inactiveHierarchyHistory.error, null, inactiveHierarchyHistory.error?.message);
+  assert.ok(
+    (inactiveHierarchyHistory.data ?? []).some(
+      (row: { student_id: string; group_id: string }) =>
+        row.student_id === ids.users.studentA && row.group_id === ids.groupA
+    ),
+    "later hierarchy/profile deactivation erased the historical reporting population"
+  );
+  const studentAfterHierarchyDeactivation = await requireData<{ role: string; active: boolean }>(
+    "read student projection after hierarchy deactivation",
+    service.from("profiles").select("role,active").eq("id", ids.users.studentA).single()
+  );
+  assert.deepEqual(studentAfterHierarchyDeactivation, { role: "student", active: false });
+  await assertHidden(studentA, "profiles", ids.users.studentA);
+  await assertHidden(studentA, "student_group_memberships", ids.studentMembershipA);
+
+  const { data: inactiveHistoricalContexts, error: inactiveHistoricalContextsError } =
+    await expiredAssignmentTeacher.rpc("teacher_assignment_contexts");
+  assert.equal(inactiveHistoricalContextsError, null, inactiveHistoricalContextsError?.message);
+  assert.deepEqual(
+    (inactiveHistoricalContexts ?? []).map((row: { group_id: string; week_start: string }) => ({
+      group_id: row.group_id,
+      week_start: row.week_start
+    })),
+    [{ group_id: ids.groupA, week_start: ids.previousWeekStart }],
+    "completed assignment labels disappeared after hierarchy deactivation"
   );
 
   // A Saturday-ended staff membership is historical display evidence only
@@ -3696,6 +5028,130 @@ async function runAssertions(ids: SeedIds) {
     const { error } = await service.from(table).update({ active: true }).eq("id", id);
     assert.equal(error, null, `restore ${table} historical fixture: ${error?.message}`);
   }
+  const studentAfterHierarchyReactivation = await requireData<{ role: string; active: boolean }>(
+    "read student projection after hierarchy reactivation",
+    service.from("profiles").select("role,active").eq("id", ids.users.studentA).single()
+  );
+  assert.deepEqual(studentAfterHierarchyReactivation, { role: "student", active: true });
+
+  const laterRoleChange = await service
+    .from("profiles")
+    .update({ role: "teacher", active: true })
+    .eq("id", ids.users.studentA);
+  assert.equal(laterRoleChange.error, null, laterRoleChange.error?.message);
+  const roleChangedHistory = await adminA.rpc("historical_reporting_students_for_weeks", {
+    input_week_starts: [ids.weekStart]
+  });
+  assert.equal(roleChangedHistory.error, null, roleChangedHistory.error?.message);
+  const roleChangedStudent = (roleChangedHistory.data ?? []).find(
+    (row: { student_id: string }) => row.student_id === ids.users.studentA
+  ) as { student_email: string | null; can_open_current_profile: boolean } | undefined;
+  assert.deepEqual(
+    roleChangedStudent ? {
+      student_email: roleChangedStudent.student_email,
+      can_open_current_profile: roleChangedStudent.can_open_current_profile
+    } : null,
+    { student_email: null, can_open_current_profile: false },
+    "later role change erased history or retained operational contact access"
+  );
+  const restoreStudentRole = await service
+    .from("profiles")
+    .update({ role: "student", active: true })
+    .eq("id", ids.users.studentA);
+  assert.equal(restoreStudentRole.error, null, restoreStudentRole.error?.message);
+
+  // Even report evidence in a scheduled future transfer scope must not reveal
+  // the future masjid/cohort/group or future peers through either student RPC.
+  const futureMasjid = await requireData<Array<{ id: string }>>(
+    "insert future-transfer masjid",
+    service.from("masajid").insert({
+      name: "Future Transfer Masjid",
+      slug: `future-transfer-${Date.now()}`,
+      active: false
+    }).select("id")
+  );
+  const futureCohort = await requireData<Array<{ id: string }>>(
+    "insert future-transfer cohort",
+    service.from("cohorts").insert({
+      masjid_id: futureMasjid[0].id,
+      kind: "brothers",
+      name: "Future Transfer Cohort",
+      active: true,
+      sort_order: 10
+    }).select("id")
+  );
+  const futureGroup = await requireData<Array<{ id: string }>>(
+    "insert future-transfer group",
+    service.from("halaqa_groups").insert({
+      cohort_id: futureCohort[0].id,
+      name: "Future Transfer Group",
+      active: true,
+      sort_order: 10
+    }).select("id")
+  );
+  const closeCurrentMembership = await service
+    .from("student_group_memberships")
+    .update({ ends_on: addDays(nextTrackerWeek, -1) })
+    .eq("id", ids.studentMembershipA);
+  assert.equal(closeCurrentMembership.error, null, closeCurrentMembership.error?.message);
+  const futureMemberships = await requireData<Array<{ id: string }>>(
+    "insert scheduled future transfer and peer",
+    service.from("student_group_memberships").insert([
+      {
+        student_id: ids.users.studentA,
+        group_id: futureGroup[0].id,
+        starts_on: nextTrackerWeek,
+        assigned_by: ids.users.superAdmin
+      },
+      {
+        student_id: ids.users.profileTarget,
+        group_id: futureGroup[0].id,
+        starts_on: nextTrackerWeek,
+        assigned_by: ids.users.superAdmin
+      }
+    ]).select("id")
+  );
+  const futureBadges = await requireData<Array<{ id: string }>>(
+    "insert future report evidence",
+    service.from("badge_awards").insert([
+      {
+        student_id: ids.users.studentA,
+        week_start: nextTrackerWeek,
+        weekly_percentage: 95,
+        badges_awarded: 1
+      },
+      {
+        student_id: ids.users.profileTarget,
+        week_start: nextTrackerWeek,
+        weekly_percentage: 95,
+        badges_awarded: 1
+      }
+    ]).select("id")
+  );
+  await assertRpcDenied(studentA, "student_historical_reporting_scope_for_week", {
+    input_week_start: nextTrackerWeek
+  });
+  await assertRpcDenied(studentA, "student_cohort_leaderboard_for_week", {
+    input_week_start: nextTrackerWeek
+  });
+  const futureTransferWeeks = await studentA.rpc("student_leaderboard_available_weeks");
+  assert.equal(futureTransferWeeks.error, null, futureTransferWeeks.error?.message);
+  assert.ok(
+    !(futureTransferWeeks.data ?? []).some(
+      (row: { week_start?: string }) => row.week_start === nextTrackerWeek
+    ),
+    "future evidence exposed a scheduled transfer week"
+  );
+  await service.from("badge_awards").delete().in("id", futureBadges.map((row) => row.id));
+  await service.from("student_group_memberships").delete().in("id", futureMemberships.map((row) => row.id));
+  const reopenCurrentMembership = await service
+    .from("student_group_memberships")
+    .update({ ends_on: null })
+    .eq("id", ids.studentMembershipA);
+  assert.equal(reopenCurrentMembership.error, null, reopenCurrentMembership.error?.message);
+  await service.from("halaqa_groups").delete().eq("id", futureGroup[0].id);
+  await service.from("cohorts").delete().eq("id", futureCohort[0].id);
+  await service.from("masajid").delete().eq("id", futureMasjid[0].id);
 
   const anon = localClient(anonKey);
   const authenticatedDefinerProbes: Array<[string, Record<string, unknown>?]> = [
@@ -3761,6 +5217,10 @@ async function runAssertions(ids: SeedIds) {
     ["student_weekly_teacher_name", { input_week_start: ids.weekStart }],
     ["student_cohort_leaderboard_for_week", { input_week_start: ids.weekStart }],
     ["student_leaderboard_available_weeks"],
+    ["historical_reporting_available_weeks"],
+    ["historical_reporting_activity_for_weeks", { input_week_starts: [ids.weekStart] }],
+    ["historical_reporting_students_for_weeks", { input_week_starts: [ids.weekStart] }],
+    ["student_historical_reporting_scope_for_week", { input_week_start: ids.weekStart }],
     ["admin_students_for_week", { input_week_start: ids.weekStart }],
     ["teacher_assignment_contexts"]
   ];
@@ -3774,9 +5234,876 @@ async function runAssertions(ids: SeedIds) {
   assert.equal(peerOwn?.length, 1, "second same-cohort student should retain own data");
 }
 
+async function testRotationPublicationIntegrity(ids: SeedIds) {
+  const service = localClient(serviceRoleKey);
+  const adminA = await signIn("adminA");
+  const groups = (await requireData<Array<{ id: string }>>(
+    "read canonical active groups for rotation publication",
+    service
+      .from("halaqa_groups")
+      .select("id")
+      .eq("cohort_id", ids.cohortA)
+      .eq("active", true)
+      .order("sort_order")
+      .order("name")
+      .order("created_at")
+      .order("id")
+  )).map(({ id }) => id);
+  const desiredAssignments = [
+    { group_id: ids.groupA, teacher_id: ids.users.teacherA, week_start: ids.weekStart },
+    { group_id: ids.groupAdminTeacher, teacher_id: ids.users.adminA, week_start: ids.weekStart }
+  ];
+
+  const { error: browserPrepareError } = await adminA.rpc("prepare_teacher_rotation_publication", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.ok(browserPrepareError, "authenticated users can execute the service-only publication prepare RPC");
+
+  const unavailableDirectAvailability = await service
+    .from("teacher_rotation_availability")
+    .update({ available: false })
+    .eq("teacher_id", ids.users.teacherA)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(unavailableDirectAvailability.error, null, unavailableDirectAvailability.error?.message);
+  const directUnavailableAssignment = await adminA
+    .from("group_teacher_assignments")
+    .upsert({
+      group_id: ids.groupFridayOnly,
+      teacher_id: ids.users.teacherA,
+      week_start: ids.weekStart,
+      active: true,
+      assigned_by: ids.users.adminA
+    }, { onConflict: "group_id,week_start" });
+  assert.ok(
+    directUnavailableAssignment.error?.message.includes(
+      "teacher_assignment_requires_exact_available_teacher_rotation_availability"
+    ),
+    "a scoped signed-in admin bypassed exact availability through a direct assignment write"
+  );
+  const restoreDirectAvailability = await service
+    .from("teacher_rotation_availability")
+    .update({ available: true })
+    .eq("teacher_id", ids.users.teacherA)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(restoreDirectAvailability.error, null, restoreDirectAvailability.error?.message);
+
+  const directDuplicateTeacherAssignment = await adminA
+    .from("group_teacher_assignments")
+    .upsert({
+      group_id: ids.groupFridayOnly,
+      teacher_id: ids.users.teacherA,
+      week_start: ids.weekStart,
+      active: true,
+      assigned_by: ids.users.adminA
+    }, { onConflict: "group_id,week_start" });
+  assert.ok(
+    directDuplicateTeacherAssignment.error?.message.includes(
+      "teacher_assignment_duplicate_active_teacher_for_cohort_week"
+    ),
+    "a scoped signed-in admin assigned one available teacher to two cohort groups in the same week"
+  );
+
+  const unrelatedAssignmentBefore = await requireData<{ teacher_id: string; active: boolean }>(
+    "read unrelated cohort assignment before publication",
+    service
+      .from("group_teacher_assignments")
+      .select("teacher_id,active")
+      .eq("id", ids.assignmentWriter)
+      .single()
+  );
+  const saturdayStartObsoleteAvailability = await service.from("teacher_rotation_availability").upsert({
+    teacher_id: ids.users.saturdayStartTeacher,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  }, { onConflict: "teacher_id,cohort_id,week_start" });
+  assert.equal(
+    saturdayStartObsoleteAvailability.error,
+    null,
+    saturdayStartObsoleteAvailability.error?.message
+  );
+  const obsoleteAssignment = await service.from("group_teacher_assignments").upsert({
+    group_id: ids.groupFridayOnly,
+    teacher_id: ids.users.saturdayStartTeacher,
+    week_start: ids.weekStart,
+    active: true,
+    assigned_by: ids.users.adminA
+  }, { onConflict: "group_id,week_start" });
+  assert.equal(obsoleteAssignment.error, null, obsoleteAssignment.error?.message);
+
+  const settingsUpdate = await service
+    .from("cohort_rotation_settings")
+    .update({ target_group_count: groups.length })
+    .eq("id", ids.settingA);
+  assert.equal(settingsUpdate.error, null, settingsUpdate.error?.message);
+
+  const availabilityUpsert = await service.from("teacher_rotation_availability").upsert({
+    teacher_id: ids.users.adminA,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  }, { onConflict: "teacher_id,cohort_id,week_start" });
+  assert.equal(availabilityUpsert.error, null, availabilityUpsert.error?.message);
+
+  const requestId = randomUUID();
+  const prepared = await service.rpc("prepare_teacher_rotation_publication", {
+    input_request_id: requestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(prepared.error, null, `rotation prepare failed: ${prepared.error?.message}`);
+  assert.ok(prepared.data, "rotation prepare returned no expected state");
+  const expectedState = prepared.data;
+  assert.equal(expectedState?.week_start, ids.weekStart, "prepared snapshot has the wrong tracker week");
+  assert.equal(
+    expectedState?.halaqa_saturday,
+    addDays(ids.weekStart, 6),
+    "prepared snapshot did not expose the Saturday halaqa date"
+  );
+  const preparedAvailableTeacherIds = ((expectedState?.planner?.eligible_teachers ?? []) as Array<{
+    id: string;
+    available: boolean;
+  }>)
+    .filter(({ available }) => available)
+    .map(({ id }) => id);
+  const expectedWarningCodes = [
+    "UNASSIGNED_GROUPS",
+    ...(preparedAvailableTeacherIds.some((teacherId) => !desiredAssignments.some(({ teacher_id }) => teacher_id === teacherId))
+      ? ["EXTRA_TEACHERS"]
+      : [])
+  ];
+
+  const applied = await service.rpc("apply_teacher_rotation_publication", {
+    input_request_id: requestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_expected_state: expectedState,
+    input_desired_assignments: desiredAssignments
+  });
+  assert.equal(applied.error, null, `rotation apply failed: ${applied.error?.message}`);
+  assert.equal(applied.data?.assigned_count, 2, "publication did not derive assigned count");
+  assert.deepEqual(
+    applied.data?.unassigned_group_ids,
+    groups.filter((groupId) => !desiredAssignments.some(({ group_id }) => group_id === groupId))
+  );
+  assert.deepEqual(applied.data?.warning_codes, expectedWarningCodes);
+  const obsoleteAssignmentAfter = await requireData<{ active: boolean }>(
+    "read deactivated obsolete assignment",
+    service
+      .from("group_teacher_assignments")
+      .select("active")
+      .eq("group_id", ids.groupFridayOnly)
+      .eq("week_start", ids.weekStart)
+      .single()
+  );
+  assert.equal(obsoleteAssignmentAfter.active, false, "publication did not deactivate an obsolete active group assignment");
+  const unrelatedAssignmentAfter = await requireData<{ teacher_id: string; active: boolean }>(
+    "read unrelated cohort assignment after publication",
+    service
+      .from("group_teacher_assignments")
+      .select("teacher_id,active")
+      .eq("id", ids.assignmentWriter)
+      .single()
+  );
+  assert.deepEqual(unrelatedAssignmentAfter, unrelatedAssignmentBefore, "publication changed an unrelated cohort/week assignment");
+
+  const replay = await service.rpc("apply_teacher_rotation_publication", {
+    input_request_id: requestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_expected_state: expectedState,
+    input_desired_assignments: desiredAssignments
+  });
+  assert.equal(replay.error, null, `exact publication replay failed: ${replay.error?.message}`);
+  assert.deepEqual(replay.data, applied.data, "exact publication replay did not return the original result");
+
+  const { data: idempotentRuns, error: idempotentRunsError } = await service
+    .from("teacher_rotation_runs")
+    .select("id,available_teacher_count,group_count,assigned_count,warning_count,warning_codes")
+    .eq("request_id", requestId);
+  assert.equal(idempotentRunsError, null, idempotentRunsError?.message);
+  assert.equal(idempotentRuns?.length, 1, "exact replay created another rotation run");
+  assert.deepEqual(idempotentRuns?.[0]?.warning_codes, expectedWarningCodes);
+
+  const changedReplay = await service.rpc("apply_teacher_rotation_publication", {
+    input_request_id: requestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_expected_state: expectedState,
+    input_desired_assignments: desiredAssignments.slice(0, 1)
+  });
+  assert.ok(changedReplay.error, "request ID reuse with changed assignments was accepted");
+
+  async function expectPreparedPublicationToBecomeStale(
+    label: string,
+    mutate: () => Promise<void>
+  ) {
+    const staleRequestId = randomUUID();
+    const stalePrepared = await service.rpc("prepare_teacher_rotation_publication", {
+      input_request_id: staleRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart
+    });
+    assert.equal(stalePrepared.error, null, `${label} prepare failed: ${stalePrepared.error?.message}`);
+    await mutate();
+    const staleApply = await service.rpc("apply_teacher_rotation_publication", {
+      input_request_id: staleRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart,
+      input_expected_state: stalePrepared.data,
+      input_desired_assignments: desiredAssignments
+    });
+    assert.deepEqual(
+      { code: staleApply.error?.code, message: staleApply.error?.message },
+      { code: "PT412", message: "rotation_publication_stale_state" },
+      `${label} did not invalidate the prepared publication: ${staleApply.error?.message}`
+    );
+  }
+
+  async function expectPublicationToRejectUnavailableTeacher(label: string) {
+    const unavailableRequestId = randomUUID();
+    const unavailablePrepared = await service.rpc("prepare_teacher_rotation_publication", {
+      input_request_id: unavailableRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart
+    });
+    assert.equal(unavailablePrepared.error, null, `${label} prepare failed: ${unavailablePrepared.error?.message}`);
+    const unavailableApply = await service.rpc("apply_teacher_rotation_publication", {
+      input_request_id: unavailableRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart,
+      input_expected_state: unavailablePrepared.data,
+      input_desired_assignments: desiredAssignments
+    });
+    assert.ok(
+      unavailableApply.error?.message.includes("rotation_publication_teacher_unavailable_or_ineligible"),
+      `${label} publication accepted a teacher without its exact positive availability row`
+    );
+  }
+
+  await expectPreparedPublicationToBecomeStale("group activity", async () => {
+    const result = await service.from("halaqa_groups").update({ active: false }).eq("id", ids.groupFridayOnly);
+    assert.equal(result.error, null, result.error?.message);
+  });
+  const restoreGroupActivity = await service.from("halaqa_groups").update({ active: true }).eq("id", ids.groupFridayOnly);
+  assert.equal(restoreGroupActivity.error, null, restoreGroupActivity.error?.message);
+
+  await expectPreparedPublicationToBecomeStale("group ordering", async () => {
+    const result = await service.from("halaqa_groups").update({ sort_order: 999 }).eq("id", ids.groupFridayOnly);
+    assert.equal(result.error, null, result.error?.message);
+  });
+  const restoreGroupOrdering = await service.from("halaqa_groups").update({ sort_order: 17 }).eq("id", ids.groupFridayOnly);
+  assert.equal(restoreGroupOrdering.error, null, restoreGroupOrdering.error?.message);
+
+  await expectPreparedPublicationToBecomeStale("rotation settings", async () => {
+    const result = await service.from("cohort_rotation_settings").update({ target_group_count: 2 }).eq("id", ids.settingA);
+    assert.equal(result.error, null, result.error?.message);
+  });
+  const restoreRotationSettings = await service
+    .from("cohort_rotation_settings")
+    .update({ target_group_count: groups.length })
+    .eq("id", ids.settingA);
+  assert.equal(restoreRotationSettings.error, null, restoreRotationSettings.error?.message);
+
+  const teacherAMembership = await requireData<{ id: string }>(
+    "read Teacher A staff membership for publication staleness",
+    service
+      .from("masjid_staff_memberships")
+      .select("id")
+      .eq("profile_id", ids.users.teacherA)
+      .eq("masjid_id", ids.masjidA)
+      .eq("staff_role", "teacher")
+      .single()
+  );
+  await expectPreparedPublicationToBecomeStale("teacher membership", async () => {
+    const result = await service.from("masjid_staff_memberships").update({ active: false }).eq("id", teacherAMembership.id);
+    assert.equal(result.error, null, result.error?.message);
+  });
+  const restoreTeacherMembership = await service
+    .from("masjid_staff_memberships")
+    .update({ active: true })
+    .eq("id", teacherAMembership.id);
+  assert.equal(restoreTeacherMembership.error, null, restoreTeacherMembership.error?.message);
+
+  await expectPreparedPublicationToBecomeStale("teacher profile activity", async () => {
+    const result = await service.from("profiles").update({ active: false }).eq("id", ids.users.teacherA);
+    assert.equal(result.error, null, result.error?.message);
+  });
+  const restoreTeacherProfile = await service.from("profiles").update({ active: true }).eq("id", ids.users.teacherA);
+  assert.equal(restoreTeacherProfile.error, null, restoreTeacherProfile.error?.message);
+
+  await expectPreparedPublicationToBecomeStale("current assignment", async () => {
+    const result = await service
+      .from("group_teacher_assignments")
+      .update({ assigned_by: ids.users.superAdmin })
+      .eq("id", ids.assignmentA);
+    assert.equal(result.error, null, result.error?.message);
+  });
+
+  await expectPreparedPublicationToBecomeStale("masjid activity", async () => {
+    const result = await service.from("masajid").update({ active: false }).eq("id", ids.masjidA);
+    assert.equal(result.error, null, result.error?.message);
+  });
+  const restoreMasjidActivity = await service.from("masajid").update({ active: true }).eq("id", ids.masjidA);
+  assert.equal(restoreMasjidActivity.error, null, restoreMasjidActivity.error?.message);
+
+  await expectPreparedPublicationToBecomeStale("cohort activity", async () => {
+    const result = await service.from("cohorts").update({ active: false }).eq("id", ids.cohortA);
+    assert.equal(result.error, null, result.error?.message);
+  });
+  const restoreCohortActivity = await service.from("cohorts").update({ active: true }).eq("id", ids.cohortA);
+  assert.equal(restoreCohortActivity.error, null, restoreCohortActivity.error?.message);
+
+  const staleRequestId = randomUUID();
+  const stalePrepared = await service.rpc("prepare_teacher_rotation_publication", {
+    input_request_id: staleRequestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(stalePrepared.error, null, stalePrepared.error?.message);
+  const staleAvailability = await service
+    .from("teacher_rotation_availability")
+    .update({ available: false })
+    .eq("teacher_id", ids.users.adminA)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(staleAvailability.error, null, staleAvailability.error?.message);
+  const staleApply = await service.rpc("apply_teacher_rotation_publication", {
+    input_request_id: staleRequestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_expected_state: stalePrepared.data,
+    input_desired_assignments: desiredAssignments
+  });
+  assert.deepEqual(
+    { code: staleApply.error?.code, message: staleApply.error?.message },
+    { code: "PT412", message: "rotation_publication_stale_state" },
+    "availability change did not stale the prepared publication"
+  );
+
+  await expectPublicationToRejectUnavailableTeacher("false availability");
+
+  const restoreAvailability = await service
+    .from("teacher_rotation_availability")
+    .update({ available: true })
+    .eq("teacher_id", ids.users.adminA)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(restoreAvailability.error, null, restoreAvailability.error?.message);
+
+  const missingAvailability = await service
+    .from("teacher_rotation_availability")
+    .delete()
+    .eq("teacher_id", ids.users.adminA)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(missingAvailability.error, null, missingAvailability.error?.message);
+  await expectPublicationToRejectUnavailableTeacher("missing availability");
+
+  const legacyUnavailable = await service.rpc("apply_teacher_rotation_generation", {
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_generated_by: ids.users.adminA,
+    membership_closes: [],
+    membership_inserts: [],
+    membership_replaces: [],
+    assignment_upserts: desiredAssignments,
+    assignment_deactivations: [],
+    available_teacher_count: 99,
+    group_count: 99,
+    assigned_count: 99,
+    warning_count: 99
+  });
+  assert.ok(
+    legacyUnavailable.error?.message.includes("rotation_publication_teacher_unavailable_or_ineligible"),
+    "legacy publication accepted a teacher without an exact available row"
+  );
+
+  const reinsertAvailability = await service.from("teacher_rotation_availability").insert({
+    teacher_id: ids.users.adminA,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  });
+  assert.equal(reinsertAvailability.error, null, reinsertAvailability.error?.message);
+
+  const legacyValid = await service.rpc("apply_teacher_rotation_generation", {
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_generated_by: ids.users.adminA,
+    membership_closes: [],
+    membership_inserts: [],
+    membership_replaces: [],
+    assignment_upserts: desiredAssignments,
+    assignment_deactivations: [{ group_id: ids.groupWriter, week_start: ids.weekStart }],
+    available_teacher_count: 999,
+    group_count: 999,
+    assigned_count: 999,
+    warning_count: 999
+  });
+  assert.equal(legacyValid.error, null, `legacy valid publication failed: ${legacyValid.error?.message}`);
+  assert.ok(legacyValid.data, "legacy valid publication returned no run ID");
+  const legacyRun = await requireData<{
+    available_teacher_count: number;
+    group_count: number;
+    assigned_count: number;
+    warning_count: number;
+    warning_codes: string[];
+  }>(
+    "read canonical legacy rotation outcome",
+    service
+      .from("teacher_rotation_runs")
+      .select("available_teacher_count,group_count,assigned_count,warning_count,warning_codes")
+      .eq("id", legacyValid.data)
+      .single()
+  );
+  assert.deepEqual(
+    legacyRun,
+    {
+      available_teacher_count: preparedAvailableTeacherIds.length,
+      group_count: groups.length,
+      assigned_count: desiredAssignments.length,
+      warning_count: expectedWarningCodes.length,
+      warning_codes: expectedWarningCodes
+    },
+    "legacy compatibility path trusted caller-provided rotation outcome counts"
+  );
+
+  const removeTeacherAExactAvailability = await service
+    .from("teacher_rotation_availability")
+    .delete()
+    .eq("teacher_id", ids.users.teacherA)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(removeTeacherAExactAvailability.error, null, removeTeacherAExactAvailability.error?.message);
+  await expectPublicationToRejectUnavailableTeacher("availability from another cohort");
+  const restoreTeacherAExactAvailability = await service.from("teacher_rotation_availability").insert({
+    teacher_id: ids.users.teacherA,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  });
+  assert.equal(restoreTeacherAExactAvailability.error, null, restoreTeacherAExactAvailability.error?.message);
+
+  const otherWeekAvailability = await service.from("teacher_rotation_availability").insert({
+    teacher_id: ids.users.adminA,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: addDays(ids.weekStart, 7),
+    available: true
+  });
+  assert.equal(otherWeekAvailability.error, null, otherWeekAvailability.error?.message);
+  const removeAdminAExactAvailability = await service
+    .from("teacher_rotation_availability")
+    .delete()
+    .eq("teacher_id", ids.users.adminA)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(removeAdminAExactAvailability.error, null, removeAdminAExactAvailability.error?.message);
+  await expectPublicationToRejectUnavailableTeacher("availability from another tracker week");
+  const restoreAdminAExactAvailability = await service.from("teacher_rotation_availability").insert({
+    teacher_id: ids.users.adminA,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  });
+  assert.equal(restoreAdminAExactAvailability.error, null, restoreAdminAExactAvailability.error?.message);
+
+  // Row locks cannot see an absent availability row. Hold the version update
+  // lock in a real INSERT transaction while apply reaches its final shared
+  // version lock: it must wait, then observe the committed insert and return
+  // the deterministic stale result rather than publishing the old snapshot.
+  const removeSaturdayStartAvailabilityForRace = await service
+    .from("teacher_rotation_availability")
+    .delete()
+    .eq("teacher_id", ids.users.saturdayStartTeacher)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(
+    removeSaturdayStartAvailabilityForRace.error,
+    null,
+    removeSaturdayStartAvailabilityForRace.error?.message
+  );
+  const absentAvailabilityRaceRequestId = randomUUID();
+  const absentAvailabilityRacePrepared = await service.rpc("prepare_teacher_rotation_publication", {
+    input_request_id: absentAvailabilityRaceRequestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(
+    absentAvailabilityRacePrepared.error,
+    null,
+    absentAvailabilityRacePrepared.error?.message
+  );
+  const absentAvailabilityRaceMarker = "rotation_publication_absent_availability_ready";
+  const absentAvailabilityWriter = startLocalPsqlTransaction(
+    `begin;
+insert into public.teacher_rotation_availability (teacher_id, masjid_id, cohort_id, week_start, available)
+values ('${ids.users.saturdayStartTeacher}'::uuid, '${ids.masjidA}'::uuid, '${ids.cohortA}'::uuid, '${ids.weekStart}'::date, true);
+\\echo ${absentAvailabilityRaceMarker}
+select pg_sleep(0.75);
+commit;
+`,
+    absentAvailabilityRaceMarker
+  );
+  await absentAvailabilityWriter.ready;
+  const absentAvailabilityRaceApply = await service.rpc("apply_teacher_rotation_publication", {
+    input_request_id: absentAvailabilityRaceRequestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_expected_state: absentAvailabilityRacePrepared.data,
+    input_desired_assignments: desiredAssignments
+  });
+  await absentAvailabilityWriter.completion;
+  assert.deepEqual(
+    { code: absentAvailabilityRaceApply.error?.code, message: absentAvailabilityRaceApply.error?.message },
+    { code: "PT412", message: "rotation_publication_stale_state" },
+    "an inserted availability row raced past the final publication state comparison"
+  );
+  const removeSaturdayStartAvailabilityAfterRace = await service
+    .from("teacher_rotation_availability")
+    .delete()
+    .eq("teacher_id", ids.users.saturdayStartTeacher)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(
+    removeSaturdayStartAvailabilityAfterRace.error,
+    null,
+    removeSaturdayStartAvailabilityAfterRace.error?.message
+  );
+
+  // The corresponding existing-row interleaving verifies the lock order: the
+  // writer holds its availability row before the trigger holds the version;
+  // apply must wait for that writer and return stale, never deadlock.
+  const existingAvailabilityRaceRequestId = randomUUID();
+  const existingAvailabilityRacePrepared = await service.rpc("prepare_teacher_rotation_publication", {
+    input_request_id: existingAvailabilityRaceRequestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(
+    existingAvailabilityRacePrepared.error,
+    null,
+    existingAvailabilityRacePrepared.error?.message
+  );
+  const existingAvailabilityRaceMarker = "rotation_publication_existing_availability_ready";
+  const existingAvailabilityWriter = startLocalPsqlTransaction(
+    `begin;
+update public.teacher_rotation_availability
+set available = false
+where teacher_id = '${ids.users.adminA}'::uuid
+  and cohort_id = '${ids.cohortA}'::uuid
+  and week_start = '${ids.weekStart}'::date;
+\\echo ${existingAvailabilityRaceMarker}
+select pg_sleep(0.75);
+commit;
+`,
+    existingAvailabilityRaceMarker
+  );
+  await existingAvailabilityWriter.ready;
+  const existingAvailabilityRaceApply = await service.rpc("apply_teacher_rotation_publication", {
+    input_request_id: existingAvailabilityRaceRequestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_expected_state: existingAvailabilityRacePrepared.data,
+    input_desired_assignments: desiredAssignments
+  });
+  await existingAvailabilityWriter.completion;
+  assert.deepEqual(
+    { code: existingAvailabilityRaceApply.error?.code, message: existingAvailabilityRaceApply.error?.message },
+    { code: "PT412", message: "rotation_publication_stale_state" },
+    "an existing availability writer deadlocked with publication instead of producing stale state"
+  );
+  const restoreExistingAvailabilityAfterRace = await service
+    .from("teacher_rotation_availability")
+    .update({ available: true })
+    .eq("teacher_id", ids.users.adminA)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(
+    restoreExistingAvailabilityAfterRace.error,
+    null,
+    restoreExistingAvailabilityAfterRace.error?.message
+  );
+
+  const [concurrentA, concurrentB] = await Promise.all(
+    [randomUUID(), randomUUID()].map((concurrentRequestId) => service.rpc("prepare_teacher_rotation_publication", {
+      input_request_id: concurrentRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart
+    }).then((preparedResult) => ({ concurrentRequestId, preparedResult })))
+  );
+  assert.equal(concurrentA.preparedResult.error, null, concurrentA.preparedResult.error?.message);
+  assert.equal(concurrentB.preparedResult.error, null, concurrentB.preparedResult.error?.message);
+
+  const concurrentResults = await Promise.all([
+    service.rpc("apply_teacher_rotation_publication", {
+      input_request_id: concurrentA.concurrentRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart,
+      input_expected_state: concurrentA.preparedResult.data,
+      input_desired_assignments: desiredAssignments
+    }),
+    service.rpc("apply_teacher_rotation_publication", {
+      input_request_id: concurrentB.concurrentRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart,
+      input_expected_state: concurrentB.preparedResult.data,
+      input_desired_assignments: desiredAssignments
+    })
+  ]);
+  assert.equal(concurrentResults.filter((result) => !result.error).length, 1, "simultaneous publications both succeeded");
+  assert.equal(
+    concurrentResults.filter((result) => result.error?.code === "PT412" && result.error.message === "rotation_publication_stale_state").length,
+    1,
+    "losing concurrent publication did not return stale state"
+  );
+  const { count: concurrentRunCount, error: concurrentRunCountError } = await service
+    .from("teacher_rotation_runs")
+    .select("id", { count: "exact", head: true })
+    .in("request_id", [concurrentA.concurrentRequestId, concurrentB.concurrentRequestId]);
+  assert.equal(concurrentRunCountError, null, concurrentRunCountError?.message);
+  assert.equal(concurrentRunCount, 1, "simultaneous publications recorded more than one successful run");
+
+  async function expectAssignmentPayloadRejected(
+    label: string,
+    assignments: Array<{ group_id: string; teacher_id: string; week_start: string }>,
+    errorCode: string
+  ) {
+    const payloadRequestId = randomUUID();
+    const payloadPrepared = await service.rpc("prepare_teacher_rotation_publication", {
+      input_request_id: payloadRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart
+    });
+    assert.equal(payloadPrepared.error, null, `${label} prepare failed: ${payloadPrepared.error?.message}`);
+    const payloadApply = await service.rpc("apply_teacher_rotation_publication", {
+      input_request_id: payloadRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart,
+      input_expected_state: payloadPrepared.data,
+      input_desired_assignments: assignments
+    });
+    assert.ok(payloadApply.error?.message.includes(errorCode), `${label} was accepted: ${payloadApply.error?.message}`);
+  }
+
+  await expectAssignmentPayloadRejected(
+    "duplicate group",
+    [...desiredAssignments, { group_id: ids.groupA, teacher_id: ids.users.adminA, week_start: ids.weekStart }],
+    "rotation_publication_duplicate_group"
+  );
+  await expectAssignmentPayloadRejected(
+    "duplicate teacher",
+    [...desiredAssignments, { group_id: ids.groupFridayOnly, teacher_id: ids.users.teacherA, week_start: ids.weekStart }],
+    "rotation_publication_duplicate_teacher"
+  );
+  await expectAssignmentPayloadRejected(
+    "foreign-cohort group",
+    [{ group_id: ids.groupWriter, teacher_id: ids.users.teacherA, week_start: ids.weekStart }],
+    "rotation_publication_invalid_group"
+  );
+  await expectAssignmentPayloadRejected(
+    "teacher outside the canonical eligible set",
+    [{ group_id: ids.groupFridayOnly, teacher_id: ids.users.adminB, week_start: ids.weekStart }],
+    "rotation_publication_teacher_unavailable_or_ineligible"
+  );
+
+  const saturdayStartAvailability = await service.from("teacher_rotation_availability").upsert({
+    teacher_id: ids.users.saturdayStartTeacher,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  }, { onConflict: "teacher_id,cohort_id,week_start" });
+  assert.equal(saturdayStartAvailability.error, null, saturdayStartAvailability.error?.message);
+  const saturdayEndAvailability = await service.from("teacher_rotation_availability").insert({
+    teacher_id: ids.users.expiredAssignmentTeacher,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortWriter,
+    week_start: ids.previousWeekStart,
+    available: true
+  });
+  assert.equal(saturdayEndAvailability.error, null, saturdayEndAvailability.error?.message);
+  const afterSaturdayAvailability = await service.from("teacher_rotation_availability").insert({
+    teacher_id: ids.users.futureTeacher,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  });
+  assert.ok(afterSaturdayAvailability.error, "teacher whose membership starts after Saturday was marked available");
+  const adminWithoutTeacherAvailability = await service.from("teacher_rotation_availability").insert({
+    teacher_id: ids.users.adminB,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  });
+  assert.ok(adminWithoutTeacherAvailability.error, "admin without a teacher capability was marked available");
+  const forgedAvailabilityScope = await service.from("teacher_rotation_availability").insert({
+    teacher_id: ids.users.teacherA,
+    masjid_id: ids.masjidB,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  });
+  assert.ok(forgedAvailabilityScope.error, "forged cohort/masjid availability relationship was accepted");
+
+  const saturdayStartRequestId = randomUUID();
+  const saturdayStartPrepared = await service.rpc("prepare_teacher_rotation_publication", {
+    input_request_id: saturdayStartRequestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(saturdayStartPrepared.error, null, saturdayStartPrepared.error?.message);
+  const saturdayStartApply = await service.rpc("apply_teacher_rotation_publication", {
+    input_request_id: saturdayStartRequestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_expected_state: saturdayStartPrepared.data,
+    input_desired_assignments: [
+      ...desiredAssignments,
+      { group_id: ids.groupFridayOnly, teacher_id: ids.users.saturdayStartTeacher, week_start: ids.weekStart }
+    ]
+  });
+  assert.equal(saturdayStartApply.error, null, `Saturday-start teacher was rejected: ${saturdayStartApply.error?.message}`);
+  assert.equal(saturdayStartApply.data?.assigned_count, desiredAssignments.length + 1, "Saturday-start assignment was not counted");
+
+  const independentCohortRequestId = randomUUID();
+  const independentWeekRequestId = randomUUID();
+  const [independentCohortPrepared, independentWeekPrepared] = await Promise.all([
+    service.rpc("prepare_teacher_rotation_publication", {
+      input_request_id: independentCohortRequestId,
+      input_actor_id: ids.users.superAdmin,
+      input_cohort_id: ids.cohortB,
+      input_week_start: ids.weekStart
+    }),
+    service.rpc("prepare_teacher_rotation_publication", {
+      input_request_id: independentWeekRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: addDays(ids.weekStart, 7)
+    })
+  ]);
+  assert.equal(independentCohortPrepared.error, null, independentCohortPrepared.error?.message);
+  assert.equal(independentWeekPrepared.error, null, independentWeekPrepared.error?.message);
+  const independentPublications = await Promise.all([
+    service.rpc("apply_teacher_rotation_publication", {
+      input_request_id: independentCohortRequestId,
+      input_actor_id: ids.users.superAdmin,
+      input_cohort_id: ids.cohortB,
+      input_week_start: ids.weekStart,
+      input_expected_state: independentCohortPrepared.data,
+      input_desired_assignments: []
+    }),
+    service.rpc("apply_teacher_rotation_publication", {
+      input_request_id: independentWeekRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: addDays(ids.weekStart, 7),
+      input_expected_state: independentWeekPrepared.data,
+      input_desired_assignments: []
+    })
+  ]);
+  assert.ok(
+    independentPublications.every((publication) => !publication.error),
+    `independent cohort/week publications blocked one another: ${independentPublications.map((publication) => publication.error?.message).join(", ")}`
+  );
+
+  const nonSundayPrepare = await service.rpc("prepare_teacher_rotation_publication", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: addDays(ids.weekStart, 1)
+  });
+  assert.ok(nonSundayPrepare.error?.message.includes("rotation_publication_invalid_prepare_input"), "non-Sunday tracker week was accepted");
+
+  const unauthorizedPrepare = await service.rpc("prepare_teacher_rotation_publication", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortB,
+    input_week_start: ids.weekStart
+  });
+  assert.ok(unauthorizedPrepare.error?.message.includes("rotation_publication_unauthorized_actor"), "admin published another masjid");
+
+  for (const [label, actorId] of [
+    ["expired admin", ids.users.expiredAdmin],
+    ["inactive admin", ids.users.inactiveAdmin]
+  ] as const) {
+    const rejectedPrepare = await service.rpc("prepare_teacher_rotation_publication", {
+      input_request_id: randomUUID(),
+      input_actor_id: actorId,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart
+    });
+    assert.ok(rejectedPrepare.error?.message.includes("rotation_publication_unauthorized_actor"), `${label} was authorized`);
+  }
+
+  const superAdminPrepare = await service.rpc("prepare_teacher_rotation_publication", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_cohort_id: ids.cohortB,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(superAdminPrepare.error, null, `super admin prepare failed: ${superAdminPrepare.error?.message}`);
+
+  const deletedCohort = await requireData<{ id: string }>(
+    "create disposable cohort for rotation state-version delete trigger",
+    service
+      .from("cohorts")
+      .insert({
+        masjid_id: ids.masjidA,
+        kind: "brothers",
+        name: "Rotation Version Delete Fixture",
+        active: false,
+        sort_order: 99
+      })
+      .select("id")
+      .single()
+  );
+  const deleteCohort = await service.from("cohorts").delete().eq("id", deletedCohort.id);
+  assert.equal(
+    deleteCohort.error,
+    null,
+    "cohort deletion attempted to create a state-version row after the cohort foreign-key target was gone"
+  );
+}
+
 async function main() {
   const ids = await seed();
   await runAssertions(ids);
+  await testRotationPublicationIntegrity(ids);
   console.log("RLS integration suite passed: signed-session multi-masjid boundaries are enforced.");
 }
 

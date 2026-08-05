@@ -28,7 +28,7 @@ export class LoginIdentifierError extends Error {
 
 export async function resolveLoginIdentifierToAuthEmail(
   identifier: string,
-  lookupActiveProfilesByPhoneDigits: LoginPhoneProfileLookup
+  lookupProfilesByPhoneDigits: LoginPhoneProfileLookup
 ) {
   const trimmedIdentifier = identifier.trim();
 
@@ -55,9 +55,9 @@ export async function resolveLoginIdentifierToAuthEmail(
     fallbackError = new LoginIdentifierError("invalid_identifier");
   }
 
-  const profiles = await lookupActiveProfilesByPhoneDigits(digits);
+  const profiles = await lookupProfilesByPhoneDigits(digits);
   const matchingProfiles = profiles.filter((profile) => {
-    if (!profile.active || !profile.phone) {
+    if (!profile.phone) {
       return false;
     }
 

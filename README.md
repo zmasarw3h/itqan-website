@@ -11,6 +11,11 @@ Lightweight masjid operations system that started as an emergency Canvas replace
 - Teachers can open their week-specific assigned groups, view the effective roster, download assigned students' weekly plans, and save halaqa grades. Admin-teachers can switch between admin and teaching views.
 - The app now includes scoped masjid/cohort foundations and weekly teacher rotation operations. It still excludes plan approval, comments, plan parsing/OCR, announcements, payments, booking, parent accounts, and Quran selection.
 
+Teacher rotation publication is authoritative in PostgreSQL. Sunday `week_start` is the tracker identity;
+teacher staff eligibility is evaluated on Saturday, and missing exact availability means unavailable.
+Publication uses a database snapshot, request-ID replay, stale-state comparison, and a scoped advisory
+lock. See [`docs/ROTATION_PUBLICATION.md`](docs/ROTATION_PUBLICATION.md).
+
 ## Stack
 
 - Next.js App Router
@@ -73,7 +78,7 @@ SUPABASE_SERVICE_ROLE_KEY=
 
    Each profile `id` must equal the Auth user UUID. `profiles.email` stores the synthetic auth email. `profiles.phone` is optional display-only data shown to admins.
 
-   After an admin can log in, they can add students and teachers inside masajid they actively administer from `Admin Dashboard -> Add User`. Super admins use `/super-admin/people/new` for the same recoverable global workflow, then add admin capability through the person's Guided Change flow. The app normalizes the phone number, creates a Supabase Auth user with the synthetic auth email and password `itqan2026`, confirms the email, creates the matching active profile, and assigns the selected scoped membership. The service-role key is used only in guarded server code.
+   After an admin can log in, they can add students and teachers inside masajid they actively administer from `Admin Dashboard -> Add User`. Super admins use `/super-admin/people/new` for the same recoverable global workflow, then use Guided Change for explicit selected-masjid replacement or the masjid page for additive staff grants. The app normalizes the phone number, creates a Supabase Auth user with the synthetic auth email and password `itqan2026`, confirms the email, creates the matching active profile, and assigns the selected scoped membership. The service-role key is used only in guarded server code. See [`docs/ACCESS_TRANSITION_SEMANTICS.md`](docs/ACCESS_TRANSITION_SEMANTICS.md) for the role-projection and date-boundary rules.
 
    Example profile data is in `docs/SEED_DATA.md`:
 
@@ -195,11 +200,13 @@ Uploading again during the same week replaces the existing weekly plan record. T
 
 Admins open `/admin/students/[id]` from the student list to view the student's current weekly plan. If a plan exists, the admin sees the file name, upload timestamp, and a signed view/download link. If no plan exists, the page shows `No plan uploaded for this week.`
 
+Historical leaderboards, incentives, rewards, streaks, and their CSV output use each tracker week's effective student membership rather than today's roster. Current viewer authorization and contact privacy remain separate from historical population. See [Historical reporting populations](docs/historical-reporting.md) for the exact population, scoring, privacy, lifetime badge, and naming rules.
+
 Teachers open `/teacher` and choose an assignment week. `week_start` remains the Sunday tracker-week
 storage key, while the halaqa event date is the following Saturday. Teacher staff eligibility for the
-assignment is evaluated on that Saturday, not on the Sunday storage key. Rotation navigation and
-request-time staff access use Toronto civil dates; the 1:00 AM effective date remains limited to daily
-check-ins, partner recitation, and reset-tied scoring. A weekly-plan link appears only for a student
+assignment is evaluated on that Saturday, not on the Sunday storage key. Rotation navigation uses Toronto civil
+dates; all current staff/account-access decisions use the literal Toronto civil date. The 1:00 AM
+effective date is limited to daily check-ins, partner recitation, and reset-linked scoring. A weekly-plan link appears only for a student
 whose membership is effective in that teacher's assigned group for the exact week. The download route
 rechecks the assignment server-side and creates a five-minute signed URL with the signed-in session.
 

@@ -196,7 +196,8 @@ export default async function StudentCheckInPage({
 
   const adminSupabase = createSupabaseAdminClient();
   const blockingObligation = await findOrCreateBlockingAccountabilityObligation({
-    supabase: adminSupabase,
+    supabase,
+    adminSupabase,
     studentId: profile.id,
     today
   });

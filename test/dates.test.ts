@@ -13,6 +13,7 @@ import {
   weekDatesFromStart,
   weekStartForDate
 } from "@/lib/dates";
+import { buildSuperAdminAccessChangePlan, staffMembershipIsActiveOn } from "@/lib/super-admin-access";
 
 describe("app timezone timestamp formatting", () => {
   it("formats UTC timestamps in America/Toronto daylight time", () => {
@@ -46,6 +47,44 @@ describe("check-in date reset", () => {
 
     expect(torontoCivilDateString(beforeReset)).toBe("2026-07-19");
     expect(checkInEffectiveDateString(beforeReset)).toBe("2026-07-18");
+  });
+
+  it("uses the civil date for staff membership access throughout the pre-reset hour", () => {
+    const staffMembership = {
+      active: true,
+      starts_on: "2026-07-19",
+      ends_on: null
+    };
+
+    for (const timestamp of ["2026-07-19T04:00:00.000Z", "2026-07-19T04:59:00.000Z"]) {
+      const now = new Date(timestamp);
+      const civilDate = torontoCivilDateString(now);
+      const checkInDate = checkInEffectiveDateString(now);
+
+      expect(staffMembershipIsActiveOn(staffMembership, civilDate)).toBe(true);
+      expect(staffMembershipIsActiveOn(staffMembership, checkInDate)).toBe(false);
+    }
+  });
+
+  it("uses the civil date for access transitions while check-ins still use the preceding date", () => {
+    const beforeReset = new Date("2026-07-19T04:59:00.000Z");
+    const civilDate = torontoCivilDateString(beforeReset);
+
+    const plan = buildSuperAdminAccessChangePlan({
+      targetRole: "student",
+      targetActive: false,
+      preset: "teacher",
+      selectedMasjidId: "masjid-a",
+      startsOn: civilDate,
+      currentDate: civilDate,
+      studentMemberships: [],
+      staffMemberships: []
+    });
+
+    expect(civilDate).toBe("2026-07-19");
+    expect(checkInEffectiveDateString(beforeReset)).toBe("2026-07-18");
+    expect(plan.nextRole).toBe("teacher");
+    expect(plan.nextActive).toBe(true);
   });
 
   it("switches the check-in date exactly at 01:00 Toronto", () => {

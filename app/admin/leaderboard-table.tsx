@@ -20,7 +20,7 @@ function matchesSearch(row: LeaderboardRow, search: string) {
   return (
     row.studentName.toLowerCase().startsWith(normalizedSearch) ||
     row.studentPhone?.toLowerCase().includes(normalizedSearch) ||
-    row.studentEmail.toLowerCase().includes(normalizedSearch)
+    row.studentEmail?.toLowerCase().includes(normalizedSearch)
   );
 }
 
@@ -67,7 +67,10 @@ export default function LeaderboardTable({ rows }: { rows: LeaderboardRow[] }) {
                 <td className="px-4 py-3 font-medium text-ink">#{row.rank}</td>
                 <td className="px-4 py-3">
                   <p className="font-medium text-ink">{row.studentName}</p>
-                  <p className="text-xs text-stone-500">{row.studentPhone || row.studentEmail}</p>
+                  <p className="text-xs text-stone-500">{row.masjidName} · {row.cohortName} · {row.groupName}</p>
+                  {row.canViewCurrentContact && (row.studentPhone || row.studentEmail) ? (
+                    <p className="text-xs text-stone-500">{row.studentPhone || row.studentEmail}</p>
+                  ) : null}
                 </td>
                 <td className="px-4 py-3 text-xl font-semibold text-ink">{row.score.percentage}%</td>
                 <td className={`px-4 py-3 font-medium ${statusClass(row.status)}`}>
@@ -78,9 +81,13 @@ export default function LeaderboardTable({ rows }: { rows: LeaderboardRow[] }) {
                 <td className="px-4 py-3 text-stone-700">{row.score.partner_points} / 150</td>
                 <td className="px-4 py-3 text-stone-700">{row.score.halaqa_points} / 150</td>
                 <td className="px-4 py-3">
-                  <Link className="font-medium text-moss hover:text-ink" href={`/admin/students/${row.studentId}`}>
-                    Open
-                  </Link>
+                  {row.canOpenCurrentProfile ? (
+                    <Link className="font-medium text-moss hover:text-ink" href={`/admin/students/${row.studentId}`}>
+                      Open
+                    </Link>
+                  ) : (
+                    <span className="text-stone-500">Historical only</span>
+                  )}
                 </td>
               </tr>
             ))}

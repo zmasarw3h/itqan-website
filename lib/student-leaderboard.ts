@@ -11,6 +11,24 @@ export type StudentLeaderboardRow = {
   isCurrentStudent: boolean;
 };
 
+export function selectBoundedStudentLeaderboardWeek(input: {
+  requestedWeekStart?: string;
+  currentWeekStart: string;
+  availableWeekStarts: string[];
+}) {
+  const availableWeekStarts = [...new Set(input.availableWeekStarts)].sort((a, b) => b.localeCompare(a));
+  const allowed = new Set(availableWeekStarts);
+  const requestedWeekStart = input.requestedWeekStart;
+
+  const selectedWeekStart = requestedWeekStart && allowed.has(requestedWeekStart)
+    ? requestedWeekStart
+    : allowed.has(input.currentWeekStart)
+      ? input.currentWeekStart
+      : availableWeekStarts[0] ?? null;
+
+  return { availableWeekStarts, selectedWeekStart };
+}
+
 export function buildStudentLeaderboardRows(input: {
   currentRows: LeaderboardRow[];
   previousRows: LeaderboardRow[];

@@ -113,7 +113,8 @@ async function findOrCreateTodayCheckIn() {
 
   const adminSupabase = createSupabaseAdminClient();
   const blockingObligation = await findOrCreateBlockingAccountabilityObligation({
-    supabase: adminSupabase,
+    supabase,
+    adminSupabase,
     studentId: profile.id,
     today
   });

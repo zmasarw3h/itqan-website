@@ -87,7 +87,7 @@ export const SUPER_ADMIN_MASJID_STATUS_MESSAGES: Record<string, { text: string; 
     className: "bg-red-50 text-red-700"
   },
   "staff-granted": {
-    text: "Staff access granted.",
+    text: "Staff access added.",
     className: "bg-green-50 text-green-800"
   },
   "staff-grant-stale": {

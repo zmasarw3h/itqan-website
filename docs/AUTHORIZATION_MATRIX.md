@@ -1,5 +1,14 @@
 # Authorization Matrix
 
+`profiles.role` is a current default-experience projection, not standalone
+authorization. Admin precedence is a currently effective (Toronto civil-date)
+admin membership, then
+teacher membership, then student placement; memberships and exact assignment
+scope remain mandatory. Staff transitions follow
+[`ACCESS_TRANSITION_SEMANTICS.md`](ACCESS_TRANSITION_SEMANTICS.md): masjid grants
+are additive, while Guided Change replacement is confined to the selected
+masjid.
+
 This matrix records the Phase 1 authorization boundary enforced by the hardening migration. The database,
 server guards, and local RLS integration suite must agree with it.
 
@@ -83,7 +92,10 @@ The `authenticated` role can execute only these caller-relative definer function
 
 - Role/date checks: `is_active_admin()`, `is_active_student()`, `is_active_teacher()`,
   `is_active_super_admin()`, `current_toronto_civil_date()`, `current_effective_date()`, and
-  `current_partner_recitation_round()`.
+  `current_partner_recitation_round()`. `refresh_current_profile_role()` is also available to an
+  authenticated session only as a guarded repair tool for its own cached projection; it is not called by
+  login or ordinary profile reads, does not reactivate an intentionally inactive profile, and does not
+  authorize any scope by itself.
 - Scoped authorization: `is_admin_for_masjid(uuid)`, `is_staff_for_masjid(uuid)`,
   `is_teacher_for_group_week(uuid,date)`, `can_read_student_for_week(uuid,date)`,
   `can_grade_student_for_week(uuid,date)`, `can_admin_manage_student_for_week(uuid,date)`, and
@@ -105,8 +117,11 @@ The `authenticated` role can execute only these caller-relative definer function
   `admin_students_for_week(date)`, plus the atomic, actor-scoped
   `apply_admin_checkin_correction(uuid,date,text,text,text[])` mutation.
 
-`apply_teacher_rotation_generation(...)` is service-role-only and repeats actor/cohort scope validation
-inside the transaction while calling the same Saturday-eligibility predicate as direct assignment writes.
+`prepare_teacher_rotation_publication(...)` and `apply_teacher_rotation_publication(...)` are
+service-role-only. They independently validate a current Toronto-civil-date admin/super-admin actor,
+enforce Saturday eligibility plus an exact `available = true` row, and compare canonical prepared state
+under a cohort/week advisory lock. Browser roles cannot execute either RPC. The legacy generation RPC is
+also service-role-only and guarded, but temporarily has no request-ID stale-state protection.
 The Phase 1A functions `apply_scoped_user_setup(...)`,
 `get_scoped_user_setup_request_result(...)`, `get_scoped_user_setup_auth_recovery(...)`,
 `get_person_access_state(uuid,uuid)`, `apply_super_admin_access_change(...)`,

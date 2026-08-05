@@ -5,9 +5,7 @@ import { redirect } from "next/navigation";
 import {
   loadActiveRotationGroups,
   loadActiveRotationTeachers,
-  loadPriorTeacherAssignments,
   loadRotationSettings,
-  loadRotationStudents,
   rotationRedirectPath,
   type RotationContext,
   validRotationWeekStart
@@ -16,7 +14,10 @@ import { assertAdminCanManageCohort } from "@/lib/admin-scope";
 import { rotationPath } from "@/lib/rotation-scope";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
-import { buildTeacherRotationPersistencePlan } from "@/lib/teacher-rotation";
+import {
+  buildTeacherRotationPersistencePlan,
+  plannerInputFromRotationPublicationSnapshot
+} from "@/lib/teacher-rotation";
 
 function positiveInteger(value: FormDataEntryValue | null) {
   const parsed = Number(value);
@@ -201,59 +202,72 @@ function throwIfRedirect(error: unknown) {
   }
 }
 
+function rotationPublicationStatus(error: unknown) {
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === "object" && error && "message" in error
+      ? String(error.message)
+      : "";
+
+  if (message.includes("rotation_publication_stale_state")) {
+    return "publication-stale";
+  }
+  if (message.includes("rotation_publication_setup_incomplete")) {
+    return "publication-setup-incomplete";
+  }
+  if (message.includes("teacher_unavailable_or_ineligible")) {
+    return "publication-unavailable";
+  }
+  if (message.includes("rotation_publication_request_reused")) {
+    return "publication-request-reused";
+  }
+  if (message.includes("40001") || message.includes("conflict")) {
+    return "publication-conflict";
+  }
+
+  return "generate-error";
+}
+
 export async function generateRotation(formData: FormData) {
   const weekStart = validRotationWeekStart(String(formData.get("week_start") ?? ""));
   const { profile, context } = await requireRotationContext(formData, weekStart);
   const adminSupabase = createSupabaseAdminClient();
-  const settings = await loadRotationSettings(adminSupabase, context);
-
-  if (!settings) {
-    redirect(rotationRedirectPath(context, weekStart, "setup-incomplete"));
-  }
+  const requestId = String(formData.get("request_id") ?? "");
 
   try {
-    const groups = await loadActiveRotationGroups(adminSupabase, context.cohort.id);
-    const studentData = await loadRotationStudents({ adminSupabase, groups, weekStart });
-    const teachers = await loadActiveRotationTeachers({ adminSupabase, context, weekStart });
+    const { data: expectedState, error: prepareError } = await adminSupabase.rpc(
+      "prepare_teacher_rotation_publication",
+      {
+        input_request_id: requestId,
+        input_actor_id: profile.id,
+        input_cohort_id: context.cohort.id,
+        input_week_start: weekStart
+      }
+    );
 
-    if (
-      groups.length !== settings.target_group_count ||
-      studentData.students.length === 0 ||
-      teachers.length === 0
-    ) {
-      redirect(rotationRedirectPath(context, weekStart, "setup-incomplete"));
+    if (prepareError || !expectedState) {
+      throw prepareError ?? new Error("Unable to prepare teacher rotation publication.");
     }
 
-    const groupIds = groups.map((group) => group.id);
-    const priorAssignments = await loadPriorTeacherAssignments({ adminSupabase, groupIds, weekStart });
-    const persistencePlan = buildTeacherRotationPersistencePlan({
-      groups,
-      teachers,
-      priorAssignments,
-      weekStart
-    });
+    const persistencePlan = buildTeacherRotationPersistencePlan(
+      plannerInputFromRotationPublicationSnapshot(expectedState, weekStart)
+    );
 
-    const { error: applyError } = await adminSupabase.rpc("apply_teacher_rotation_generation", {
+    const { error: applyError } = await adminSupabase.rpc("apply_teacher_rotation_publication", {
+      input_request_id: requestId,
+      input_actor_id: profile.id,
       input_cohort_id: context.cohort.id,
       input_week_start: weekStart,
-      input_generated_by: profile.id,
-      membership_closes: [],
-      membership_inserts: [],
-      membership_replaces: [],
-      assignment_upserts: persistencePlan.assignmentUpserts,
-      assignment_deactivations: persistencePlan.assignmentDeactivations,
-      available_teacher_count: persistencePlan.run.available_teacher_count,
-      group_count: persistencePlan.run.group_count,
-      assigned_count: persistencePlan.run.assigned_count,
-      warning_count: persistencePlan.run.warning_count
+      input_expected_state: expectedState,
+      input_desired_assignments: persistencePlan.assignmentUpserts
     });
 
     if (applyError) {
-      throw new Error("Unable to apply rotation generation.");
+      throw applyError;
     }
   } catch (error) {
     throwIfRedirect(error);
-    redirect(rotationRedirectPath(context, weekStart, "generate-error"));
+    redirect(rotationRedirectPath(context, weekStart, rotationPublicationStatus(error)));
   }
 
   revalidatePath("/admin/rotation");

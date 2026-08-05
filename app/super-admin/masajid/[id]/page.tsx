@@ -5,11 +5,11 @@ import AppNav from "@/app/nav";
 import {
   createCohortSetup,
   createGroupSetup,
-  grantMasjidStaffAccess,
   updateCohortSetup,
   updateGroupSetup,
   updateMasjidSetup
 } from "@/app/super-admin/masajid/actions";
+import { MasjidStaffGrantForm } from "@/app/super-admin/masajid/staff-grant-form";
 import {
   SUPER_ADMIN_MASJID_STATUS_MESSAGES,
   loadMasjidSetupDetailData,
@@ -163,50 +163,16 @@ function StaffAccess({ data }: { data: MasjidSetupDetailData }) {
 
       <details className="group mt-5 rounded-lg border border-stone-200 bg-stone-50">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4">
-          <span className="font-semibold text-ink">Grant staff access</span>
+          <span className="font-semibold text-ink">Add staff access</span>
           <span className="text-sm font-semibold text-moss group-open:hidden">Open</span>
           <span className="hidden text-sm font-semibold text-moss group-open:inline">Close</span>
         </summary>
-      <form action={grantMasjidStaffAccess} className="grid gap-4 border-t border-stone-200 p-4">
-        <input name="masjid_id" type="hidden" value={data.masjid.id} />
-        <input name="request_id" type="hidden" value={randomUUID()} />
-        <h3 className="font-semibold text-ink">Grant admin, teacher, or combined access</h3>
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="block">
-            <span className="text-sm font-medium text-ink">Existing person email or phone</span>
-            <input className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2" name="person_query" required />
-          </label>
-          <label className="block">
-            <span className="text-sm font-medium text-ink">Access</span>
-            <select className="mt-1 w-full rounded-md border border-stone-300 bg-white px-3 py-2" defaultValue="admin_teacher" name="staff_access">
-              <option value="admin">Admin only</option>
-              <option value="teacher">Teacher only</option>
-              <option value="admin_teacher">Admin + Teacher</option>
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-sm font-medium text-ink">Starts on</span>
-            <input className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2" defaultValue={torontoCivilDateString()} name="starts_on" type="date" />
-          </label>
-          <label className="block">
-            <span className="text-sm font-medium text-ink">Confirm masjid name</span>
-            <input
-              autoComplete="off"
-              className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
-              name="confirmation_masjid"
-              placeholder={data.masjid.name}
-              required
-            />
-          </label>
-          <label className="block md:col-span-2">
-            <span className="text-sm font-medium text-ink">Confirm person name</span>
-            <input autoComplete="off" className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2" name="confirmation_name" required />
-          </label>
-        </div>
-        <div>
-          <button className="rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink">Grant staff access</button>
-        </div>
-      </form>
+      <MasjidStaffGrantForm
+        defaultStartsOn={torontoCivilDateString()}
+        masjidId={data.masjid.id}
+        masjidName={data.masjid.name}
+        requestId={randomUUID()}
+      />
       </details>
     </section>
   );

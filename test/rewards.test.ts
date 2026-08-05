@@ -74,7 +74,11 @@ describe("badge rewards", () => {
   });
 
   it("orders admin monthly leaderboard by selected month badges, lifetime badges, then name", () => {
-    const students: RewardStudent[] = [studentA, studentB];
+    const students: RewardStudent[] = [studentA, studentB].map((student) => ({
+      ...student,
+      canViewCurrentContact: true,
+      canOpenCurrentProfile: true
+    }));
     const rows = buildMonthlyBadgeLeaderboard({
       students,
       monthStart: "2026-06-01",

@@ -17,6 +17,7 @@ import { validateNewPassword } from "@/lib/password";
 import {
   adminMasjidConfirmationNamesForPlan,
   adminMasjidConfirmationText,
+  assertFutureStaffMembershipEndDoesNotChangeProjection,
   buildSuperAdminAccessChangePlan,
   parseSuperAdminAccessPreset,
   SuperAdminAccessPlanError
@@ -375,15 +376,17 @@ export async function savePersonAccess(formData: FormData) {
     }
 
     const plan = guidedReview?.plan ?? buildSuperAdminAccessChangePlan({
-        targetRole: target.role,
-        targetActive: target.active,
-        preset,
-        startsOn,
-        selectedMasjidId,
-        selectedGroupId,
-        studentMemberships,
-        staffMemberships
-      });
+      targetRole: target.role,
+      targetActive: target.active,
+      targetAccessDeactivatedOn: target.access_deactivated_on,
+      preset,
+      startsOn,
+      selectedMasjidId,
+      selectedGroupId,
+      studentMemberships,
+      staffMemberships,
+      currentDate: torontoCivilDateString()
+    });
 
     assertProfileRoleTransition({
       actorId: actor.id,
@@ -514,7 +517,10 @@ export async function endStaffMembership(formData: FormData) {
   let failureStatus: string | null = null;
 
   try {
-    const staffMemberships = await loadStaffMembershipsForPerson(adminSupabase, target.id);
+    const [staffMemberships, studentMemberships] = await Promise.all([
+      loadStaffMembershipsForPerson(adminSupabase, target.id),
+      loadStudentMembershipsForPerson(adminSupabase, target.id)
+    ]);
     const membership = staffMemberships.find((row) => row.id === membershipId);
 
     if (!membership || membership.ends_on !== null || !membership.active || membership.starts_on > endsOn) {
@@ -524,6 +530,17 @@ export async function endStaffMembership(formData: FormData) {
     if (membership.staff_role === "admin" && formString(formData, "confirmation_masjid") !== membership.masjid_name) {
       throw new ConfirmationMismatchError();
     }
+
+    assertFutureStaffMembershipEndDoesNotChangeProjection({
+      targetRole: target.role,
+      targetActive: target.active,
+      membershipId: membership.id,
+      endsOn,
+      currentDate: torontoCivilDateString(),
+      staffMemberships,
+      studentMemberships,
+      targetAccessDeactivatedOn: target.access_deactivated_on
+    });
 
     const requestIdValue = optionalFormString(formData, "request_id");
     const requestId = requestIdValue && requireUuid(requestIdValue) ? requestIdValue : randomUUID();

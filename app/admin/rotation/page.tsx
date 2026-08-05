@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import AppNav from "@/app/nav";
@@ -42,7 +43,11 @@ export default async function AdminRotationPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const { profile } = await requireProfile(["admin"]);
-  const data = await loadRotationPageData({ profile, searchParams: resolvedSearchParams });
+  const data = await loadRotationPageData({
+    profile,
+    searchParams: resolvedSearchParams,
+    publicationRequestId: randomUUID()
+  });
 
   if (data.canonicalPath) {
     redirect(data.canonicalPath);
@@ -63,7 +68,9 @@ export default async function AdminRotationPage({
       data.settings &&
       data.groups.length === data.settings.target_group_count &&
       data.students.length > 0 &&
-      data.teachers.length > 0
+      data.teachers.length > 0 &&
+      data.persistencePlan &&
+      data.publicationRequestId
   );
 
   function selectedContextPath(weekStart: string) {
@@ -317,6 +324,7 @@ export default async function AdminRotationPage({
                   <input name="masjid_id" type="hidden" value={data.context?.masjid.id ?? ""} />
                   <input name="cohort_id" type="hidden" value={data.context?.cohort.id ?? ""} />
                   <input name="week_start" type="hidden" value={data.selectedWeekStart} />
+                  <input name="request_id" type="hidden" value={data.publicationRequestId ?? ""} />
                   <RotationPublishButton baseDisabled={!publishReady} />
                 </form>
               </div>

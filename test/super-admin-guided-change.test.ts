@@ -86,14 +86,14 @@ describe("presetForGuidedOperation", () => {
   it("derives the base access preset for every guided operation", () => {
     const input = { staffMemberships: [], masjidId: centralMasjid.id };
 
-    expect(presetForGuidedOperation({ ...input, operation: "add_teacher" })).toBe("teacher");
-    expect(presetForGuidedOperation({ ...input, operation: "add_admin" })).toBe("admin");
-    expect(presetForGuidedOperation({ ...input, operation: "add_admin_teacher" })).toBe("admin_teacher");
+    expect(presetForGuidedOperation({ ...input, operation: "set_teacher_only" })).toBe("teacher");
+    expect(presetForGuidedOperation({ ...input, operation: "set_admin_only" })).toBe("admin");
+    expect(presetForGuidedOperation({ ...input, operation: "set_admin_teacher" })).toBe("admin_teacher");
     expect(presetForGuidedOperation({ ...input, operation: "assign_student" })).toBe("student");
     expect(presetForGuidedOperation({ ...input, operation: "deactivate_account" })).toBe("inactive");
   });
 
-  it("preserves existing admin access when adding teacher access", () => {
+  it("replaces selected-masjid admin access when setting teacher only", () => {
     const admin = staffMembership("central-admin", centralMasjid, "admin");
     const accessSnapshot = snapshot({
       profile: { id: "person-1", name: "Amina Rahman", role: "admin", active: true },
@@ -102,28 +102,28 @@ describe("presetForGuidedOperation", () => {
 
     expect(
       presetForGuidedOperation({
-        operation: "add_teacher",
+        operation: "set_teacher_only",
         masjidId: centralMasjid.id,
         staffMemberships: [admin]
       })
-    ).toBe("admin_teacher");
+    ).toBe("teacher");
 
     const review = buildGuidedChangeReview({
       snapshot: accessSnapshot,
-      draft: { operation: "add_teacher", masjidId: centralMasjid.id, startsOn: TODAY },
+      draft: { operation: "set_teacher_only", masjidId: centralMasjid.id, startsOn: TODAY },
       today: TODAY
     });
 
-    expect(review.plan?.staffMembershipCloses).toEqual([]);
+    expect(review.plan?.staffMembershipCloses).toEqual([{ id: admin.id, endsOn: "2026-07-21" }]);
     expect(review.plan?.staffMembershipInserts).toEqual([
       { masjidId: centralMasjid.id, staffRole: "teacher", startsOn: TODAY }
     ]);
     expect(review.rows.find((row) => row.id === `staff-${centralMasjid.id}`)?.after).toBe(
-      "Admin + Teacher"
+      "Teacher only"
     );
   });
 
-  it("preserves existing teacher access when adding admin access", () => {
+  it("replaces selected-masjid teacher access when setting admin only", () => {
     const teacher = staffMembership("central-teacher", centralMasjid, "teacher");
     const accessSnapshot = snapshot({
       profile: { id: "person-1", name: "Amina Rahman", role: "teacher", active: true },
@@ -132,24 +132,24 @@ describe("presetForGuidedOperation", () => {
 
     expect(
       presetForGuidedOperation({
-        operation: "add_admin",
+        operation: "set_admin_only",
         masjidId: centralMasjid.id,
         staffMemberships: [teacher]
       })
-    ).toBe("admin_teacher");
+    ).toBe("admin");
 
     const review = buildGuidedChangeReview({
       snapshot: accessSnapshot,
-      draft: { operation: "add_admin", masjidId: centralMasjid.id, startsOn: TODAY },
+      draft: { operation: "set_admin_only", masjidId: centralMasjid.id, startsOn: TODAY },
       today: TODAY
     });
 
-    expect(review.plan?.staffMembershipCloses).toEqual([]);
+    expect(review.plan?.staffMembershipCloses).toEqual([{ id: teacher.id, endsOn: "2026-07-21" }]);
     expect(review.plan?.staffMembershipInserts).toEqual([
       { masjidId: centralMasjid.id, staffRole: "admin", startsOn: TODAY }
     ]);
     expect(review.rows.find((row) => row.id === `staff-${centralMasjid.id}`)?.after).toBe(
-      "Admin + Teacher"
+      "Admin only"
     );
   });
 });
@@ -207,11 +207,11 @@ describe("buildGuidedChangeReview", () => {
         profile: { id: "person-1", name: "Amina Rahman", role: "admin", active: true },
         staffMemberships: [centralAdmin, lakeshoreTeacher]
       }),
-      draft: { operation: "add_teacher", masjidId: centralMasjid.id, startsOn: TODAY },
+      draft: { operation: "set_teacher_only", masjidId: centralMasjid.id, startsOn: TODAY },
       today: TODAY
     });
 
-    expect(review.plan?.staffMembershipCloses).toEqual([]);
+    expect(review.plan?.staffMembershipCloses).toEqual([{ id: centralAdmin.id, endsOn: "2026-07-21" }]);
     expect(review.plan?.staffMembershipInserts).not.toContainEqual(
       expect.objectContaining({ masjidId: lakeshoreMasjid.id })
     );
@@ -220,10 +220,30 @@ describe("buildGuidedChangeReview", () => {
     );
   });
 
-  it("warns when converting a student to staff and when converting staff to a student", () => {
+  it("retains an admin role projected from another masjid during replacement", () => {
+    const centralAdmin = staffMembership("central-admin", centralMasjid, "admin");
+    const lakeshoreAdmin = staffMembership("lakeshore-admin", lakeshoreMasjid, "admin");
+    const review = buildGuidedChangeReview({
+      snapshot: snapshot({
+        profile: { id: "person-1", name: "Amina Rahman", role: "admin", active: true },
+        staffMemberships: [centralAdmin, lakeshoreAdmin]
+      }),
+      draft: { operation: "set_teacher_only", masjidId: centralMasjid.id, startsOn: TODAY },
+      today: TODAY
+    });
+
+    expect(review.plan?.staffMembershipCloses).toEqual([{ id: centralAdmin.id, endsOn: "2026-07-21" }]);
+    expect(review.plan?.staffMembershipCloses).not.toContainEqual(
+      expect.objectContaining({ id: lakeshoreAdmin.id })
+    );
+    expect(review.plan?.nextRole).toBe("admin");
+    expect(review.plan?.effectiveRole).toBe("admin");
+  });
+
+  it("keeps student placement during selected-masjid staff replacement and warns on staff-to-student conversion", () => {
     const studentToStaff = buildGuidedChangeReview({
       snapshot: snapshot({ studentMemberships: [studentMembership()] }),
-      draft: { operation: "add_teacher", masjidId: centralMasjid.id, startsOn: TODAY },
+      draft: { operation: "set_teacher_only", masjidId: centralMasjid.id, startsOn: TODAY },
       today: TODAY
     });
     const staffToStudent = buildGuidedChangeReview({
@@ -240,15 +260,14 @@ describe("buildGuidedChangeReview", () => {
       today: SUNDAY
     });
 
-    expect(studentToStaff.warnings).toContain(
-      "This is an account conversion: the current student placement will end when staff access starts."
-    );
+    expect(studentToStaff.plan?.studentMembershipCloses).toEqual([]);
+    expect(studentToStaff.unchanged).toContain("Student placement is unchanged.");
     expect(staffToStudent.warnings).toContain(
       "This is an account conversion: all current staff access will end when student placement starts."
     );
   });
 
-  it("blocks removal of teacher access while assignments remain", () => {
+  it("allows immediate account deactivation while returning assignment follow-up data", () => {
     const review = buildGuidedChangeReview({
       snapshot: snapshot({
         profile: { id: "person-1", name: "Amina Rahman", role: "teacher", active: true },
@@ -268,19 +287,20 @@ describe("buildGuidedChangeReview", () => {
       today: TODAY
     });
 
-    expect(review.blockers).toContain(
-      "Current or upcoming teacher assignments must be resolved before this operation can remove teacher access."
+    expect(review.blockers).not.toContain(
+      "Current or upcoming teacher assignments must be resolved before this operation can remove teacher access for their halaqa Saturday."
     );
+    expect(review.plan).not.toBeNull();
   });
 
-  it("blocks future-dated changes that would immediately alter the global role", () => {
+  it("rejects a future replacement that changes the global role", () => {
     const review = buildGuidedChangeReview({
       snapshot: snapshot({
         profile: { id: "person-1", name: "Amina Rahman", role: "teacher", active: true },
         staffMemberships: [staffMembership("central-teacher", centralMasjid, "teacher")]
       }),
       draft: {
-        operation: "add_admin",
+        operation: "set_admin_only",
         masjidId: centralMasjid.id,
         startsOn: FUTURE_SUNDAY
       },
@@ -288,8 +308,9 @@ describe("buildGuidedChangeReview", () => {
     });
 
     expect(review.blockers).toContain(
-      "This change would update the global account before the selected date. Choose today, or use a membership-only change that preserves the current role."
+      "This future access change would change the global role or active state when it starts. Choose today or preserve the current projection."
     );
+    expect(review.plan).toBeNull();
   });
 
   it("rejects a guided change that produces no mutations", () => {
@@ -298,7 +319,7 @@ describe("buildGuidedChangeReview", () => {
         profile: { id: "person-1", name: "Amina Rahman", role: "teacher", active: true },
         staffMemberships: [staffMembership("central-teacher", centralMasjid, "teacher")]
       }),
-      draft: { operation: "add_teacher", masjidId: centralMasjid.id, startsOn: TODAY },
+      draft: { operation: "set_teacher_only", masjidId: centralMasjid.id, startsOn: TODAY },
       today: TODAY
     });
 
@@ -311,7 +332,7 @@ describe("buildGuidedChangeReview", () => {
     const review = buildGuidedChangeReview({
       snapshot: snapshot(),
       draft: {
-        operation: "add_teacher",
+        operation: "set_teacher_only",
         masjidId: centralMasjid.id,
         startsOn: "2026-07-21"
       },
@@ -357,7 +378,7 @@ describe("buildGuidedChangeReview", () => {
     );
   });
 
-  it("blocks deactivation while open teacher access requires assignment-aware closure", () => {
+  it("allows deactivation when teacher access has no assignment after the stop date", () => {
     const review = buildGuidedChangeReview({
       snapshot: snapshot({
         profile: { id: "person-1", name: "Amina Rahman", role: "teacher", active: true },
@@ -367,25 +388,25 @@ describe("buildGuidedChangeReview", () => {
       today: TODAY
     });
 
-    expect(review.blockers).toContain(
+    expect(review.blockers).not.toContain(
       "Open teacher access must be ended through its assignment-aware workflow before this account can be deactivated."
     );
   });
 
-  it("describes inactive-account operations as reactivation", () => {
+  it("uses explicit replacement labels for inactive accounts", () => {
     const inactiveSnapshot = snapshot({
       profile: { id: "person-1", name: "Amina Rahman", role: "student", active: false }
     });
 
-    expect(operationLabelForSnapshot(inactiveSnapshot, "add_teacher", TODAY)).toBe(
-      "Reactivate with teacher access"
+    expect(operationLabelForSnapshot(inactiveSnapshot, "set_teacher_only", TODAY)).toBe(
+      "Set Teacher only"
     );
     expect(operationLabelForSnapshot(inactiveSnapshot, "assign_student", TODAY)).toBe(
       "Reactivate with student placement"
     );
   });
 
-  it("preserves a finite complementary staff membership", () => {
+  it("ends a finite complementary staff membership during replacement", () => {
     const finiteTeacher = {
       ...staffMembership("central-teacher", centralMasjid, "teacher"),
       ends_on: "2026-08-31"
@@ -395,18 +416,18 @@ describe("buildGuidedChangeReview", () => {
         profile: { id: "person-1", name: "Amina Rahman", role: "teacher", active: true },
         staffMemberships: [finiteTeacher]
       }),
-      draft: { operation: "add_admin", masjidId: centralMasjid.id, startsOn: TODAY },
+      draft: { operation: "set_admin_only", masjidId: centralMasjid.id, startsOn: TODAY },
       today: TODAY
     });
 
-    expect(review.plan?.staffMembershipCloses).toEqual([]);
+    expect(review.plan?.staffMembershipCloses).toEqual([{ id: finiteTeacher.id, endsOn: "2026-07-21" }]);
     expect(review.plan?.staffMembershipInserts).toContainEqual({
       masjidId: centralMasjid.id,
       staffRole: "admin",
       startsOn: TODAY
     });
     expect(review.rows.find((row) => row.id === `staff-${centralMasjid.id}`)?.after).toBe(
-      "Admin + Teacher"
+      "Admin only"
     );
   });
 });

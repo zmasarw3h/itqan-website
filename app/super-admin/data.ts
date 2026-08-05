@@ -623,7 +623,7 @@ export async function loadActiveGroupScope(
 export async function loadProfileById(adminSupabase: AdminSupabaseClient, profileId: string) {
   const { data, error } = await adminSupabase
     .from("profiles")
-    .select("id,name,email,phone,role,active,created_at,score_starts_on")
+    .select("id,name,email,phone,role,active,access_deactivated_on,created_at,score_starts_on")
     .eq("id", profileId)
     .maybeSingle<Profile>();
 

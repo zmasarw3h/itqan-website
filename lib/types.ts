@@ -9,6 +9,7 @@ export type Profile = {
   phone: string | null;
   role: Role;
   active: boolean;
+  access_deactivated_on?: string | null;
   score_starts_on?: string | null;
   created_at?: string;
 };

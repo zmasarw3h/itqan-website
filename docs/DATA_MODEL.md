@@ -11,7 +11,7 @@
 - `score_starts_on`: nullable first canonical Sunday included in student scoring. `null` means the student is not scorable yet; it never means score all history.
 - `created_at`
 
-`profiles.role` is a routing/default-experience hint. Scoped authorization comes from membership and assignment tables plus Supabase RLS.
+`profiles.role` is the cached current primary/default experience for non-super-admins. The database projects it from currently effective admin staff, teacher staff, and student placement windows in that precedence order; a profile with no current placement becomes inactive. A future membership does not project early. Scoped authorization still comes from membership and assignment tables plus Supabase RLS.
 
 ## Multi-Masjid Scope
 
@@ -68,9 +68,10 @@ Service-only transactional functions added for Phase 1A and used by the Phase 1B
 - `get_scoped_user_setup_auth_recovery(...)`: resolves an Auth-only identity only when its trusted Auth metadata exactly matches the setup request UUID, actor, normalized email, and complete canonical setup payload. It never exposes Auth identity lookup to browser roles.
 - `get_person_access_state(actor_id, target_profile_id)`: returns a canonical profile/membership snapshot only after verifying that the passed actor is currently an active super admin.
 - `apply_super_admin_access_change(...)`: locks and compares that snapshot, derives the access transition in PostgreSQL, writes profile/membership/audit changes atomically, and protects the last active super admin and last active admin of an active masjid.
-- `apply_super_admin_masjid_staff_grant(...)`: atomically promotes an active person, reconciles student access, inserts the requested admin and/or teacher memberships, and writes all audit events using an idempotent request ledger and canonical stale-state check.
+- `apply_super_admin_masjid_staff_grant(...)`: atomically adds only missing admin and/or teacher memberships at one masjid. It never ends an existing staff capability or changes another masjid, and writes all audit events using an idempotent request ledger and canonical stale-state check.
 - `prepare_super_admin_masjid_staff_grant(...)`: captures or replays the original canonical access snapshot for one stable staff-grant request before the mutation RPC runs.
-- `apply_super_admin_staff_membership_end(...)`: closes one open staff membership and writes its audit event in the same transaction after checking the canonical snapshot, date, target relationship, and continuous future admin-coverage invariant.
+- `apply_super_admin_staff_membership_end(...)`: closes one open staff membership, recomputes the projected profile role, and writes its audit event in the same transaction after checking the canonical snapshot, inclusive date, teacher-assignment safety, and continuous future admin-coverage invariant.
+- `refresh_current_profile_role()`: guarded, self-only repair of a cached current role/active projection; it is not called during login or ordinary profile reads, does not reactivate an intentionally inactive profile, and does not grant scope by itself.
 - `apply_super_admin_masjid_update(...)`: atomically updates masjid fields and active state, writes the audit event, rejects stale state, and prevents activation without continuous admin coverage.
 - `preview_official_scoring_start_change(...)`: returns the direction, affected activity weeks, and pending pre-boundary obligations only after revalidating the active admin actor and the complete affected masjid scope.
 - `apply_official_scoring_start_change(...)`: atomically changes the student-wide boundary, waives pending pre-boundary obligations without marking them paid, writes profile and per-obligation audit events, and records an idempotent request result. Scoped admins may activate or move forward only when all affected history is inside their current masjid authority; super admins may also move backward.
@@ -93,21 +94,26 @@ Rotation tables:
 - `teacher_rotation_availability`: stores whether a teacher is available for one cohort and tracker week. Availability is opt-in: rows default to unavailable until an admin marks the teacher available. It is unique on `teacher_id`, `cohort_id`, and `week_start`, and `week_start` must be the Sunday tracker week start. Rows must reference an active teacher with an active teacher staff membership for the masjid during that week.
 - `cohort_rotation_settings`: stores one active rotation setting row per cohort. `target_group_count` must be positive.
 - `teacher_rotation_runs`: stores generation counts for audit: available teachers, groups, assignments, and warnings.
+  Slice 5 adds nullable request, masjid, Saturday, expected-state digest, eligibility, unassigned-ID,
+  assignment-result, warning-code, completion, and source metadata without rewriting historical rows.
 
 Rotation mutations are intentionally separate:
 
 - `apply_cohort_group_rebalance`: creates missing active groups and applies effective-dated balanced
   student memberships for one cohort/week in a single transaction. It is service-role-only and verifies
   the supplied actor's scoped admin access.
-- `apply_teacher_rotation_generation`: publishes weekly teacher assignments and rotation-run audit data.
-  The rotation page supplies no membership changes, so assignment publishing cannot rebalance students.
+- `prepare_teacher_rotation_publication` / `apply_teacher_rotation_publication`: service-only prepare/apply
+  lifecycle. PostgreSQL supplies and compares canonical state under a scoped lock, validates Saturday
+  eligibility plus exact availability, and derives all run results.
+- `apply_teacher_rotation_generation`: temporary service-only compatibility wrapper for the prior app
+  signature. It enforces the guarded database boundary but has no request-ID stale-state protection.
 
 RLS is conservative: active admins for the scoped masjid manage rotation data. Teachers may read only
 their own availability rows.
 
 ## Scoped Operational Records
 
-These student-owned operational tables snapshot scope with nullable `masjid_id`, `cohort_id`, and `halaqa_group_id` columns so historical reporting stays correct after group moves:
+These student-owned operational tables snapshot scope with nullable `masjid_id`, `cohort_id`, and `halaqa_group_id` columns for authorization and integrity diagnostics:
 
 - `checkins`
 - `weekly_plans`
@@ -117,6 +123,13 @@ These student-owned operational tables snapshot scope with nullable `masjid_id`,
 - `badge_awards`
 
 `checkin_items` does not duplicate scope initially because each item belongs to a scoped `checkins` row.
+
+Historical membership—not an activity snapshot—determines report population and
+display placement. Report scoring attributes exact and same-masjid activity to
+that membership placement, accepts legacy null-masjid activity only with one
+unambiguous membership, and excludes activity when any stored masjid, cohort
+owner, or group owner supplies cross-masjid evidence. Exact
+snapshot equality remains required for new writes and pending obligations.
 
 ## Existing Student Records
 
@@ -145,7 +158,8 @@ Existing admins receive TIC admin staff memberships. Existing active students re
 - Active students without an effective group membership see setup-incomplete screens and cannot create check-ins, weekly plans, or partner recitations.
 - Admin app queries and mutations are scoped by masjid membership. Phase 0 also tightens direct Data API write policies so normal admins cannot grant admin access, mutate global foundation setup, or change other masajid through broad RLS.
 - Signed super-admin sessions are read-capable but cannot directly mutate profiles or student/staff membership history through the Data API. Super-admin access writes use the guarded service-only transactional functions.
-- An active masjid must have gap-free admin coverage from the current effective date through every future membership boundary, ending in at least one open-ended active admin membership. Inactive masajid are exempt until reactivated.
+- An active masjid must have gap-free admin coverage from the current Toronto civil date through every future membership boundary, ending in at least one open-ended active admin membership. Inactive masajid are exempt until reactivated.
 - Active super admins can read `super_admin_audit_events`; browser/client writes to the audit table are not exposed.
 - Normal admins close or deactivate membership/assignment rows instead of deleting foundation history. Direct signed-session deletes of student and staff membership history are denied, including for super admins.
 - Teachers are scoped by assigned group/week and can grade/view weekly plans only for students whose membership is effective in that exact assignment.
+- Access transition semantics, including selected-masjid replacement, additive previews, multi-masjid preservation, deactivation, and assignment-aware teacher removal, are documented in [`ACCESS_TRANSITION_SEMANTICS.md`](ACCESS_TRANSITION_SEMANTICS.md).
