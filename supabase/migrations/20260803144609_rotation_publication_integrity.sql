@@ -1404,6 +1404,9 @@ as $$
     'public.get_scoped_user_setup_request_result(uuid,uuid,text,text,text,text,date,uuid,uuid)',
     'public.get_scoped_user_setup_request_result(uuid,uuid,text,text,text,text,date,date,uuid,uuid)',
     'public.group_masjid_id(uuid)',
+    'public.historical_reporting_available_weeks()',
+    'public.historical_reporting_activity_for_weeks(date[])',
+    'public.historical_reporting_students_for_weeks(date[])',
     'public.is_active_admin()',
     'public.is_active_student()',
     'public.is_active_super_admin()',
@@ -1418,6 +1421,7 @@ as $$
     'public.protect_foundation_row_identity()',
     'public.refresh_current_profile_role()',
     'public.recalculate_student_checkin_score()',
+    'public.reconcile_historical_accountability_obligation(uuid,date)',
     'public.rotation_publication_state_version_bump()',
     'public.set_student_scope_snapshot()',
     'public.set_halaqa_grade_scope_snapshot()',
@@ -1426,6 +1430,7 @@ as $$
     'public.student_cohort_students_for_week(uuid,date)',
     'public.student_current_group_id(uuid)',
     'public.student_group_for_week(uuid,date)',
+    'public.student_historical_reporting_scope_for_week(date)',
     'public.student_leaderboard_available_weeks()',
     'public.student_masjid_for_week(uuid,date)',
     'public.student_scope_snapshot_matches(uuid,date,uuid,uuid,uuid)',
@@ -1438,7 +1443,16 @@ as $$
     'public.teacher_rotation_row_scope_matches()',
     'public.validate_accountability_obligation_scope()',
     'private.apply_super_admin_masjid_staff_grant_once(uuid,uuid,uuid,uuid,text,date,jsonb)',
-    'private.enforce_masjid_hierarchy_readiness()'
+    'private.assert_teacher_assignment_removal_safe(uuid,date,uuid)',
+    'private.enforce_staff_grant_preview_transition()',
+    'private.enforce_masjid_hierarchy_readiness()',
+    'private.project_cohort_profile_access()',
+    'private.project_group_profile_access()',
+    'private.project_masjid_profile_access()',
+    'private.project_staff_membership_profile_access()',
+    'private.project_student_membership_profile_access()',
+    'private.recompute_profiles_for_masjid(uuid)',
+    'private.recompute_profile_access(uuid,date)'
   ]::text[]) as listed(signature);
 $$;
 
