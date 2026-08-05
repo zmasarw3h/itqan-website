@@ -5292,6 +5292,22 @@ async function testRotationPublicationIntegrity(ids: SeedIds) {
     .eq("week_start", ids.weekStart);
   assert.equal(restoreDirectAvailability.error, null, restoreDirectAvailability.error?.message);
 
+  const directDuplicateTeacherAssignment = await adminA
+    .from("group_teacher_assignments")
+    .upsert({
+      group_id: ids.groupFridayOnly,
+      teacher_id: ids.users.teacherA,
+      week_start: ids.weekStart,
+      active: true,
+      assigned_by: ids.users.adminA
+    }, { onConflict: "group_id,week_start" });
+  assert.ok(
+    directDuplicateTeacherAssignment.error?.message.includes(
+      "teacher_assignment_duplicate_active_teacher_for_cohort_week"
+    ),
+    "a scoped signed-in admin assigned one available teacher to two cohort groups in the same week"
+  );
+
   const unrelatedAssignmentBefore = await requireData<{ teacher_id: string; active: boolean }>(
     "read unrelated cohort assignment before publication",
     service
@@ -6049,6 +6065,27 @@ commit;
     input_week_start: ids.weekStart
   });
   assert.equal(superAdminPrepare.error, null, `super admin prepare failed: ${superAdminPrepare.error?.message}`);
+
+  const deletedCohort = await requireData<{ id: string }>(
+    "create disposable cohort for rotation state-version delete trigger",
+    service
+      .from("cohorts")
+      .insert({
+        masjid_id: ids.masjidA,
+        kind: "brothers",
+        name: "Rotation Version Delete Fixture",
+        active: false,
+        sort_order: 99
+      })
+      .select("id")
+      .single()
+  );
+  const deleteCohort = await service.from("cohorts").delete().eq("id", deletedCohort.id);
+  assert.equal(
+    deleteCohort.error,
+    null,
+    "cohort deletion attempted to create a state-version row after the cohort foreign-key target was gone"
+  );
 }
 
 async function main() {

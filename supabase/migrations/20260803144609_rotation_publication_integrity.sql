@@ -99,6 +99,17 @@ begin
     return;
   end if;
 
+  -- Cohort DELETE fires this version trigger after the referenced cohort row
+  -- is gone. There is no remaining publication state to invalidate, and the
+  -- state-version table deliberately retains a cohort foreign key.
+  if not exists (
+    select 1
+    from public.cohorts as cohorts
+    where cohorts.id = input_cohort_id
+  ) then
+    return;
+  end if;
+
   perform private.ensure_rotation_publication_state_version(input_cohort_id);
   update private.rotation_publication_state_versions
   set version = version + 1,
@@ -484,6 +495,7 @@ declare
   unassigned_teacher_ids_value jsonb := '[]'::jsonb;
   final_assignments_value jsonb := '[]'::jsonb;
   affected_assignment_ids_value jsonb := '[]'::jsonb;
+  desired_teacher_id uuid;
   run_id uuid;
   result_payload jsonb;
 begin
@@ -505,26 +517,27 @@ begin
     )
   );
 
-  -- Lock every existing row that contributes to the state. The scoped advisory
-  -- lock serializes guarded publication/legacy paths without blocking another
-  -- cohort or week. State writers acquire these public rows before their AFTER
-  -- trigger takes the version update lock, so take the version share lock only
-  -- after this block to avoid a lock-order inversion.
+  -- Shared canonical rows can be read concurrently by publications for other
+  -- weeks in this cohort while still blocking external writers. Only the
+  -- target week's availability and assignment rows need exclusive locks.
+  -- State writers acquire these public rows before their AFTER trigger takes
+  -- the version update lock, so take the version share lock only after this
+  -- block to avoid a lock-order inversion.
   perform cohorts.id
   from public.cohorts
   join public.masajid on masajid.id = cohorts.masjid_id
   where cohorts.id = input_cohort_id
-  for update of cohorts, masajid;
+  for share of cohorts, masajid;
 
   perform groups.id
   from public.halaqa_groups as groups
   where groups.cohort_id = input_cohort_id
-  for update;
+  for share;
 
   perform settings.id
   from public.cohort_rotation_settings as settings
   where settings.cohort_id = input_cohort_id
-  for update;
+  for share;
 
   perform availability.id
   from public.teacher_rotation_availability as availability
@@ -536,7 +549,7 @@ begin
   from public.masjid_staff_memberships as memberships
   where memberships.masjid_id = cohort_masjid_id
     and memberships.staff_role = 'teacher'
-  for update;
+  for share;
 
   perform profiles.id
   from public.profiles as profiles
@@ -544,14 +557,38 @@ begin
     on memberships.profile_id = profiles.id
     and memberships.masjid_id = cohort_masjid_id
     and memberships.staff_role = 'teacher'
-  for update of profiles;
+  for share of profiles;
 
   perform assignments.id
   from public.group_teacher_assignments as assignments
   join public.halaqa_groups as groups on groups.id = assignments.group_id
   where groups.cohort_id = input_cohort_id
-    and assignments.week_start <= input_week_start
+    and assignments.week_start = input_week_start
   for update of assignments;
+
+  perform assignments.id
+  from public.group_teacher_assignments as assignments
+  join public.halaqa_groups as groups on groups.id = assignments.group_id
+  where groups.cohort_id = input_cohort_id
+    and assignments.week_start < input_week_start
+  for share of assignments;
+
+  -- Direct assignment writes acquire this same key before their AFTER trigger
+  -- tries to advance the cohort state version. Take it before our version
+  -- share lock, in a stable order, so a direct write cannot deadlock with a
+  -- guarded publication. The trigger re-enters this lock during our writes.
+  for desired_teacher_id in
+    select distinct payload.teacher_id
+    from jsonb_to_recordset(desired_assignments) as payload(group_id uuid, teacher_id uuid, week_start date)
+    order by payload.teacher_id
+  loop
+    perform pg_catalog.pg_advisory_xact_lock(
+      pg_catalog.hashtextextended(
+        'rotation-assignment:' || input_cohort_id::text || ':' || desired_teacher_id::text || ':' || input_week_start::text,
+        0
+      )
+    );
+  end loop;
 
   perform private.ensure_rotation_publication_state_version(input_cohort_id);
   perform versions.cohort_id
@@ -1007,6 +1044,8 @@ language plpgsql
 security definer
 set search_path = ''
 as $$
+declare
+  target_cohort_id uuid;
 begin
   if tg_table_name = 'cohort_rotation_settings' then
     if not exists (
@@ -1043,6 +1082,11 @@ begin
   end if;
 
   if tg_table_name = 'group_teacher_assignments' then
+    select groups.cohort_id
+    into target_cohort_id
+    from public.halaqa_groups as groups
+    where groups.id = new.group_id;
+
     if new.active and (
       not private.raw_teacher_has_halaqa_saturday_eligibility(
         new.teacher_id,
@@ -1067,6 +1111,34 @@ begin
       raise exception using
         errcode = '23514',
         message = 'teacher_assignment_requires_exact_available_teacher_rotation_availability';
+    end if;
+
+    if new.active then
+      -- Direct scoped admin writes are still supported during the staged
+      -- rollout, but they must satisfy the same one-teacher-per-cohort/week
+      -- shape invariant as guarded publication. Serializing this exact
+      -- teacher/cohort/week key closes the otherwise racy two-group insert.
+      perform pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended(
+          'rotation-assignment:' || target_cohort_id::text || ':' || new.teacher_id::text || ':' || new.week_start::text,
+          0
+        )
+      );
+
+      if exists (
+        select 1
+        from public.group_teacher_assignments as assignments
+        join public.halaqa_groups as assignment_groups on assignment_groups.id = assignments.group_id
+        where assignment_groups.cohort_id = target_cohort_id
+          and assignments.teacher_id = new.teacher_id
+          and assignments.week_start = new.week_start
+          and assignments.active
+          and assignments.group_id <> new.group_id
+      ) then
+        raise exception using
+          errcode = '23505',
+          message = 'teacher_assignment_duplicate_active_teacher_for_cohort_week';
+      end if;
     end if;
 
     return new;

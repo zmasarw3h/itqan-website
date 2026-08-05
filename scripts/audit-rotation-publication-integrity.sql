@@ -2,6 +2,11 @@
 --
 -- Run against a production-shaped copy before the Slice 5 migration and after
 -- deployment validation. It returns IDs only: never names, emails, or phones.
+-- `group_teacher_assignments` has no independent cohort column: its group is
+-- the canonical cohort relationship, so an assignment cannot be represented
+-- as belonging to a different cohort. The equivalent reportable condition is
+-- an active assignment targeting a group that is no longer active; assignments
+-- without a matching cohort/week run are reported separately below.
 
 with runtime as (
   select public.week_start_for_date(public.current_toronto_civil_date()) as current_week_start
@@ -120,7 +125,7 @@ with runtime as (
   union all
 
   select
-    'active_assignment_group_outside_cohort',
+    'active_assignment_inactive_group',
     assignment_scope.temporal_scope,
     assignment_scope.assignment_id,
     assignment_scope.cohort_id,
