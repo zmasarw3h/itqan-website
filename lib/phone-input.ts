@@ -18,4 +18,3 @@ export function formatLoginIdentifier(input: string) {
   const formatter = new AsYouType("CA");
   return formatter.input(`${hasInternationalPrefix ? "+" : ""}${digits}`);
 }
-
