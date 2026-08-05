@@ -10,14 +10,14 @@ import {
   normalizeNote,
   taskForDateOrThrow
 } from "@/lib/checkins";
-import { checkInEffectiveDateString, torontoCivilDateString, weekStartForDate } from "@/lib/dates";
+import { checkInEffectiveDateString, weekStartForDate } from "@/lib/dates";
 import { assertNoDuplicatePartnerRecitation } from "@/lib/partner-recitations";
 import { partnerRoundForDate, PARTNER_RECITATION_POINTS_PER_ROUND, tasksForDate } from "@/lib/scoring";
 import { requireStudentScopeForWeek } from "@/lib/student-scope";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import { findOrCreateBlockingAccountabilityObligation } from "@/lib/weekly-incentives";
-import { weeklyPlanBlocksCheckIn, weeklyPlanRequiredWeekStart } from "@/lib/weekly-plans";
+import { currentWeeklyPlanContext, weeklyPlanBlocksCheckIn } from "@/lib/weekly-plans";
 import type { AccountabilityObligation, CheckIn, CheckInItem, PartnerRecitation, WeeklyPlan } from "@/lib/types";
 
 export async function attestAccountabilityPaid(obligationId: string) {
@@ -94,20 +94,17 @@ function checkInSelect() {
 
 async function findOrCreateTodayCheckIn() {
   const { supabase, profile } = await requireProfile(["student"]);
-  const today = checkInEffectiveDateString();
-  const civilToday = torontoCivilDateString();
-  const weekStart = weekStartForDate(today);
+  const { effectiveDate: today, weekStart } = currentWeeklyPlanContext();
   await requireStudentScopeForWeek(supabase, profile.id, weekStart);
 
-  const requiredWeeklyPlanWeekStart = weeklyPlanRequiredWeekStart(civilToday);
   const { data: currentWeeklyPlan } = await supabase
     .from("weekly_plans")
     .select("week_start")
     .eq("student_id", profile.id)
-    .eq("week_start", requiredWeeklyPlanWeekStart)
+    .eq("week_start", weekStart)
     .maybeSingle<Pick<WeeklyPlan, "week_start">>();
 
-  if (weeklyPlanBlocksCheckIn(currentWeeklyPlan ?? null, civilToday)) {
+  if (weeklyPlanBlocksCheckIn(currentWeeklyPlan ?? null, today)) {
     throw new Error("Upload this week's weekly plan before using today's checklist.");
   }
 

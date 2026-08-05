@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { torontoCivilDateString, weekStartForDate } from "@/lib/dates";
 import { requireStudentScopeForWeek } from "@/lib/student-scope";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
@@ -10,6 +9,7 @@ import type { WeeklyPlan } from "@/lib/types";
 import {
   WEEKLY_PLAN_BUCKET,
   WEEKLY_PLAN_MAX_BYTES,
+  currentWeeklyPlanContext,
   validateWeeklyPlanFile,
   weeklyPlanPathBelongsToStudent,
   weeklyPlanStoragePath
@@ -18,7 +18,7 @@ import {
 export async function uploadWeeklyPlan(formData: FormData) {
   const { supabase, profile } = await requireProfile(["student"]);
   const file = formData.get("plan");
-  const weekStart = weekStartForDate(torontoCivilDateString());
+  const { weekStart } = currentWeeklyPlanContext();
   try {
     await requireStudentScopeForWeek(supabase, profile.id, weekStart);
   } catch {
