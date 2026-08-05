@@ -1,7 +1,10 @@
 -- Read-only rotation-publication integrity audit.
 --
 -- Run against a production-shaped copy before the Slice 5 migration and after
--- deployment validation. It returns IDs only: never names, emails, or phones.
+-- deployment validation. It deliberately derives the masjid and Saturday from
+-- the canonical cohort/week relationships rather than Slice 5 audit columns,
+-- so the same read-only query works on both schemas. It returns IDs only:
+-- never names, emails, or phones.
 -- `group_teacher_assignments` has no independent cohort column: its group is
 -- the canonical cohort relationship, so an assignment cannot be represented
 -- as belonging to a different cohort. The equivalent reportable condition is
@@ -168,9 +171,9 @@ with runtime as (
     runs.cohort_id,
     null::uuid,
     null::uuid,
-    coalesce(runs.masjid_id, cohorts.masjid_id),
+    cohorts.masjid_id,
     runs.week_start,
-    coalesce(runs.halaqa_saturday, public.halaqa_saturday_for_week(runs.week_start))
+    public.halaqa_saturday_for_week(runs.week_start)
   from public.teacher_rotation_runs as runs
   join public.cohorts on cohorts.id = runs.cohort_id
   cross join runtime
@@ -193,9 +196,9 @@ with runtime as (
     runs.cohort_id,
     null::uuid,
     null::uuid,
-    coalesce(runs.masjid_id, cohorts.masjid_id),
+    cohorts.masjid_id,
     runs.week_start,
-    coalesce(runs.halaqa_saturday, public.halaqa_saturday_for_week(runs.week_start))
+    public.halaqa_saturday_for_week(runs.week_start)
   from public.teacher_rotation_runs as runs
   join public.cohorts on cohorts.id = runs.cohort_id
   cross join runtime
@@ -238,9 +241,9 @@ with runtime as (
     runs.cohort_id,
     null::uuid,
     null::uuid,
-    coalesce(runs.masjid_id, cohorts.masjid_id),
+    cohorts.masjid_id,
     runs.week_start,
-    coalesce(runs.halaqa_saturday, public.halaqa_saturday_for_week(runs.week_start))
+    public.halaqa_saturday_for_week(runs.week_start)
   from public.teacher_rotation_runs as runs
   join public.cohorts on cohorts.id = runs.cohort_id
   cross join runtime
