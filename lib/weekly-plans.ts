@@ -1,11 +1,16 @@
 import type { Profile, WeeklyPlan } from "@/lib/types";
-import { weekStartForDate } from "@/lib/dates";
+import { checkInEffectiveDateString, weekStartForDate } from "@/lib/dates";
 
 export const WEEKLY_PLAN_BUCKET = "weekly-plans";
 export const WEEKLY_PLAN_MAX_MB = 3;
 export const WEEKLY_PLAN_MAX_BYTES = WEEKLY_PLAN_MAX_MB * 1024 * 1024;
 export const WEEKLY_PLAN_MAX_SIZE_LABEL = `${WEEKLY_PLAN_MAX_MB} MB`;
 export const WEEKLY_PLAN_ALLOWED_TYPES = ["image/png", "image/jpeg", "application/pdf"] as const;
+
+export type WeeklyPlanContext = {
+  effectiveDate: string;
+  weekStart: string;
+};
 
 export type WeeklyPlanAllowedType = (typeof WEEKLY_PLAN_ALLOWED_TYPES)[number];
 export type WeeklyPlanUploadFile = {
@@ -57,15 +62,28 @@ export const WEEKLY_PLAN_GATE_COPY = {
   actionLabel: "Upload weekly plan"
 };
 
-export function weeklyPlanRequiredWeekStart(today: string) {
-  return weekStartForDate(today);
+/**
+ * Returns the one date/week snapshot used by checklist and weekly-plan flows.
+ * The week must follow the reset-aware checklist date, not the Toronto civil date.
+ */
+export function currentWeeklyPlanContext(now = new Date()): WeeklyPlanContext {
+  const effectiveDate = checkInEffectiveDateString(now);
+
+  return {
+    effectiveDate,
+    weekStart: weeklyPlanRequiredWeekStart(effectiveDate)
+  };
+}
+
+export function weeklyPlanRequiredWeekStart(effectiveDate: string) {
+  return weekStartForDate(effectiveDate);
 }
 
 export function weeklyPlanBlocksCheckIn(
   weeklyPlan: Pick<WeeklyPlan, "week_start"> | null | undefined,
-  today: string
+  effectiveDate: string
 ) {
-  return weeklyPlan?.week_start !== weeklyPlanRequiredWeekStart(today);
+  return weeklyPlan?.week_start !== weeklyPlanRequiredWeekStart(effectiveDate);
 }
 
 export function routeIsWeeklyPlanGated(pathname: string) {
