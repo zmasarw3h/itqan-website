@@ -94,6 +94,14 @@ export type TeacherRotationPersistencePlan = {
   };
 };
 
+export type RotationPublicationPlannerSnapshot = {
+  planner: {
+    groups: RotationGroup[];
+    eligible_teachers: RotationTeacher[];
+    prior_assignments: PriorTeacherAssignment[];
+  };
+};
+
 export type CohortGroupRebalancePreview = {
   groups: Array<{
     id: string;
@@ -157,6 +165,92 @@ function sortOrdered<T extends OrderedEntity>(items: readonly T[]) {
 
     return a.id.localeCompare(b.id);
   });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function snapshotString(value: unknown, field: string) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`Rotation publication snapshot is missing ${field}.`);
+  }
+
+  return value;
+}
+
+/**
+ * Converts the database-produced publication state into the deterministic
+ * planner input. The planner never receives a teacher without an exact,
+ * currently true availability row.
+ */
+export function plannerInputFromRotationPublicationSnapshot(
+  snapshot: unknown,
+  weekStart: string
+): {
+  groups: RotationGroup[];
+  teachers: RotationTeacher[];
+  priorAssignments: PriorTeacherAssignment[];
+  weekStart: string;
+} {
+  if (!isRecord(snapshot) || !isRecord(snapshot.planner)) {
+    throw new Error("Rotation publication snapshot is invalid.");
+  }
+
+  const planner = snapshot.planner;
+  const groups = Array.isArray(planner.groups) ? planner.groups : null;
+  const teachers = Array.isArray(planner.eligible_teachers) ? planner.eligible_teachers : null;
+  const priorAssignments = Array.isArray(planner.prior_assignments) ? planner.prior_assignments : null;
+
+  if (!groups || !teachers || !priorAssignments) {
+    throw new Error("Rotation publication snapshot is incomplete.");
+  }
+
+  return {
+    groups: groups.map((group) => {
+      if (!isRecord(group)) {
+        throw new Error("Rotation publication group snapshot is invalid.");
+      }
+
+      return {
+        id: snapshotString(group.id, "group id"),
+        name: typeof group.name === "string" ? group.name : null,
+        sort_order: typeof group.sort_order === "number" ? group.sort_order : null,
+        created_at: typeof group.created_at === "string" ? group.created_at : null
+      };
+    }),
+    teachers: teachers.flatMap((teacher) => {
+      if (!isRecord(teacher)) {
+        throw new Error("Rotation publication teacher snapshot is invalid.");
+      }
+
+      if (teacher.available !== true) {
+        return [];
+      }
+
+      return [{
+        id: snapshotString(teacher.id, "teacher id"),
+        name: typeof teacher.name === "string" ? teacher.name : null,
+        sort_order: typeof teacher.sort_order === "number" ? teacher.sort_order : null,
+        created_at: typeof teacher.created_at === "string" ? teacher.created_at : null,
+        available: true
+      }];
+    }),
+    priorAssignments: priorAssignments.map((assignment) => {
+      if (!isRecord(assignment)) {
+        throw new Error("Rotation publication assignment snapshot is invalid.");
+      }
+
+      return {
+        group_id: snapshotString(assignment.group_id, "assignment group id"),
+        teacher_id: snapshotString(assignment.teacher_id, "assignment teacher id"),
+        week_start: snapshotString(assignment.week_start, "assignment week start"),
+        active: typeof assignment.active === "boolean" ? assignment.active : null,
+        created_at: typeof assignment.created_at === "string" ? assignment.created_at : null
+      };
+    }),
+    weekStart
+  };
 }
 
 function addDays(dateString: string, days: number) {

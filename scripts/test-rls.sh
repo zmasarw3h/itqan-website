@@ -38,6 +38,7 @@ esac
 RLS_SUPABASE_URL="$API_URL" \
 RLS_SUPABASE_ANON_KEY="$ANON_KEY" \
 RLS_SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
+RLS_DB_CONTAINER="supabase_db_itqan-lite-phase-1-rls" \
 npx tsx scripts/test-rls.ts
 
 docker exec -i supabase_db_itqan-lite-phase-1-rls \

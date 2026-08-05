@@ -65,6 +65,12 @@ done < <(
     sort
 )
 
+slice5_migration="supabase/migrations/20260803144609_rotation_publication_integrity.sql"
+slice5_is_forward=false
+for migration_path in "${forward_migrations[@]}"; do
+  [[ "$migration_path" == "$slice5_migration" ]] && slice5_is_forward=true
+done
+
 if ((${#forward_migrations[@]} == 0)); then
   echo "No forward migration exists relative to ${base_ref} (${base_commit})." >&2
   exit 1
@@ -179,6 +185,8 @@ from unnest(array[
   'public.apply_super_admin_access_change(uuid,uuid,uuid,text,date,uuid,uuid,jsonb)',
   'public.apply_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date,jsonb)',
   'public.apply_super_admin_staff_membership_end(uuid,uuid,uuid,uuid,date,jsonb)',
+  'public.apply_teacher_rotation_generation(uuid,date,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,integer,integer,integer,integer)',
+  'public.apply_teacher_rotation_publication(uuid,uuid,uuid,date,jsonb,jsonb)',
   'public.historical_reporting_available_weeks()',
   'public.historical_reporting_activity_for_weeks(date[])',
   'public.historical_reporting_students_for_weeks(date[])',
@@ -186,9 +194,12 @@ from unnest(array[
   'public.student_cohort_leaderboard_for_week(date)',
   'public.student_leaderboard_available_weeks()',
   'public.reconcile_historical_accountability_obligation(uuid,date)',
+  'public.prepare_teacher_rotation_publication(uuid,uuid,uuid,date)',
+  'public.rotation_publication_state_version_bump()',
   'public.enforce_student_accountability_attestation()',
   'public.set_student_scope_snapshot()',
   'public.validate_accountability_obligation_scope()',
+  'public.teacher_rotation_row_scope_matches()',
   'private.raw_profile_access_projection(uuid,date)',
   'private.raw_historical_scope_matches(uuid,date,uuid,uuid,uuid)',
   'private.raw_historical_report_activity_is_attributable(uuid,date,uuid,uuid,uuid)',
@@ -196,7 +207,13 @@ from unnest(array[
   'private.raw_can_open_current_student_profile(uuid,uuid)',
   'private.raw_historical_report_week_scopes()',
   'private.raw_student_reporting_week_is_allowed(uuid,date)',
-  'private.raw_historical_weekly_percentage(uuid,date)'
+  'private.raw_historical_weekly_percentage(uuid,date)',
+  'private.rotation_publication_state(uuid,date)',
+  'private.rotation_publication_normalize_assignments(jsonb,date)',
+  'private.assert_rotation_publication_setup(jsonb)',
+  'private.apply_rotation_publication(uuid,uuid,date,jsonb,jsonb,uuid,text)',
+  'private.ensure_rotation_publication_state_version(uuid)',
+  'private.bump_rotation_publication_state_version(uuid)'
 ]::text[]) as signatures(signature)
 join pg_proc as procedures on procedures.oid = to_regprocedure(signatures.signature)
 order by signatures.signature;
@@ -219,7 +236,15 @@ where not triggers.tgisinternal
     'enforce_group_hierarchy_readiness',
     'enforce_student_accountability_attestation_trigger',
     'set_accountability_obligations_scope_snapshot_trigger',
-    'validate_accountability_obligation_scope_trigger'
+    'validate_accountability_obligation_scope_trigger',
+    'rotation_publication_state_version_availability_trigger',
+    'rotation_publication_state_version_settings_trigger',
+    'rotation_publication_state_version_groups_trigger',
+    'rotation_publication_state_version_assignments_trigger',
+    'rotation_publication_state_version_cohorts_trigger',
+    'rotation_publication_state_version_masajid_trigger',
+    'rotation_publication_state_version_staff_trigger',
+    'rotation_publication_state_version_profiles_trigger'
   )
 order by namespaces.nspname, relations.relname, triggers.tgname;
 
@@ -239,6 +264,8 @@ from unnest(array[
   'public.apply_super_admin_access_change(uuid,uuid,uuid,text,date,uuid,uuid,jsonb)',
   'public.apply_super_admin_masjid_staff_grant(uuid,uuid,uuid,uuid,text,date,jsonb)',
   'public.apply_super_admin_staff_membership_end(uuid,uuid,uuid,uuid,date,jsonb)',
+  'public.apply_teacher_rotation_generation(uuid,date,uuid,jsonb,jsonb,jsonb,jsonb,jsonb,integer,integer,integer,integer)',
+  'public.apply_teacher_rotation_publication(uuid,uuid,uuid,date,jsonb,jsonb)',
   'public.historical_reporting_available_weeks()',
   'public.historical_reporting_activity_for_weeks(date[])',
   'public.historical_reporting_students_for_weeks(date[])',
@@ -246,9 +273,12 @@ from unnest(array[
   'public.student_cohort_leaderboard_for_week(date)',
   'public.student_leaderboard_available_weeks()',
   'public.reconcile_historical_accountability_obligation(uuid,date)',
+  'public.prepare_teacher_rotation_publication(uuid,uuid,uuid,date)',
+  'public.rotation_publication_state_version_bump()',
   'public.enforce_student_accountability_attestation()',
   'public.set_student_scope_snapshot()',
   'public.validate_accountability_obligation_scope()',
+  'public.teacher_rotation_row_scope_matches()',
   'private.raw_profile_access_projection(uuid,date)',
   'private.raw_historical_scope_matches(uuid,date,uuid,uuid,uuid)',
   'private.raw_historical_report_activity_is_attributable(uuid,date,uuid,uuid,uuid)',
@@ -271,6 +301,36 @@ base_audit_output="$temp_root/pre-deployment-audit.txt"
 docker exec -i "$db_container" psql \
   --set ON_ERROR_STOP=1 --username postgres --dbname postgres --no-psqlrc \
   < "$repo_root/scripts/audit-access-transition-rollout.sql" > "$base_audit_output"
+
+if [[ "$slice5_is_forward" == true ]]; then
+  # This is intentionally a same-database upgrade assertion. Function OIDs
+  # are local to a PostgreSQL cluster, so comparing a clean-install cluster to
+  # an upgrade cluster cannot prove that an inventory replacement retained the
+  # existing registrations. Apply only Slice 5 to this disposable base stack
+  # and require every pre-Slice-5 registered SECURITY DEFINER OID to remain.
+  base_definer_oids="$temp_root/base-application-security-definer-oids.txt"
+  upgraded_definer_oids="$temp_root/upgraded-application-security-definer-oids.txt"
+  docker exec -i "$db_container" psql \
+    --set ON_ERROR_STOP=1 --username postgres --dbname postgres --no-psqlrc \
+    --tuples-only --no-align \
+    -c 'select function_oid from private.application_security_definer_oids() order by function_oid' \
+    > "$base_definer_oids"
+  docker exec -i "$db_container" psql \
+    --set ON_ERROR_STOP=1 --username postgres --dbname postgres --no-psqlrc \
+    < "$repo_root/$slice5_migration"
+  docker exec -i "$db_container" psql \
+    --set ON_ERROR_STOP=1 --username postgres --dbname postgres --no-psqlrc \
+    --tuples-only --no-align \
+    -c 'select function_oid from private.application_security_definer_oids() order by function_oid' \
+    > "$upgraded_definer_oids"
+  missing_definer_oids="$(comm -23 "$base_definer_oids" "$upgraded_definer_oids")"
+  if [[ -n "$missing_definer_oids" ]]; then
+    echo "Slice 5 removed pre-existing application SECURITY DEFINER OIDs:" >&2
+    printf '%s\n' "$missing_definer_oids" >&2
+    exit 1
+  fi
+  echo "Slice 5 SECURITY DEFINER inventory regression passed: all pre-existing OIDs remain registered."
+fi
 stop_stack
 
 echo "Building the clean final migration tree..."
@@ -291,6 +351,7 @@ eval "$(cd "$upgrade_root" && "$supabase_cli" status -o env)"
   export RLS_SUPABASE_URL="$API_URL"
   export RLS_SUPABASE_ANON_KEY="$ANON_KEY"
   export RLS_SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY"
+  export RLS_DB_CONTAINER="$db_container"
   cd "$repo_root"
   npx --no-install tsx scripts/test-rls.ts
   if [[ "$rollout_compatibility_mode" == true ]]; then

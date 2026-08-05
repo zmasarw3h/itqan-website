@@ -117,8 +117,11 @@ The `authenticated` role can execute only these caller-relative definer function
   `admin_students_for_week(date)`, plus the atomic, actor-scoped
   `apply_admin_checkin_correction(uuid,date,text,text,text[])` mutation.
 
-`apply_teacher_rotation_generation(...)` is service-role-only and repeats actor/cohort scope validation
-inside the transaction while calling the same Saturday-eligibility predicate as direct assignment writes.
+`prepare_teacher_rotation_publication(...)` and `apply_teacher_rotation_publication(...)` are
+service-role-only. They independently validate a current Toronto-civil-date admin/super-admin actor,
+enforce Saturday eligibility plus an exact `available = true` row, and compare canonical prepared state
+under a cohort/week advisory lock. Browser roles cannot execute either RPC. The legacy generation RPC is
+also service-role-only and guarded, but temporarily has no request-ID stale-state protection.
 The Phase 1A functions `apply_scoped_user_setup(...)`,
 `get_scoped_user_setup_request_result(...)`, `get_scoped_user_setup_auth_recovery(...)`,
 `get_person_access_state(uuid,uuid)`, `apply_super_admin_access_change(...)`,

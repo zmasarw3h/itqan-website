@@ -420,3 +420,14 @@ The command refuses non-local URLs, uses the service role only for fixture setup
 every data-authorization assertion through signed-in anon-key clients. A separate catalog assertion,
 executed inside the disposable Postgres container, verifies the exhaustive `SECURITY DEFINER` grant set
 and empty `search_path` configuration; it never connects to a remote database.
+
+### Rotation publication integrity
+
+On the disposable database, verify the new service-only prepare/apply RPCs are browser-denied but still
+validate the claimed actor. Cover exact true/false/missing availability, wrong cohort/week availability,
+Saturday start/end boundaries, Admin + Teacher capability, duplicate group/teacher payloads, foreign
+groups, and inactive scope. Prepare then mutate availability, group activity/order, settings, staff,
+profile activity, assignment, cohort, and masjid; every apply must be stale. An exact request replay must
+return one original run; changed payload must fail. Two simultaneous same-cohort/week applies must result
+in one success and one stale conflict. Exercise the retained legacy signature with a valid available
+teacher and with unavailable/missing/ineligible teachers; counts from that caller are never authoritative.

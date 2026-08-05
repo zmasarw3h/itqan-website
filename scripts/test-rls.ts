@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { calculateDailySubmission, tasksForDate } from "../lib/scoring";
@@ -22,6 +23,7 @@ type UserName =
   | "adminB"
   | "teacherA"
   | "teacherB"
+  | "saturdayStartTeacher"
   | "fridayOnlyTeacher"
   | "expiredTeacher"
   | "futureTeacher"
@@ -166,6 +168,56 @@ function localClient(key: string) {
   });
 }
 
+function startLocalPsqlTransaction(sql: string, readyMarker: string) {
+  const dbContainer = process.env.RLS_DB_CONTAINER;
+  if (!dbContainer) {
+    throw new Error("Missing RLS_DB_CONTAINER for the rotation publication transaction race test.");
+  }
+
+  const writer = spawn(
+    "docker",
+    ["exec", "-i", dbContainer, "psql", "--set", "ON_ERROR_STOP=1", "--username", "postgres", "--dbname", "postgres"],
+    { stdio: ["pipe", "pipe", "pipe"] }
+  );
+  let output = "";
+  let stderr = "";
+  let readySettled = false;
+  let resolveReady: (() => void) | undefined;
+  let rejectReady: ((reason: Error) => void) | undefined;
+  const ready = new Promise<void>((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+  const completion = new Promise<void>((resolve, reject) => {
+    writer.on("error", reject);
+    writer.on("close", (code) => {
+      if (!readySettled) {
+        readySettled = true;
+        rejectReady?.(new Error(`transaction writer exited before ${readyMarker}: ${stderr || output}`));
+      }
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`transaction writer failed with exit code ${code}: ${stderr || output}`));
+      }
+    });
+  });
+
+  writer.stdout.on("data", (chunk: Buffer) => {
+    output += chunk.toString();
+    if (!readySettled && output.includes(readyMarker)) {
+      readySettled = true;
+      resolveReady?.();
+    }
+  });
+  writer.stderr.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString();
+  });
+  writer.stdin.end(sql);
+
+  return { ready, completion };
+}
+
 async function requireData<T>(label: string, promise: PromiseLike<{ data: T | null; error: { message: string } | null }>) {
   const { data, error } = await promise;
   assert.equal(error, null, `${label}: ${error?.message ?? "missing data"}`);
@@ -203,6 +255,7 @@ async function seed(): Promise<SeedIds> {
     "adminB",
     "teacherA",
     "teacherB",
+    "saturdayStartTeacher",
     "fridayOnlyTeacher",
     "expiredTeacher",
     "futureTeacher",
@@ -414,6 +467,13 @@ async function seed(): Promise<SeedIds> {
       { profile_id: users.teacherA, masjid_id: masjidA, staff_role: "teacher", active: true, starts_on: startsOn },
       { profile_id: users.teacherB, masjid_id: masjidB, staff_role: "teacher", active: true, starts_on: startsOn },
       {
+        profile_id: users.saturdayStartTeacher,
+        masjid_id: masjidA,
+        staff_role: "teacher",
+        active: true,
+        starts_on: addDays(weekStart, 6)
+      },
+      {
         profile_id: users.fridayOnlyTeacher,
         masjid_id: masjidA,
         staff_role: "teacher",
@@ -506,6 +566,31 @@ async function seed(): Promise<SeedIds> {
       }
     })
   );
+
+  // Seed exact positive availability before writing active assignments.  The
+  // Slice 5 direct-write trigger deliberately enforces this same invariant
+  // even for service-role maintenance writes. Friday-only and historical
+  // fixtures are valid at insertion time and are subsequently moved across
+  // their intended Saturday-boundary cases below.
+  const availability = await requireData<Array<{ id: string; masjid_id: string; cohort_id: string; teacher_id: string; week_start: string }>>(
+    "insert availability",
+    admin.from("teacher_rotation_availability").insert([
+      { teacher_id: users.teacherA, masjid_id: masjidA, cohort_id: cohortA, week_start: weekStart, available: true },
+      { teacher_id: users.adminA, masjid_id: masjidA, cohort_id: cohortA, week_start: weekStart, available: true },
+      { teacher_id: users.fridayOnlyTeacher, masjid_id: masjidA, cohort_id: cohortA, week_start: weekStart, available: true },
+      { teacher_id: users.teacherA, masjid_id: masjidA, cohort_id: cohortWriter, week_start: weekStart, available: true },
+      { teacher_id: users.teacherA, masjid_id: masjidA, cohort_id: cohortWriter, week_start: previousWeekStart, available: true },
+      { teacher_id: users.teacherB, masjid_id: masjidB, cohort_id: cohortB, week_start: weekStart, available: true },
+      { teacher_id: users.expiredAssignmentTeacher, masjid_id: masjidA, cohort_id: cohortA, week_start: previousWeekStart, available: true },
+      { teacher_id: users.futureAssignmentTeacher, masjid_id: masjidA, cohort_id: cohortA, week_start: addDays(weekStart, 7), available: true }
+    ]).select("id,masjid_id,cohort_id,teacher_id,week_start")
+  );
+  const availabilityA = availability.find(
+    (row) => row.teacher_id === users.teacherA && row.cohort_id === cohortA && row.week_start === weekStart
+  )!.id;
+  const availabilityB = availability.find(
+    (row) => row.teacher_id === users.teacherB && row.cohort_id === cohortB && row.week_start === weekStart
+  )!.id;
 
   const assignments = await requireData<Array<{ id: string; group_id: string; teacher_id: string }>>(
     "insert teacher assignments",
@@ -735,16 +820,6 @@ async function seed(): Promise<SeedIds> {
   );
   const badgeA = badges.find((row) => row.student_id === users.studentA)!.id;
   const badgeB = badges.find((row) => row.student_id === users.studentB)!.id;
-
-  const availability = await requireData<Array<{ id: string; masjid_id: string }>>(
-    "insert availability",
-    admin.from("teacher_rotation_availability").insert([
-      { teacher_id: users.teacherA, masjid_id: masjidA, cohort_id: cohortA, week_start: weekStart, available: true },
-      { teacher_id: users.teacherB, masjid_id: masjidB, cohort_id: cohortB, week_start: weekStart, available: true }
-    ]).select("id,masjid_id")
-  );
-  const availabilityA = availability.find((row) => row.masjid_id === masjidA)!.id;
-  const availabilityB = availability.find((row) => row.masjid_id === masjidB)!.id;
 
   const settings = await requireData<Array<{ id: string; masjid_id: string }>>(
     "insert rotation settings",
@@ -4555,6 +4630,35 @@ async function runAssertions(ids: SeedIds) {
       .eq("starts_on", ids.civilToday)
   );
   const deactivationFutureStaffMembership = futureSameRoleTeacherMembership;
+  await requireData<Array<{ id: string }>>(
+    "create exact availability for immediate-deactivation assignments",
+    service
+      .from("teacher_rotation_availability")
+      .insert([
+        {
+          teacher_id: ids.users.profileTarget,
+          masjid_id: ids.masjidA,
+          cohort_id: ids.cohortA,
+          week_start: ids.previousWeekStart,
+          available: true
+        },
+        {
+          teacher_id: ids.users.profileTarget,
+          masjid_id: ids.masjidA,
+          cohort_id: ids.cohortA,
+          week_start: ids.weekStart,
+          available: true
+        },
+        {
+          teacher_id: ids.users.profileTarget,
+          masjid_id: ids.masjidB,
+          cohort_id: ids.cohortB,
+          week_start: addDays(ids.weekStart, 7),
+          available: true
+        }
+      ])
+      .select("id")
+  );
   const deactivationAssignments = await requireData<Array<{ id: string; week_start: string }>>(
     "create immediate-deactivation assignments",
     service
@@ -4699,6 +4803,12 @@ async function runAssertions(ids: SeedIds) {
   await assertHidden(profileTarget, "masjid_staff_memberships", deactivationCurrentStaffMembership.id);
   await assertHidden(profileTarget, "student_group_memberships", deactivationCurrentStudentMembership.id);
 
+  const temporaryGroupCleanup = await service
+    .from("halaqa_groups")
+    .update({ active: false })
+    .in("id", [deactivationCurrentGroup.id, deactivationFutureGroup.id]);
+  assert.equal(temporaryGroupCleanup.error, null, temporaryGroupCleanup.error?.message);
+
   // The current week's Saturday is the authorization event. A teacher who
   // starts on that Saturday (and whose membership ends that day) is eligible
   // for this Sunday-Saturday tracker week, even before their first civil day
@@ -4711,6 +4821,14 @@ async function runAssertions(ids: SeedIds) {
     .eq("masjid_id", ids.masjidA)
     .eq("staff_role", "teacher");
   assert.equal(saturdayStartStaff.error, null, saturdayStartStaff.error?.message);
+  const saturdayStartAvailability = await service.from("teacher_rotation_availability").upsert({
+    teacher_id: ids.users.futureTeacher,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  }, { onConflict: "teacher_id,cohort_id,week_start" });
+  assert.equal(saturdayStartAvailability.error, null, saturdayStartAvailability.error?.message);
   const saturdayStartAssignment = await service
     .from("group_teacher_assignments")
     .update({ teacher_id: ids.users.futureTeacher })
@@ -5116,9 +5234,876 @@ async function runAssertions(ids: SeedIds) {
   assert.equal(peerOwn?.length, 1, "second same-cohort student should retain own data");
 }
 
+async function testRotationPublicationIntegrity(ids: SeedIds) {
+  const service = localClient(serviceRoleKey);
+  const adminA = await signIn("adminA");
+  const groups = (await requireData<Array<{ id: string }>>(
+    "read canonical active groups for rotation publication",
+    service
+      .from("halaqa_groups")
+      .select("id")
+      .eq("cohort_id", ids.cohortA)
+      .eq("active", true)
+      .order("sort_order")
+      .order("name")
+      .order("created_at")
+      .order("id")
+  )).map(({ id }) => id);
+  const desiredAssignments = [
+    { group_id: ids.groupA, teacher_id: ids.users.teacherA, week_start: ids.weekStart },
+    { group_id: ids.groupAdminTeacher, teacher_id: ids.users.adminA, week_start: ids.weekStart }
+  ];
+
+  const { error: browserPrepareError } = await adminA.rpc("prepare_teacher_rotation_publication", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.ok(browserPrepareError, "authenticated users can execute the service-only publication prepare RPC");
+
+  const unavailableDirectAvailability = await service
+    .from("teacher_rotation_availability")
+    .update({ available: false })
+    .eq("teacher_id", ids.users.teacherA)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(unavailableDirectAvailability.error, null, unavailableDirectAvailability.error?.message);
+  const directUnavailableAssignment = await adminA
+    .from("group_teacher_assignments")
+    .upsert({
+      group_id: ids.groupFridayOnly,
+      teacher_id: ids.users.teacherA,
+      week_start: ids.weekStart,
+      active: true,
+      assigned_by: ids.users.adminA
+    }, { onConflict: "group_id,week_start" });
+  assert.ok(
+    directUnavailableAssignment.error?.message.includes(
+      "teacher_assignment_requires_exact_available_teacher_rotation_availability"
+    ),
+    "a scoped signed-in admin bypassed exact availability through a direct assignment write"
+  );
+  const restoreDirectAvailability = await service
+    .from("teacher_rotation_availability")
+    .update({ available: true })
+    .eq("teacher_id", ids.users.teacherA)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(restoreDirectAvailability.error, null, restoreDirectAvailability.error?.message);
+
+  const directDuplicateTeacherAssignment = await adminA
+    .from("group_teacher_assignments")
+    .upsert({
+      group_id: ids.groupFridayOnly,
+      teacher_id: ids.users.teacherA,
+      week_start: ids.weekStart,
+      active: true,
+      assigned_by: ids.users.adminA
+    }, { onConflict: "group_id,week_start" });
+  assert.ok(
+    directDuplicateTeacherAssignment.error?.message.includes(
+      "teacher_assignment_duplicate_active_teacher_for_cohort_week"
+    ),
+    "a scoped signed-in admin assigned one available teacher to two cohort groups in the same week"
+  );
+
+  const unrelatedAssignmentBefore = await requireData<{ teacher_id: string; active: boolean }>(
+    "read unrelated cohort assignment before publication",
+    service
+      .from("group_teacher_assignments")
+      .select("teacher_id,active")
+      .eq("id", ids.assignmentWriter)
+      .single()
+  );
+  const saturdayStartObsoleteAvailability = await service.from("teacher_rotation_availability").upsert({
+    teacher_id: ids.users.saturdayStartTeacher,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  }, { onConflict: "teacher_id,cohort_id,week_start" });
+  assert.equal(
+    saturdayStartObsoleteAvailability.error,
+    null,
+    saturdayStartObsoleteAvailability.error?.message
+  );
+  const obsoleteAssignment = await service.from("group_teacher_assignments").upsert({
+    group_id: ids.groupFridayOnly,
+    teacher_id: ids.users.saturdayStartTeacher,
+    week_start: ids.weekStart,
+    active: true,
+    assigned_by: ids.users.adminA
+  }, { onConflict: "group_id,week_start" });
+  assert.equal(obsoleteAssignment.error, null, obsoleteAssignment.error?.message);
+
+  const settingsUpdate = await service
+    .from("cohort_rotation_settings")
+    .update({ target_group_count: groups.length })
+    .eq("id", ids.settingA);
+  assert.equal(settingsUpdate.error, null, settingsUpdate.error?.message);
+
+  const availabilityUpsert = await service.from("teacher_rotation_availability").upsert({
+    teacher_id: ids.users.adminA,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  }, { onConflict: "teacher_id,cohort_id,week_start" });
+  assert.equal(availabilityUpsert.error, null, availabilityUpsert.error?.message);
+
+  const requestId = randomUUID();
+  const prepared = await service.rpc("prepare_teacher_rotation_publication", {
+    input_request_id: requestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(prepared.error, null, `rotation prepare failed: ${prepared.error?.message}`);
+  assert.ok(prepared.data, "rotation prepare returned no expected state");
+  const expectedState = prepared.data;
+  assert.equal(expectedState?.week_start, ids.weekStart, "prepared snapshot has the wrong tracker week");
+  assert.equal(
+    expectedState?.halaqa_saturday,
+    addDays(ids.weekStart, 6),
+    "prepared snapshot did not expose the Saturday halaqa date"
+  );
+  const preparedAvailableTeacherIds = ((expectedState?.planner?.eligible_teachers ?? []) as Array<{
+    id: string;
+    available: boolean;
+  }>)
+    .filter(({ available }) => available)
+    .map(({ id }) => id);
+  const expectedWarningCodes = [
+    "UNASSIGNED_GROUPS",
+    ...(preparedAvailableTeacherIds.some((teacherId) => !desiredAssignments.some(({ teacher_id }) => teacher_id === teacherId))
+      ? ["EXTRA_TEACHERS"]
+      : [])
+  ];
+
+  const applied = await service.rpc("apply_teacher_rotation_publication", {
+    input_request_id: requestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_expected_state: expectedState,
+    input_desired_assignments: desiredAssignments
+  });
+  assert.equal(applied.error, null, `rotation apply failed: ${applied.error?.message}`);
+  assert.equal(applied.data?.assigned_count, 2, "publication did not derive assigned count");
+  assert.deepEqual(
+    applied.data?.unassigned_group_ids,
+    groups.filter((groupId) => !desiredAssignments.some(({ group_id }) => group_id === groupId))
+  );
+  assert.deepEqual(applied.data?.warning_codes, expectedWarningCodes);
+  const obsoleteAssignmentAfter = await requireData<{ active: boolean }>(
+    "read deactivated obsolete assignment",
+    service
+      .from("group_teacher_assignments")
+      .select("active")
+      .eq("group_id", ids.groupFridayOnly)
+      .eq("week_start", ids.weekStart)
+      .single()
+  );
+  assert.equal(obsoleteAssignmentAfter.active, false, "publication did not deactivate an obsolete active group assignment");
+  const unrelatedAssignmentAfter = await requireData<{ teacher_id: string; active: boolean }>(
+    "read unrelated cohort assignment after publication",
+    service
+      .from("group_teacher_assignments")
+      .select("teacher_id,active")
+      .eq("id", ids.assignmentWriter)
+      .single()
+  );
+  assert.deepEqual(unrelatedAssignmentAfter, unrelatedAssignmentBefore, "publication changed an unrelated cohort/week assignment");
+
+  const replay = await service.rpc("apply_teacher_rotation_publication", {
+    input_request_id: requestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_expected_state: expectedState,
+    input_desired_assignments: desiredAssignments
+  });
+  assert.equal(replay.error, null, `exact publication replay failed: ${replay.error?.message}`);
+  assert.deepEqual(replay.data, applied.data, "exact publication replay did not return the original result");
+
+  const { data: idempotentRuns, error: idempotentRunsError } = await service
+    .from("teacher_rotation_runs")
+    .select("id,available_teacher_count,group_count,assigned_count,warning_count,warning_codes")
+    .eq("request_id", requestId);
+  assert.equal(idempotentRunsError, null, idempotentRunsError?.message);
+  assert.equal(idempotentRuns?.length, 1, "exact replay created another rotation run");
+  assert.deepEqual(idempotentRuns?.[0]?.warning_codes, expectedWarningCodes);
+
+  const changedReplay = await service.rpc("apply_teacher_rotation_publication", {
+    input_request_id: requestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_expected_state: expectedState,
+    input_desired_assignments: desiredAssignments.slice(0, 1)
+  });
+  assert.ok(changedReplay.error, "request ID reuse with changed assignments was accepted");
+
+  async function expectPreparedPublicationToBecomeStale(
+    label: string,
+    mutate: () => Promise<void>
+  ) {
+    const staleRequestId = randomUUID();
+    const stalePrepared = await service.rpc("prepare_teacher_rotation_publication", {
+      input_request_id: staleRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart
+    });
+    assert.equal(stalePrepared.error, null, `${label} prepare failed: ${stalePrepared.error?.message}`);
+    await mutate();
+    const staleApply = await service.rpc("apply_teacher_rotation_publication", {
+      input_request_id: staleRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart,
+      input_expected_state: stalePrepared.data,
+      input_desired_assignments: desiredAssignments
+    });
+    assert.deepEqual(
+      { code: staleApply.error?.code, message: staleApply.error?.message },
+      { code: "PT412", message: "rotation_publication_stale_state" },
+      `${label} did not invalidate the prepared publication: ${staleApply.error?.message}`
+    );
+  }
+
+  async function expectPublicationToRejectUnavailableTeacher(label: string) {
+    const unavailableRequestId = randomUUID();
+    const unavailablePrepared = await service.rpc("prepare_teacher_rotation_publication", {
+      input_request_id: unavailableRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart
+    });
+    assert.equal(unavailablePrepared.error, null, `${label} prepare failed: ${unavailablePrepared.error?.message}`);
+    const unavailableApply = await service.rpc("apply_teacher_rotation_publication", {
+      input_request_id: unavailableRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart,
+      input_expected_state: unavailablePrepared.data,
+      input_desired_assignments: desiredAssignments
+    });
+    assert.ok(
+      unavailableApply.error?.message.includes("rotation_publication_teacher_unavailable_or_ineligible"),
+      `${label} publication accepted a teacher without its exact positive availability row`
+    );
+  }
+
+  await expectPreparedPublicationToBecomeStale("group activity", async () => {
+    const result = await service.from("halaqa_groups").update({ active: false }).eq("id", ids.groupFridayOnly);
+    assert.equal(result.error, null, result.error?.message);
+  });
+  const restoreGroupActivity = await service.from("halaqa_groups").update({ active: true }).eq("id", ids.groupFridayOnly);
+  assert.equal(restoreGroupActivity.error, null, restoreGroupActivity.error?.message);
+
+  await expectPreparedPublicationToBecomeStale("group ordering", async () => {
+    const result = await service.from("halaqa_groups").update({ sort_order: 999 }).eq("id", ids.groupFridayOnly);
+    assert.equal(result.error, null, result.error?.message);
+  });
+  const restoreGroupOrdering = await service.from("halaqa_groups").update({ sort_order: 17 }).eq("id", ids.groupFridayOnly);
+  assert.equal(restoreGroupOrdering.error, null, restoreGroupOrdering.error?.message);
+
+  await expectPreparedPublicationToBecomeStale("rotation settings", async () => {
+    const result = await service.from("cohort_rotation_settings").update({ target_group_count: 2 }).eq("id", ids.settingA);
+    assert.equal(result.error, null, result.error?.message);
+  });
+  const restoreRotationSettings = await service
+    .from("cohort_rotation_settings")
+    .update({ target_group_count: groups.length })
+    .eq("id", ids.settingA);
+  assert.equal(restoreRotationSettings.error, null, restoreRotationSettings.error?.message);
+
+  const teacherAMembership = await requireData<{ id: string }>(
+    "read Teacher A staff membership for publication staleness",
+    service
+      .from("masjid_staff_memberships")
+      .select("id")
+      .eq("profile_id", ids.users.teacherA)
+      .eq("masjid_id", ids.masjidA)
+      .eq("staff_role", "teacher")
+      .single()
+  );
+  await expectPreparedPublicationToBecomeStale("teacher membership", async () => {
+    const result = await service.from("masjid_staff_memberships").update({ active: false }).eq("id", teacherAMembership.id);
+    assert.equal(result.error, null, result.error?.message);
+  });
+  const restoreTeacherMembership = await service
+    .from("masjid_staff_memberships")
+    .update({ active: true })
+    .eq("id", teacherAMembership.id);
+  assert.equal(restoreTeacherMembership.error, null, restoreTeacherMembership.error?.message);
+
+  await expectPreparedPublicationToBecomeStale("teacher profile activity", async () => {
+    const result = await service.from("profiles").update({ active: false }).eq("id", ids.users.teacherA);
+    assert.equal(result.error, null, result.error?.message);
+  });
+  const restoreTeacherProfile = await service.from("profiles").update({ active: true }).eq("id", ids.users.teacherA);
+  assert.equal(restoreTeacherProfile.error, null, restoreTeacherProfile.error?.message);
+
+  await expectPreparedPublicationToBecomeStale("current assignment", async () => {
+    const result = await service
+      .from("group_teacher_assignments")
+      .update({ assigned_by: ids.users.superAdmin })
+      .eq("id", ids.assignmentA);
+    assert.equal(result.error, null, result.error?.message);
+  });
+
+  await expectPreparedPublicationToBecomeStale("masjid activity", async () => {
+    const result = await service.from("masajid").update({ active: false }).eq("id", ids.masjidA);
+    assert.equal(result.error, null, result.error?.message);
+  });
+  const restoreMasjidActivity = await service.from("masajid").update({ active: true }).eq("id", ids.masjidA);
+  assert.equal(restoreMasjidActivity.error, null, restoreMasjidActivity.error?.message);
+
+  await expectPreparedPublicationToBecomeStale("cohort activity", async () => {
+    const result = await service.from("cohorts").update({ active: false }).eq("id", ids.cohortA);
+    assert.equal(result.error, null, result.error?.message);
+  });
+  const restoreCohortActivity = await service.from("cohorts").update({ active: true }).eq("id", ids.cohortA);
+  assert.equal(restoreCohortActivity.error, null, restoreCohortActivity.error?.message);
+
+  const staleRequestId = randomUUID();
+  const stalePrepared = await service.rpc("prepare_teacher_rotation_publication", {
+    input_request_id: staleRequestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(stalePrepared.error, null, stalePrepared.error?.message);
+  const staleAvailability = await service
+    .from("teacher_rotation_availability")
+    .update({ available: false })
+    .eq("teacher_id", ids.users.adminA)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(staleAvailability.error, null, staleAvailability.error?.message);
+  const staleApply = await service.rpc("apply_teacher_rotation_publication", {
+    input_request_id: staleRequestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_expected_state: stalePrepared.data,
+    input_desired_assignments: desiredAssignments
+  });
+  assert.deepEqual(
+    { code: staleApply.error?.code, message: staleApply.error?.message },
+    { code: "PT412", message: "rotation_publication_stale_state" },
+    "availability change did not stale the prepared publication"
+  );
+
+  await expectPublicationToRejectUnavailableTeacher("false availability");
+
+  const restoreAvailability = await service
+    .from("teacher_rotation_availability")
+    .update({ available: true })
+    .eq("teacher_id", ids.users.adminA)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(restoreAvailability.error, null, restoreAvailability.error?.message);
+
+  const missingAvailability = await service
+    .from("teacher_rotation_availability")
+    .delete()
+    .eq("teacher_id", ids.users.adminA)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(missingAvailability.error, null, missingAvailability.error?.message);
+  await expectPublicationToRejectUnavailableTeacher("missing availability");
+
+  const legacyUnavailable = await service.rpc("apply_teacher_rotation_generation", {
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_generated_by: ids.users.adminA,
+    membership_closes: [],
+    membership_inserts: [],
+    membership_replaces: [],
+    assignment_upserts: desiredAssignments,
+    assignment_deactivations: [],
+    available_teacher_count: 99,
+    group_count: 99,
+    assigned_count: 99,
+    warning_count: 99
+  });
+  assert.ok(
+    legacyUnavailable.error?.message.includes("rotation_publication_teacher_unavailable_or_ineligible"),
+    "legacy publication accepted a teacher without an exact available row"
+  );
+
+  const reinsertAvailability = await service.from("teacher_rotation_availability").insert({
+    teacher_id: ids.users.adminA,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  });
+  assert.equal(reinsertAvailability.error, null, reinsertAvailability.error?.message);
+
+  const legacyValid = await service.rpc("apply_teacher_rotation_generation", {
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_generated_by: ids.users.adminA,
+    membership_closes: [],
+    membership_inserts: [],
+    membership_replaces: [],
+    assignment_upserts: desiredAssignments,
+    assignment_deactivations: [{ group_id: ids.groupWriter, week_start: ids.weekStart }],
+    available_teacher_count: 999,
+    group_count: 999,
+    assigned_count: 999,
+    warning_count: 999
+  });
+  assert.equal(legacyValid.error, null, `legacy valid publication failed: ${legacyValid.error?.message}`);
+  assert.ok(legacyValid.data, "legacy valid publication returned no run ID");
+  const legacyRun = await requireData<{
+    available_teacher_count: number;
+    group_count: number;
+    assigned_count: number;
+    warning_count: number;
+    warning_codes: string[];
+  }>(
+    "read canonical legacy rotation outcome",
+    service
+      .from("teacher_rotation_runs")
+      .select("available_teacher_count,group_count,assigned_count,warning_count,warning_codes")
+      .eq("id", legacyValid.data)
+      .single()
+  );
+  assert.deepEqual(
+    legacyRun,
+    {
+      available_teacher_count: preparedAvailableTeacherIds.length,
+      group_count: groups.length,
+      assigned_count: desiredAssignments.length,
+      warning_count: expectedWarningCodes.length,
+      warning_codes: expectedWarningCodes
+    },
+    "legacy compatibility path trusted caller-provided rotation outcome counts"
+  );
+
+  const removeTeacherAExactAvailability = await service
+    .from("teacher_rotation_availability")
+    .delete()
+    .eq("teacher_id", ids.users.teacherA)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(removeTeacherAExactAvailability.error, null, removeTeacherAExactAvailability.error?.message);
+  await expectPublicationToRejectUnavailableTeacher("availability from another cohort");
+  const restoreTeacherAExactAvailability = await service.from("teacher_rotation_availability").insert({
+    teacher_id: ids.users.teacherA,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  });
+  assert.equal(restoreTeacherAExactAvailability.error, null, restoreTeacherAExactAvailability.error?.message);
+
+  const otherWeekAvailability = await service.from("teacher_rotation_availability").insert({
+    teacher_id: ids.users.adminA,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: addDays(ids.weekStart, 7),
+    available: true
+  });
+  assert.equal(otherWeekAvailability.error, null, otherWeekAvailability.error?.message);
+  const removeAdminAExactAvailability = await service
+    .from("teacher_rotation_availability")
+    .delete()
+    .eq("teacher_id", ids.users.adminA)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(removeAdminAExactAvailability.error, null, removeAdminAExactAvailability.error?.message);
+  await expectPublicationToRejectUnavailableTeacher("availability from another tracker week");
+  const restoreAdminAExactAvailability = await service.from("teacher_rotation_availability").insert({
+    teacher_id: ids.users.adminA,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  });
+  assert.equal(restoreAdminAExactAvailability.error, null, restoreAdminAExactAvailability.error?.message);
+
+  // Row locks cannot see an absent availability row. Hold the version update
+  // lock in a real INSERT transaction while apply reaches its final shared
+  // version lock: it must wait, then observe the committed insert and return
+  // the deterministic stale result rather than publishing the old snapshot.
+  const removeSaturdayStartAvailabilityForRace = await service
+    .from("teacher_rotation_availability")
+    .delete()
+    .eq("teacher_id", ids.users.saturdayStartTeacher)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(
+    removeSaturdayStartAvailabilityForRace.error,
+    null,
+    removeSaturdayStartAvailabilityForRace.error?.message
+  );
+  const absentAvailabilityRaceRequestId = randomUUID();
+  const absentAvailabilityRacePrepared = await service.rpc("prepare_teacher_rotation_publication", {
+    input_request_id: absentAvailabilityRaceRequestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(
+    absentAvailabilityRacePrepared.error,
+    null,
+    absentAvailabilityRacePrepared.error?.message
+  );
+  const absentAvailabilityRaceMarker = "rotation_publication_absent_availability_ready";
+  const absentAvailabilityWriter = startLocalPsqlTransaction(
+    `begin;
+insert into public.teacher_rotation_availability (teacher_id, masjid_id, cohort_id, week_start, available)
+values ('${ids.users.saturdayStartTeacher}'::uuid, '${ids.masjidA}'::uuid, '${ids.cohortA}'::uuid, '${ids.weekStart}'::date, true);
+\\echo ${absentAvailabilityRaceMarker}
+select pg_sleep(0.75);
+commit;
+`,
+    absentAvailabilityRaceMarker
+  );
+  await absentAvailabilityWriter.ready;
+  const absentAvailabilityRaceApply = await service.rpc("apply_teacher_rotation_publication", {
+    input_request_id: absentAvailabilityRaceRequestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_expected_state: absentAvailabilityRacePrepared.data,
+    input_desired_assignments: desiredAssignments
+  });
+  await absentAvailabilityWriter.completion;
+  assert.deepEqual(
+    { code: absentAvailabilityRaceApply.error?.code, message: absentAvailabilityRaceApply.error?.message },
+    { code: "PT412", message: "rotation_publication_stale_state" },
+    "an inserted availability row raced past the final publication state comparison"
+  );
+  const removeSaturdayStartAvailabilityAfterRace = await service
+    .from("teacher_rotation_availability")
+    .delete()
+    .eq("teacher_id", ids.users.saturdayStartTeacher)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(
+    removeSaturdayStartAvailabilityAfterRace.error,
+    null,
+    removeSaturdayStartAvailabilityAfterRace.error?.message
+  );
+
+  // The corresponding existing-row interleaving verifies the lock order: the
+  // writer holds its availability row before the trigger holds the version;
+  // apply must wait for that writer and return stale, never deadlock.
+  const existingAvailabilityRaceRequestId = randomUUID();
+  const existingAvailabilityRacePrepared = await service.rpc("prepare_teacher_rotation_publication", {
+    input_request_id: existingAvailabilityRaceRequestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(
+    existingAvailabilityRacePrepared.error,
+    null,
+    existingAvailabilityRacePrepared.error?.message
+  );
+  const existingAvailabilityRaceMarker = "rotation_publication_existing_availability_ready";
+  const existingAvailabilityWriter = startLocalPsqlTransaction(
+    `begin;
+update public.teacher_rotation_availability
+set available = false
+where teacher_id = '${ids.users.adminA}'::uuid
+  and cohort_id = '${ids.cohortA}'::uuid
+  and week_start = '${ids.weekStart}'::date;
+\\echo ${existingAvailabilityRaceMarker}
+select pg_sleep(0.75);
+commit;
+`,
+    existingAvailabilityRaceMarker
+  );
+  await existingAvailabilityWriter.ready;
+  const existingAvailabilityRaceApply = await service.rpc("apply_teacher_rotation_publication", {
+    input_request_id: existingAvailabilityRaceRequestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_expected_state: existingAvailabilityRacePrepared.data,
+    input_desired_assignments: desiredAssignments
+  });
+  await existingAvailabilityWriter.completion;
+  assert.deepEqual(
+    { code: existingAvailabilityRaceApply.error?.code, message: existingAvailabilityRaceApply.error?.message },
+    { code: "PT412", message: "rotation_publication_stale_state" },
+    "an existing availability writer deadlocked with publication instead of producing stale state"
+  );
+  const restoreExistingAvailabilityAfterRace = await service
+    .from("teacher_rotation_availability")
+    .update({ available: true })
+    .eq("teacher_id", ids.users.adminA)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(
+    restoreExistingAvailabilityAfterRace.error,
+    null,
+    restoreExistingAvailabilityAfterRace.error?.message
+  );
+
+  const [concurrentA, concurrentB] = await Promise.all(
+    [randomUUID(), randomUUID()].map((concurrentRequestId) => service.rpc("prepare_teacher_rotation_publication", {
+      input_request_id: concurrentRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart
+    }).then((preparedResult) => ({ concurrentRequestId, preparedResult })))
+  );
+  assert.equal(concurrentA.preparedResult.error, null, concurrentA.preparedResult.error?.message);
+  assert.equal(concurrentB.preparedResult.error, null, concurrentB.preparedResult.error?.message);
+
+  const concurrentResults = await Promise.all([
+    service.rpc("apply_teacher_rotation_publication", {
+      input_request_id: concurrentA.concurrentRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart,
+      input_expected_state: concurrentA.preparedResult.data,
+      input_desired_assignments: desiredAssignments
+    }),
+    service.rpc("apply_teacher_rotation_publication", {
+      input_request_id: concurrentB.concurrentRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart,
+      input_expected_state: concurrentB.preparedResult.data,
+      input_desired_assignments: desiredAssignments
+    })
+  ]);
+  assert.equal(concurrentResults.filter((result) => !result.error).length, 1, "simultaneous publications both succeeded");
+  assert.equal(
+    concurrentResults.filter((result) => result.error?.code === "PT412" && result.error.message === "rotation_publication_stale_state").length,
+    1,
+    "losing concurrent publication did not return stale state"
+  );
+  const { count: concurrentRunCount, error: concurrentRunCountError } = await service
+    .from("teacher_rotation_runs")
+    .select("id", { count: "exact", head: true })
+    .in("request_id", [concurrentA.concurrentRequestId, concurrentB.concurrentRequestId]);
+  assert.equal(concurrentRunCountError, null, concurrentRunCountError?.message);
+  assert.equal(concurrentRunCount, 1, "simultaneous publications recorded more than one successful run");
+
+  async function expectAssignmentPayloadRejected(
+    label: string,
+    assignments: Array<{ group_id: string; teacher_id: string; week_start: string }>,
+    errorCode: string
+  ) {
+    const payloadRequestId = randomUUID();
+    const payloadPrepared = await service.rpc("prepare_teacher_rotation_publication", {
+      input_request_id: payloadRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart
+    });
+    assert.equal(payloadPrepared.error, null, `${label} prepare failed: ${payloadPrepared.error?.message}`);
+    const payloadApply = await service.rpc("apply_teacher_rotation_publication", {
+      input_request_id: payloadRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart,
+      input_expected_state: payloadPrepared.data,
+      input_desired_assignments: assignments
+    });
+    assert.ok(payloadApply.error?.message.includes(errorCode), `${label} was accepted: ${payloadApply.error?.message}`);
+  }
+
+  await expectAssignmentPayloadRejected(
+    "duplicate group",
+    [...desiredAssignments, { group_id: ids.groupA, teacher_id: ids.users.adminA, week_start: ids.weekStart }],
+    "rotation_publication_duplicate_group"
+  );
+  await expectAssignmentPayloadRejected(
+    "duplicate teacher",
+    [...desiredAssignments, { group_id: ids.groupFridayOnly, teacher_id: ids.users.teacherA, week_start: ids.weekStart }],
+    "rotation_publication_duplicate_teacher"
+  );
+  await expectAssignmentPayloadRejected(
+    "foreign-cohort group",
+    [{ group_id: ids.groupWriter, teacher_id: ids.users.teacherA, week_start: ids.weekStart }],
+    "rotation_publication_invalid_group"
+  );
+  await expectAssignmentPayloadRejected(
+    "teacher outside the canonical eligible set",
+    [{ group_id: ids.groupFridayOnly, teacher_id: ids.users.adminB, week_start: ids.weekStart }],
+    "rotation_publication_teacher_unavailable_or_ineligible"
+  );
+
+  const saturdayStartAvailability = await service.from("teacher_rotation_availability").upsert({
+    teacher_id: ids.users.saturdayStartTeacher,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  }, { onConflict: "teacher_id,cohort_id,week_start" });
+  assert.equal(saturdayStartAvailability.error, null, saturdayStartAvailability.error?.message);
+  const saturdayEndAvailability = await service.from("teacher_rotation_availability").insert({
+    teacher_id: ids.users.expiredAssignmentTeacher,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortWriter,
+    week_start: ids.previousWeekStart,
+    available: true
+  });
+  assert.equal(saturdayEndAvailability.error, null, saturdayEndAvailability.error?.message);
+  const afterSaturdayAvailability = await service.from("teacher_rotation_availability").insert({
+    teacher_id: ids.users.futureTeacher,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  });
+  assert.ok(afterSaturdayAvailability.error, "teacher whose membership starts after Saturday was marked available");
+  const adminWithoutTeacherAvailability = await service.from("teacher_rotation_availability").insert({
+    teacher_id: ids.users.adminB,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  });
+  assert.ok(adminWithoutTeacherAvailability.error, "admin without a teacher capability was marked available");
+  const forgedAvailabilityScope = await service.from("teacher_rotation_availability").insert({
+    teacher_id: ids.users.teacherA,
+    masjid_id: ids.masjidB,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  });
+  assert.ok(forgedAvailabilityScope.error, "forged cohort/masjid availability relationship was accepted");
+
+  const saturdayStartRequestId = randomUUID();
+  const saturdayStartPrepared = await service.rpc("prepare_teacher_rotation_publication", {
+    input_request_id: saturdayStartRequestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(saturdayStartPrepared.error, null, saturdayStartPrepared.error?.message);
+  const saturdayStartApply = await service.rpc("apply_teacher_rotation_publication", {
+    input_request_id: saturdayStartRequestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_expected_state: saturdayStartPrepared.data,
+    input_desired_assignments: [
+      ...desiredAssignments,
+      { group_id: ids.groupFridayOnly, teacher_id: ids.users.saturdayStartTeacher, week_start: ids.weekStart }
+    ]
+  });
+  assert.equal(saturdayStartApply.error, null, `Saturday-start teacher was rejected: ${saturdayStartApply.error?.message}`);
+  assert.equal(saturdayStartApply.data?.assigned_count, desiredAssignments.length + 1, "Saturday-start assignment was not counted");
+
+  const independentCohortRequestId = randomUUID();
+  const independentWeekRequestId = randomUUID();
+  const [independentCohortPrepared, independentWeekPrepared] = await Promise.all([
+    service.rpc("prepare_teacher_rotation_publication", {
+      input_request_id: independentCohortRequestId,
+      input_actor_id: ids.users.superAdmin,
+      input_cohort_id: ids.cohortB,
+      input_week_start: ids.weekStart
+    }),
+    service.rpc("prepare_teacher_rotation_publication", {
+      input_request_id: independentWeekRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: addDays(ids.weekStart, 7)
+    })
+  ]);
+  assert.equal(independentCohortPrepared.error, null, independentCohortPrepared.error?.message);
+  assert.equal(independentWeekPrepared.error, null, independentWeekPrepared.error?.message);
+  const independentPublications = await Promise.all([
+    service.rpc("apply_teacher_rotation_publication", {
+      input_request_id: independentCohortRequestId,
+      input_actor_id: ids.users.superAdmin,
+      input_cohort_id: ids.cohortB,
+      input_week_start: ids.weekStart,
+      input_expected_state: independentCohortPrepared.data,
+      input_desired_assignments: []
+    }),
+    service.rpc("apply_teacher_rotation_publication", {
+      input_request_id: independentWeekRequestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: addDays(ids.weekStart, 7),
+      input_expected_state: independentWeekPrepared.data,
+      input_desired_assignments: []
+    })
+  ]);
+  assert.ok(
+    independentPublications.every((publication) => !publication.error),
+    `independent cohort/week publications blocked one another: ${independentPublications.map((publication) => publication.error?.message).join(", ")}`
+  );
+
+  const nonSundayPrepare = await service.rpc("prepare_teacher_rotation_publication", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: addDays(ids.weekStart, 1)
+  });
+  assert.ok(nonSundayPrepare.error?.message.includes("rotation_publication_invalid_prepare_input"), "non-Sunday tracker week was accepted");
+
+  const unauthorizedPrepare = await service.rpc("prepare_teacher_rotation_publication", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortB,
+    input_week_start: ids.weekStart
+  });
+  assert.ok(unauthorizedPrepare.error?.message.includes("rotation_publication_unauthorized_actor"), "admin published another masjid");
+
+  for (const [label, actorId] of [
+    ["expired admin", ids.users.expiredAdmin],
+    ["inactive admin", ids.users.inactiveAdmin]
+  ] as const) {
+    const rejectedPrepare = await service.rpc("prepare_teacher_rotation_publication", {
+      input_request_id: randomUUID(),
+      input_actor_id: actorId,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart
+    });
+    assert.ok(rejectedPrepare.error?.message.includes("rotation_publication_unauthorized_actor"), `${label} was authorized`);
+  }
+
+  const superAdminPrepare = await service.rpc("prepare_teacher_rotation_publication", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_cohort_id: ids.cohortB,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(superAdminPrepare.error, null, `super admin prepare failed: ${superAdminPrepare.error?.message}`);
+
+  const deletedCohort = await requireData<{ id: string }>(
+    "create disposable cohort for rotation state-version delete trigger",
+    service
+      .from("cohorts")
+      .insert({
+        masjid_id: ids.masjidA,
+        kind: "brothers",
+        name: "Rotation Version Delete Fixture",
+        active: false,
+        sort_order: 99
+      })
+      .select("id")
+      .single()
+  );
+  const deleteCohort = await service.from("cohorts").delete().eq("id", deletedCohort.id);
+  assert.equal(
+    deleteCohort.error,
+    null,
+    "cohort deletion attempted to create a state-version row after the cohort foreign-key target was gone"
+  );
+}
+
 async function main() {
   const ids = await seed();
   await runAssertions(ids);
+  await testRotationPublicationIntegrity(ids);
   console.log("RLS integration suite passed: signed-session multi-masjid boundaries are enforced.");
 }
 

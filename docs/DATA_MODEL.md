@@ -94,14 +94,19 @@ Rotation tables:
 - `teacher_rotation_availability`: stores whether a teacher is available for one cohort and tracker week. Availability is opt-in: rows default to unavailable until an admin marks the teacher available. It is unique on `teacher_id`, `cohort_id`, and `week_start`, and `week_start` must be the Sunday tracker week start. Rows must reference an active teacher with an active teacher staff membership for the masjid during that week.
 - `cohort_rotation_settings`: stores one active rotation setting row per cohort. `target_group_count` must be positive.
 - `teacher_rotation_runs`: stores generation counts for audit: available teachers, groups, assignments, and warnings.
+  Slice 5 adds nullable request, masjid, Saturday, expected-state digest, eligibility, unassigned-ID,
+  assignment-result, warning-code, completion, and source metadata without rewriting historical rows.
 
 Rotation mutations are intentionally separate:
 
 - `apply_cohort_group_rebalance`: creates missing active groups and applies effective-dated balanced
   student memberships for one cohort/week in a single transaction. It is service-role-only and verifies
   the supplied actor's scoped admin access.
-- `apply_teacher_rotation_generation`: publishes weekly teacher assignments and rotation-run audit data.
-  The rotation page supplies no membership changes, so assignment publishing cannot rebalance students.
+- `prepare_teacher_rotation_publication` / `apply_teacher_rotation_publication`: service-only prepare/apply
+  lifecycle. PostgreSQL supplies and compares canonical state under a scoped lock, validates Saturday
+  eligibility plus exact availability, and derives all run results.
+- `apply_teacher_rotation_generation`: temporary service-only compatibility wrapper for the prior app
+  signature. It enforces the guarded database boundary but has no request-ID stale-state protection.
 
 RLS is conservative: active admins for the scoped masjid manage rotation data. Teachers may read only
 their own availability rows.
