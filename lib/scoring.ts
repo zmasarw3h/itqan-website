@@ -37,7 +37,11 @@ export type DailyScoreProgress = {
   percentage: number | null;
 };
 
-export const DAILY_WEEKLY_POINTS = 700;
+export type ChecklistVersion = "legacy" | "reallocated_thursday_friday";
+
+export const CHECKLIST_VERSION_EFFECTIVE_DATE = "2026-08-09";
+export const DAILY_CHECKLIST_POINTS = 100;
+export const DAILY_WEEKLY_POINTS = DAILY_CHECKLIST_POINTS * 7;
 export const PARTNER_RECITATION_POINTS_PER_ROUND = 75;
 export const PARTNER_RECITATION_WEEKLY_POINTS = 150;
 export const HALAQA_WEEKLY_POINTS = 150;
@@ -82,6 +86,26 @@ const FRIDAY_TASKS: CheckInTask[] = [
   ...COMMON_WEEKDAY_TASKS
 ];
 
+const COMMON_WEEKDAY_TASKS_WITHOUT_TAFSIR = COMMON_WEEKDAY_TASKS.filter((task) => task.key !== "tafsir");
+
+const CORRECTED_THURSDAY_TASKS: CheckInTask[] = [
+  {
+    key: "repeat_new_memorization_3x_listen_1x",
+    label: "Repeat new memorization 3 times & listen one time",
+    weight: 30
+  },
+  ...COMMON_WEEKDAY_TASKS_WITHOUT_TAFSIR
+];
+
+const CORRECTED_FRIDAY_TASKS: CheckInTask[] = [
+  {
+    key: "repeat_new_memorization_5x_listen_1x",
+    label: "Repeat new memorization 5 times & listen one time",
+    weight: 30
+  },
+  ...COMMON_WEEKDAY_TASKS_WITHOUT_TAFSIR
+];
+
 const SATURDAY_TASKS: CheckInTask[] = [
   {
     key: "tafsir_reflection_group",
@@ -95,14 +119,25 @@ const SATURDAY_TASKS: CheckInTask[] = [
   }
 ];
 
-const TASKS_BY_DAY: Record<number, CheckInTask[]> = {
-  0: SUNDAY_TO_WEDNESDAY_TASKS,
-  1: SUNDAY_TO_WEDNESDAY_TASKS,
-  2: SUNDAY_TO_WEDNESDAY_TASKS,
-  3: SUNDAY_TO_WEDNESDAY_TASKS,
-  4: THURSDAY_TASKS,
-  5: FRIDAY_TASKS,
-  6: SATURDAY_TASKS
+const TASKS_BY_VERSION: Record<ChecklistVersion, Record<number, CheckInTask[]>> = {
+  legacy: {
+    0: SUNDAY_TO_WEDNESDAY_TASKS,
+    1: SUNDAY_TO_WEDNESDAY_TASKS,
+    2: SUNDAY_TO_WEDNESDAY_TASKS,
+    3: SUNDAY_TO_WEDNESDAY_TASKS,
+    4: THURSDAY_TASKS,
+    5: FRIDAY_TASKS,
+    6: SATURDAY_TASKS
+  },
+  reallocated_thursday_friday: {
+    0: SUNDAY_TO_WEDNESDAY_TASKS,
+    1: SUNDAY_TO_WEDNESDAY_TASKS,
+    2: SUNDAY_TO_WEDNESDAY_TASKS,
+    3: SUNDAY_TO_WEDNESDAY_TASKS,
+    4: CORRECTED_THURSDAY_TASKS,
+    5: CORRECTED_FRIDAY_TASKS,
+    6: SATURDAY_TASKS
+  }
 };
 
 function weekdayForDate(dateString: string) {
@@ -115,6 +150,12 @@ function weekdayForDate(dateString: string) {
   return date.getUTCDay();
 }
 
+export function checklistVersionForDate(dateString: string): ChecklistVersion {
+  weekdayForDate(dateString);
+
+  return dateString >= CHECKLIST_VERSION_EFFECTIVE_DATE ? "reallocated_thursday_friday" : "legacy";
+}
+
 function roundScore(value: number) {
   return Math.round(value * 100) / 100;
 }
@@ -124,13 +165,17 @@ function clampScore(value: number, min: number, max: number) {
 }
 
 export function tasksForDate(dateString: string): CheckInTask[] {
-  return TASKS_BY_DAY[weekdayForDate(dateString)].map((task) => ({ ...task }));
+  const version = checklistVersionForDate(dateString);
+
+  return TASKS_BY_VERSION[version][weekdayForDate(dateString)].map((task) => ({ ...task }));
 }
 
-export function allScoringTasks() {
+export function allScoringTasks(dateString = CHECKLIST_VERSION_EFFECTIVE_DATE) {
   const tasksByKey = new Map<string, CheckInTask>();
 
-  for (const tasks of Object.values(TASKS_BY_DAY)) {
+  const version = checklistVersionForDate(dateString);
+
+  for (const tasks of Object.values(TASKS_BY_VERSION[version])) {
     for (const task of tasks) {
       tasksByKey.set(task.key, task);
     }
@@ -147,7 +192,7 @@ export function calculateDailySubmission(dateString: string, completedTaskKeys: 
   }));
   const totalWeight = items.reduce((sum, item) => sum + item.weight, 0);
   const earnedWeight = items.reduce((sum, item) => sum + (item.completed ? item.weight : 0), 0);
-  const dailyScore = totalWeight === 0 ? 0 : roundScore((earnedWeight / totalWeight) * 100);
+  const dailyScore = totalWeight === 0 ? 0 : roundScore((earnedWeight / totalWeight) * DAILY_CHECKLIST_POINTS);
 
   return {
     items,

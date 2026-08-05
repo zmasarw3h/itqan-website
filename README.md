@@ -1,4 +1,4 @@
-# ITQAN Daily Check-In
+# ITQAN Lite
 
 Lightweight masjid operations system that started as an emergency Canvas replacement.
 
@@ -137,11 +137,14 @@ E2E_TEST_ADMIN_TEACHER_PHONE=
 E2E_TEST_ADMIN_TEACHER_PASSWORD=
 E2E_TEST_PURE_ADMIN_PHONE=
 E2E_TEST_PURE_ADMIN_PASSWORD=
+E2E_TEST_SUPER_ADMIN_PHONE=
+E2E_TEST_SUPER_ADMIN_PASSWORD=
 ```
 
 Each role fixture is independently optional. Teacher coverage verifies available-week canonicalization,
 assigned groups, roster scoring context, plan downloads when present, and desktop/mobile overflow.
-Admin-teacher and pure-admin fixtures verify capability-aware routing and navigation. To exercise grade
+Admin-teacher and pure-admin fixtures verify capability-aware routing and navigation. The super-admin
+fixture verifies the guarded `/super-admin` redirect and console entry. To exercise grade
 submission against disposable local or staging data, also set `E2E_TEST_DATA_MUTATIONS_ENABLED=true`;
 only the desktop project submits. The suite refuses an `E2E_TEST_ENVIRONMENT=production` or an
 `itqan.website`/`itqan.app` target.
@@ -181,6 +184,14 @@ Database restore is manual through Supabase backups. Weekly plan uploaded files 
 Students use `Today's Check-In` to save weighted Quran checklist tasks throughout the day. There is no final submit button: each checkbox toggle saves immediately, updates the live daily score, and remains checked after refresh or returning from another device. Opening the page alone does not create a daily record; the row is created on the first checkbox save or note save.
 
 Admins, history, grades, and leaderboard views continue to use the latest saved `checkins.daily_score` after refresh.
+
+Checklist definitions are versioned by the canonical Sunday tracker-week start. Dates before Sunday
+2026-08-09 use the original Thursday/Friday definition, including the 10-point `Tafsir` task. Starting
+with the 2026-08-09 tracker week, Thursday and Friday remove that task and increase the existing new-
+memorization task from 20 to 30 points. Sunday-Wednesday, Saturday, the 100-point daily maximum, and the
+700-point weekly daily-checklist maximum are unchanged. Each saved `checkin_items` row remains a snapshot
+of the definition used for that date, so historical labels, weights, scores, exports, and reports are not
+rewritten by a later version.
 
 ## Weekly Plans
 
