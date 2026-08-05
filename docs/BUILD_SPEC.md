@@ -75,6 +75,13 @@ Current rules:
 - Students can only save their own checklist.
 - The checklist should support the maintained product behavior. If autosave is implemented, checkbox updates are saved immediately and there is no final submit button.
 
+Checklist weights are versioned by canonical Sunday tracker-week start. Before 2026-08-09, Thursday and
+Friday include the 10-point `Tafsir` task and their existing new-memorization task is worth 20 points.
+Starting with the 2026-08-09 tracker week, Thursday and Friday omit `Tafsir` and set that existing task to
+30 points. Sunday-Wednesday and Saturday remain unchanged; every day totals 100 points and a complete
+Sunday-Saturday daily-checklist week totals 700 points. Saved `checkin_items` rows retain the label and
+weight snapshot for their original checklist version.
+
 ### `/student/history`
 
 Shows the student's own check-in history, including completed and missed checklist items where available.

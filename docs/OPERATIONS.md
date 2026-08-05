@@ -181,6 +181,14 @@ For the scoring-boundary/accountability rollout, follow
 repair must be applied before the matching app deployment; the repair script is
 manual and must never be run against production without explicit approval.
 
+For the versioned checklist correction, apply
+`20260805090000_version_checklist_definition.sql` before deploying the matching application commit.
+The migration replaces only the private canonical definition function with an effective-date-aware
+definition; it does not rewrite existing `checkins` or `checkin_items` rows. Verify a pre-2026-08-09
+Thursday/Friday correction still includes the historical 10-point `Tafsir` snapshot, and verify a
+Thursday/Friday date in the 2026-08-09 tracker week uses the 30-point new-memorization task with no
+`Tafsir` item. Do not manually update historical snapshots to match the newer version.
+
 For the historical-reporting rollout, use this database-first order:
 
 1. Apply the Slice 4 Phase A migration. It remains compatible with the deployed
