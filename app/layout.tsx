@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ITQAN App",
-  description: "System for ITQAN halaqa students."
+  title: "ITQAN",
+  description: "Halaqa learning and operations system for students, teachers, and masjid administrators."
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

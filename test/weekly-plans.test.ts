@@ -3,6 +3,7 @@ import type { Profile } from "@/lib/types";
 import {
   canReadWeeklyPlan,
   canStudentManageWeeklyPlan,
+  currentWeeklyPlanContext,
   routeIsWeeklyPlanGated,
   safeWeeklyPlanFileName,
   validateWeeklyPlanFile,
@@ -85,9 +86,61 @@ describe("weekly plan ownership helpers", () => {
 });
 
 describe("weekly plan check-in gate", () => {
+  it("uses Saturday's operational week on Saturday evening", () => {
+    expect(currentWeeklyPlanContext(new Date("2026-07-19T03:30:00.000Z"))).toEqual({
+      effectiveDate: "2026-07-18",
+      weekStart: "2026-07-12"
+    });
+  });
+
+  it("keeps the Saturday plan week through Sunday 00:00-00:59 Toronto", () => {
+    for (const timestamp of ["2026-07-19T04:00:00.000Z", "2026-07-19T04:59:00.000Z"]) {
+      expect(currentWeeklyPlanContext(new Date(timestamp))).toEqual({
+        effectiveDate: "2026-07-18",
+        weekStart: "2026-07-12"
+      });
+    }
+  });
+
+  it("switches to the new Sunday plan week exactly at 1:00 Toronto", () => {
+    expect(currentWeeklyPlanContext(new Date("2026-07-19T05:00:00.000Z"))).toEqual({
+      effectiveDate: "2026-07-19",
+      weekStart: "2026-07-19"
+    });
+  });
+
+  it("keeps the weekly-plan context aligned across spring DST", () => {
+    expect(currentWeeklyPlanContext(new Date("2026-03-08T05:30:00.000Z"))).toEqual({
+      effectiveDate: "2026-03-07",
+      weekStart: "2026-03-01"
+    });
+    expect(currentWeeklyPlanContext(new Date("2026-03-08T07:30:00.000Z"))).toEqual({
+      effectiveDate: "2026-03-08",
+      weekStart: "2026-03-08"
+    });
+  });
+
+  it("keeps both fall DST 1 AM occurrences in the new Sunday plan week", () => {
+    for (const timestamp of ["2026-11-01T05:30:00.000Z", "2026-11-01T06:30:00.000Z"]) {
+      expect(currentWeeklyPlanContext(new Date(timestamp))).toEqual({
+        effectiveDate: "2026-11-01",
+        weekStart: "2026-11-01"
+      });
+    }
+  });
+
   it("requires the Sunday-start weekly plan for the current checklist week", () => {
     expect(weeklyPlanRequiredWeekStart("2026-06-14")).toBe("2026-06-14");
     expect(weeklyPlanRequiredWeekStart("2026-06-17")).toBe("2026-06-14");
+  });
+
+  it("uses the same week for the page, checklist action, plan page, and upload action", () => {
+    const context = currentWeeklyPlanContext(new Date("2026-07-19T04:59:00.000Z"));
+
+    expect(context.weekStart).toBe(weeklyPlanRequiredWeekStart(context.effectiveDate));
+    expect(weeklyPlanBlocksCheckIn({ week_start: context.weekStart }, context.effectiveDate)).toBe(false);
+    expect(weeklyPlanBlocksCheckIn(null, context.effectiveDate)).toBe(true);
+    expect(weeklyPlanBlocksCheckIn({ week_start: "2026-07-19" }, context.effectiveDate)).toBe(true);
   });
 
   it("blocks check-in when the Sunday-start weekly plan is missing", () => {
