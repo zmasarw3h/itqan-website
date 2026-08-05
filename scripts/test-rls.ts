@@ -5316,9 +5316,21 @@ async function testRotationPublicationIntegrity(ids: SeedIds) {
       .eq("id", ids.assignmentWriter)
       .single()
   );
+  const saturdayStartObsoleteAvailability = await service.from("teacher_rotation_availability").upsert({
+    teacher_id: ids.users.saturdayStartTeacher,
+    masjid_id: ids.masjidA,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: true
+  }, { onConflict: "teacher_id,cohort_id,week_start" });
+  assert.equal(
+    saturdayStartObsoleteAvailability.error,
+    null,
+    saturdayStartObsoleteAvailability.error?.message
+  );
   const obsoleteAssignment = await service.from("group_teacher_assignments").upsert({
     group_id: ids.groupFridayOnly,
-    teacher_id: ids.users.futureTeacher,
+    teacher_id: ids.users.saturdayStartTeacher,
     week_start: ids.weekStart,
     active: true,
     assigned_by: ids.users.adminA
@@ -5925,13 +5937,13 @@ commit;
     "rotation_publication_teacher_unavailable_or_ineligible"
   );
 
-  const saturdayStartAvailability = await service.from("teacher_rotation_availability").insert({
+  const saturdayStartAvailability = await service.from("teacher_rotation_availability").upsert({
     teacher_id: ids.users.saturdayStartTeacher,
     masjid_id: ids.masjidA,
     cohort_id: ids.cohortA,
     week_start: ids.weekStart,
     available: true
-  });
+  }, { onConflict: "teacher_id,cohort_id,week_start" });
   assert.equal(saturdayStartAvailability.error, null, saturdayStartAvailability.error?.message);
   const saturdayEndAvailability = await service.from("teacher_rotation_availability").insert({
     teacher_id: ids.users.expiredAssignmentTeacher,
