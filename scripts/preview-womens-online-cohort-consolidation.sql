@@ -65,7 +65,7 @@ select jsonb_pretty(jsonb_build_object(
   'effective_date_is_sunday', params.effective_date = public.week_start_for_date(params.effective_date),
   'effective_date_minus_one', params.effective_date - 1,
   'effective_tracker_week', public.week_start_for_date(params.effective_date),
-  'effective_halaqa_saturday', public.halaqa_saturday_for_week(params.effective_date),
+  'effective_halaqa_saturday', public.halaqa_saturday_for_week(public.week_start_for_date(params.effective_date)),
   'masjid_id', params.masjid_id,
   'cohort_id', params.cohort_id,
   'retained_group_id', params.retained_group_id,
@@ -470,9 +470,13 @@ with params as (
   select badge_awards.student_id, badge_awards.week_start, badge_awards.halaqa_group_id
   from public.badge_awards join source_students using (student_id)
 ), checks as (
-  select 'effective_date_is_sunday' as check_name,
-         case when params.effective_date = public.week_start_for_date(params.effective_date) then 'PASS' else 'ABORT' end as status,
-         jsonb_build_object('effective_date', params.effective_date) as detail
+  select 'effective_date_is_not_after_halaqa_saturday' as check_name,
+         case when params.effective_date <= public.halaqa_saturday_for_week(public.week_start_for_date(params.effective_date)) then 'PASS' else 'ABORT' end as status,
+         jsonb_build_object(
+           'effective_date', params.effective_date,
+           'tracker_week', public.week_start_for_date(params.effective_date),
+           'halaqa_saturday', public.halaqa_saturday_for_week(public.week_start_for_date(params.effective_date))
+         ) as detail
   from params
   union all
   select 'exactly_two_active_groups_in_cohort',
@@ -518,7 +522,7 @@ with params as (
   cross join params
   where groups.cohort_id = params.cohort_id
     and assignments.group_id = params.retired_group_id
-    and assignments.week_start >= params.effective_date
+    and assignments.week_start >= public.week_start_for_date(params.effective_date)
   union all
   select 'retired_group_has_no_operational_snapshot_at_or_after_cutover',
          case when count(*) = 0 then 'PASS' else 'ABORT' end,

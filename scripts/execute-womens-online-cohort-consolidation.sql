@@ -4,7 +4,7 @@
 -- It is a production mutation script and is intentionally fail-closed:
 --   * it requires an explicit confirmation token;
 --   * it requires a fresh preview digest and exact UUID parameters;
---   * it requires the Toronto civil date to equal the approved Sunday cutover;
+--   * it requires the Toronto civil date to equal the approved cutover date;
 --   * it uses SERIALIZABLE + an advisory lock and aborts on stale/ambiguous state;
 --   * all database changes and audit events are committed in one transaction;
 --   * an exact retry returns the prior operation event without duplicating rows.
@@ -23,6 +23,11 @@
 
 \set ON_ERROR_STOP on
 \pset pager off
+
+\if :{?dry_run}
+\else
+  \set dry_run false
+\endif
 
 \if :{?confirm}
 \else
@@ -324,7 +329,8 @@ begin
 end;
 $$;
 
--- Every non-idempotent run must occur on the approved Sunday. A retry may be
+-- Every non-idempotent run must occur on the approved civil date and no later
+-- than that tracker week's halaqa Saturday. A retry may be
 -- performed later because it is a verified no-op and does not mutate state.
 do $$
 declare
@@ -339,8 +345,8 @@ begin
     raise exception using errcode = '40001', message = 'Toronto civil date is not the approved effective date; re-preview and reschedule.';
   end if;
 
-  if params.effective_date <> public.week_start_for_date(params.effective_date) then
-    raise exception using errcode = '22023', message = 'Effective date must be a Sunday tracker week start.';
+  if params.effective_date > public.halaqa_saturday_for_week(public.week_start_for_date(params.effective_date)) then
+    raise exception using errcode = '22023', message = 'Effective date cannot be after the tracker week halaqa Saturday.';
   end if;
 
   if not exists (
@@ -409,11 +415,18 @@ begin
              count(*) as effective_membership_count,
              count(*) filter (where memberships.group_id = params.retired_group_id) as retired_count,
              count(*) filter (where memberships.group_id = params.retained_group_id) as retained_count
-      from public.student_group_memberships memberships
-      join consolidation_affected_students affected on affected.student_id = memberships.student_id
-      cross join consolidation_params params
-      where memberships.starts_on <= params.effective_date
-        and (memberships.ends_on is null or memberships.ends_on >= params.effective_date)
+      from (
+        select distinct source.student_id
+        from consolidation_source_memberships source
+        cross join consolidation_params source_params
+        where source.starts_on <= source_params.effective_date
+          and (source.ends_on is null or source.ends_on >= source_params.effective_date)
+      ) source_students
+      join public.student_group_memberships memberships
+        on memberships.student_id = source_students.student_id
+      cross join consolidation_params cutover_params
+      where memberships.starts_on <= cutover_params.effective_date
+        and (memberships.ends_on is null or memberships.ends_on >= cutover_params.effective_date)
       group by memberships.student_id
     ) placements
     where placements.effective_membership_count <> 1
@@ -427,7 +440,7 @@ begin
     select 1
     from public.group_teacher_assignments assignments
     where assignments.group_id = params.retired_group_id
-      and assignments.week_start >= params.effective_date
+      and assignments.week_start >= public.week_start_for_date(params.effective_date)
   ) then
     raise exception using errcode = '40001', message = 'A current/future retired-group teacher assignment requires explicit teacher resolution.';
   end if;
@@ -446,7 +459,7 @@ begin
     from public.checkins checkins
     join consolidation_affected_students affected on affected.student_id = checkins.student_id
     where checkins.halaqa_group_id = params.retired_group_id
-      and public.week_start_for_date(checkins.date) >= params.effective_date
+      and checkins.date >= params.effective_date
   )
   or exists (
     select 1
@@ -563,13 +576,14 @@ begin
 end;
 $$;
 
--- Close each retired-group interval at the day before the Sunday cutover.
+-- Close each retired-group interval at the day before the cutover.
 update public.student_group_memberships memberships
 set ends_on = params.effective_date - 1,
     updated_at = statement_timestamp()
-from consolidation_params params
-join consolidation_source_memberships source on source.id = memberships.id
+from consolidation_params params,
+     consolidation_source_memberships source
 where not params.idempotent
+  and source.id = memberships.id
   and source.starts_on <= params.effective_date
   and (source.ends_on is null or source.ends_on >= params.effective_date);
 
@@ -711,7 +725,8 @@ begin
 
   if exists (
     select 1 from public.group_teacher_assignments
-    where group_id = params.retired_group_id and week_start >= params.effective_date
+    where group_id = params.retired_group_id
+      and week_start >= public.week_start_for_date(params.effective_date)
   ) then
     raise exception using errcode = '40001', message = 'Final state contains a retired-group assignment at/after cutover.';
   end if;
@@ -807,8 +822,6 @@ update consolidation_params params
 set result_status = case when params.idempotent then 'already_applied' else 'applied' end,
     result_event_id = coalesce(params.result_event_id, (select event_id from consolidation_event_ids limit 1));
 
-COMMIT;
-
 select
   params.result_status,
   params.result_event_id,
@@ -816,4 +829,11 @@ select
   (select state_digest from consolidation_before_state) as before_state_digest,
   (select state_digest from consolidation_after_state) as after_state_digest,
   (select count(*) from consolidation_replacements) as replacement_membership_rows,
-  (select count(*) from consolidation_group_result) as group_rpc_rows;
+  (select count(*) from consolidation_group_result) as group_rpc_rows
+from consolidation_params params;
+
+\if :dry_run
+  ROLLBACK;
+\else
+  COMMIT;
+\endif
