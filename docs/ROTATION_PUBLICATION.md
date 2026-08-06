@@ -6,8 +6,25 @@ Student availability is intentionally outside teacher-assignment publication for
 uses the same `(cohort_id, Sunday week_start)` identity, displays Saturday, and saves only explicit absences;
 no row means attending. `apply_student_rotation_availability(...)` verifies a current normal admin's selected
 masjid/cohort scope and the effective student membership, then replaces that session's absence rows atomically.
-It never changes `student_group_memberships`, group balancing, teacher authorization, or assignments. Future
-attendance-aware session roster redistribution must consume this ledger in a separate reviewed slice.
+It never changes `student_group_memberships`, group balancing, teacher authorization, or assignments.
+
+The additive attendance-aware session-roster backend now consumes this ledger through a separate contract.
+`load_or_create_session_roster_draft(...)` snapshots active groups and effective students for the selected
+cohort/week. Missing student availability is attending and initially seeds the usual active group; explicit
+absences are retained in the draft for review but never enter the roster. `move_session_roster_student(...)`
+changes only the Saturday draft placement, and `assign_session_roster_primary_teacher(...)` records the
+primary responsibility for each session group after checking active Saturday staff coverage and exact
+positive teacher availability. `compute_session_roster_readiness(...)` reports unplaced students and
+missing responsibility as blockers; imbalance is warning-only. `review_session_roster_draft(...)` is
+required before `publish_session_roster_draft(...)`.
+
+The session roster is not a teacher-assignment publication and does not mutate permanent memberships,
+current `group_teacher_assignments`, or the student availability ledger. A publish creates an immutable
+Saturday snapshot with actor/time/version/audit metadata. `create_session_roster_revision(...)` creates a
+new draft from the current published snapshot while leaving that version live. All session-roster writes
+are service-only, normal-admin scoped, request-replay-safe, and protected by a cohort/week advisory lock
+plus an expected draft state version. Signed super-admin access is intentionally not accepted by this
+workflow. Cohort-wide teacher view/grade authorization is deferred to the next backend slice.
 
 Publication is a prepare/apply workflow. `prepare_teacher_rotation_publication(...)` stores a request UUID and returns the ordered canonical state: cohort/masjid activity, rotation settings, active groups and ordering, teacher memberships/profile activity, exact availability rows, Saturday-eligible teachers, and current/relevant prior assignments. The TypeScript planner consumes only this snapshot and does not receive unavailable teachers.
 

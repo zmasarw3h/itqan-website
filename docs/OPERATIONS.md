@@ -93,7 +93,48 @@ Thunder Bay starts without assigned staff. Add an active `masjid_staff_membershi
 3. In Step 1, mark only students who are absent and optionally add a concise reason. Students attend by default, so an attending student has no saved availability row.
 4. Use **Save availability** before leaving the page. **Continue to session group setup** only scrolls to Step 2; it does not navigate or publish anything.
 
-This ledger is session-only. It must never be used to move a student, edit `student_group_memberships`, or change a teacher assignment. Attendance-aware session-roster redistribution is not part of this workflow yet.
+This ledger is session-only. It must never be used to move a student, edit `student_group_memberships`, or
+change a teacher assignment. The separate session-roster contracts below consume it without changing the
+ledger or permanent placement.
+
+## Prepare And Publish A Saturday Session Roster
+
+The backend contract for the later `/admin/rotation` UI is deliberately separate from weekly teacher
+assignment publication:
+
+1. Load or create the selected cohort/week draft with
+   `load_or_create_session_roster_draft(request_id, actor_id, cohort_id, week_start)`. The request must
+   use the canonical Sunday, and the actor must be a currently active normal admin for the cohort's
+   masjid. Attending students are initially placed in their usual active group; unavailable students
+   remain in the draft for visibility but are not in `roster`.
+2. Move or unplace an attending student with
+   `move_session_roster_student(request_id, actor_id, draft_id, student_id, session_group_id,
+   expected_state_version)`. Each successful mutation increments the draft state version and clears
+   review metadata. It can move only within the draft's active groups and cannot place an unavailable
+   student.
+3. Assign one primary responsible teacher to every session group with
+   `assign_session_roster_primary_teacher(...)`. The teacher must have an active profile, Saturday
+   staff coverage in the cohort's masjid, and an exact positive `teacher_rotation_availability` row for
+   the cohort/week. The primary marker is responsibility/highlight, not an exclusivity grant.
+4. Call `compute_session_roster_readiness(...)` and resolve every blocker. All attending students must
+   be placed exactly once and every session group needs a primary teacher. A group-size imbalance is a
+   warning only and does not prevent publish.
+5. Call `review_session_roster_draft(...)` with the current state version, then
+   `publish_session_roster_draft(...)` with the reviewed version. Publish atomically creates the next
+   immutable version, snapshot rows, and audit event. A stale state, changed source attendance/membership
+   snapshot, or changed teacher eligibility fails safely and requires reload/review.
+
+After publication, use `get_current_session_roster(...)` for the live Saturday snapshot and
+`get_session_roster_history(...)` for version/audit history. To change a published roster, call
+`create_session_roster_revision(...)` against the expected current published version; the current version
+remains live until the new draft is reviewed and published. Exact request UUID/payload retries replay the
+original result; reusing a UUID with changed input is rejected.
+
+These contracts never modify permanent `student_group_memberships`, existing `group_teacher_assignments`,
+weekly plans, grades, or production data outside the requested session-roster rows. Browser clients have
+no direct write grants to the roster tables. The session-roster normal-admin workflow intentionally
+excludes super-admin sessions, and cohort-wide teacher view/grade authorization is deferred to the next
+backend slice.
 
 ## Legacy Import: Validation Only
 

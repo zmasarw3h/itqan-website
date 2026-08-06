@@ -21,6 +21,14 @@ selected masjid, cohort, and canonical Sunday `week_start`; the page displays th
 Students attend by default, so only an explicit absence row is stored. This workflow never changes
 `student_group_memberships`, historical placement, or published teacher assignments.
 
+The additive backend also provides attendance-aware Saturday session-roster drafts and immutable
+published versions. A draft starts attending students in their usual active group, excludes explicit
+absences, supports Saturday-only moves and primary teacher responsibility, and requires review before
+publish. Unplaced students, stale source state, and missing responsibility block publish; imbalance is a
+warning only. Session-roster mutations are service-only and normal-admin scoped, and publishing never
+changes permanent memberships or current teacher assignments. The later admin UI will consume the stable
+contracts documented in [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md).
+
 ## Stack
 
 - Next.js App Router

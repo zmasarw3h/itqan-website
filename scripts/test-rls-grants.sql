@@ -25,6 +25,7 @@ insert into expected_authenticated_definers (signature) values
   ('can_read_masjid(uuid)'),
   ('can_read_operational_student_row(uuid,uuid,date)'),
   ('can_read_profile(uuid)'),
+  ('can_read_session_roster_cohort(uuid)'),
   ('can_read_student_for_week(uuid,date)'),
   ('can_teacher_read_weekly_plan_path(text)'),
   ('cohort_masjid_id(uuid)'),
@@ -239,7 +240,17 @@ begin
       ('preview_official_scoring_start_change(uuid,uuid,date)'),
       ('reconcile_historical_accountability_obligation(uuid,date)'),
       ('get_scoped_user_setup_auth_recovery(uuid,uuid,text,text,text,text,date,date,uuid,uuid)'),
-      ('get_scoped_user_setup_request_result(uuid,uuid,text,text,text,text,date,date,uuid,uuid)')
+      ('get_scoped_user_setup_request_result(uuid,uuid,text,text,text,text,date,date,uuid,uuid)'),
+      ('load_or_create_session_roster_draft(uuid,uuid,uuid,date)'),
+      ('get_session_roster_draft(uuid,uuid)'),
+      ('move_session_roster_student(uuid,uuid,uuid,uuid,uuid,bigint)'),
+      ('assign_session_roster_primary_teacher(uuid,uuid,uuid,uuid,uuid,bigint)'),
+      ('compute_session_roster_readiness(uuid,uuid)'),
+      ('review_session_roster_draft(uuid,uuid,uuid,bigint)'),
+      ('publish_session_roster_draft(uuid,uuid,uuid,bigint)'),
+      ('create_session_roster_revision(uuid,uuid,uuid,date,uuid)'),
+      ('get_current_session_roster(uuid,uuid,date)'),
+      ('get_session_roster_history(uuid,uuid,date)')
     ) expected_service(signature)
   ) difference;
 
@@ -286,6 +297,19 @@ begin
     'EXECUTE'
   ) then
     raise exception 'service_role lacks guarded rotation workflow EXECUTE';
+  end if;
+
+  if not has_function_privilege('service_role', 'public.load_or_create_session_roster_draft(uuid,uuid,uuid,date)', 'EXECUTE')
+    or not has_function_privilege('service_role', 'public.get_session_roster_draft(uuid,uuid)', 'EXECUTE')
+    or not has_function_privilege('service_role', 'public.move_session_roster_student(uuid,uuid,uuid,uuid,uuid,bigint)', 'EXECUTE')
+    or not has_function_privilege('service_role', 'public.assign_session_roster_primary_teacher(uuid,uuid,uuid,uuid,uuid,bigint)', 'EXECUTE')
+    or not has_function_privilege('service_role', 'public.compute_session_roster_readiness(uuid,uuid)', 'EXECUTE')
+    or not has_function_privilege('service_role', 'public.review_session_roster_draft(uuid,uuid,uuid,bigint)', 'EXECUTE')
+    or not has_function_privilege('service_role', 'public.publish_session_roster_draft(uuid,uuid,uuid,bigint)', 'EXECUTE')
+    or not has_function_privilege('service_role', 'public.create_session_roster_revision(uuid,uuid,uuid,date,uuid)', 'EXECUTE')
+    or not has_function_privilege('service_role', 'public.get_current_session_roster(uuid,uuid,date)', 'EXECUTE')
+    or not has_function_privilege('service_role', 'public.get_session_roster_history(uuid,uuid,date)', 'EXECUTE') then
+    raise exception 'service_role lacks guarded session-roster workflow EXECUTE';
   end if;
 
   if not has_function_privilege(
