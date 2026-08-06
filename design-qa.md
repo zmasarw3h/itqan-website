@@ -57,6 +57,41 @@ final result: passed
 
 ---
 
+# Admin Session Rotation UI — Design QA
+
+## Comparison target
+
+- Source visual truth: `/Users/zmasarweh/.codex/generated_images/019fd2bd-297c-70c3-aae9-29b4ca82e251/exec-62d3be5b-a237-48c8-82b7-2589029e024a.png`, plus the approved Step 2 and Step 4 canvases in `/Users/zmasarweh/.codex/visualizations/2026/08/06/019fd78c-8176-76f1-8d19-678eac4efc45/`.
+- Intended implementation route: `/admin/rotation`.
+- Browser attempt: `http://127.0.0.1:3001/admin/rotation`, desktop viewport.
+
+## Evidence
+
+The browser-rendered implementation could not reach the authenticated Rotation UI. The local server stops at the server-side configuration guard because this worktree has no `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_ANON_KEY`. The captured browser artifact is the Next.js configuration error at `http://127.0.0.1:3001/admin/rotation`; it is not treated as a visual implementation capture.
+
+Static implementation review confirms that the added UI preserves the approved one-page sequence and existing green-header/warm-white/table-first language: Step 2 provides session-only placement, group counts, moved/unchanged distinction, unplaced blockers, and imbalance warnings; Step 3 retains availability and adds primary responsibility selection; Step 4 composes availability, placements, teacher responsibility, review, atomic publish, live-version, revision, stale-refresh confirmation, and audit states. Native controls have at least 44px heights and semantic tables/labels are retained. This review does not replace browser comparison.
+
+## Required fidelity surfaces
+
+- Fonts and typography: blocked from browser comparison.
+- Spacing and layout rhythm: blocked from browser comparison.
+- Colors and visual tokens: blocked from browser comparison.
+- Image quality and asset fidelity: no new raster assets are required by the supplied dense application references; blocked from browser comparison.
+- Copy and content: verified statically against the approved state labels; browser verification remains blocked.
+- Accessibility and responsiveness: semantic table/label and mobile-control implementation reviewed statically; browser verification remains blocked.
+
+## Primary interactions intended for browser verification
+
+- Draft load, student placement/unplacement, primary-teacher assignment, review, publish, revision, and stale refresh confirmation.
+- Desktop and mobile table overflow, section continuation focus/scroll, blocked versus warning-only readiness, and published/read-only audit views.
+- Console error check after configured authenticated rendering.
+
+## Final result
+
+final result: blocked
+
+---
+
 # Student availability design QA
 
 ## Visual references

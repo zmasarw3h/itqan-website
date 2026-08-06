@@ -19,6 +19,13 @@ import {
   buildTeacherRotationPersistencePlan,
   plannerInputFromRotationPublicationSnapshot
 } from "@/lib/teacher-rotation";
+import type {
+  RefreshSessionRosterDraftResponse,
+  SessionRosterDraftResponse,
+  SessionRosterHistoryResponse,
+  SessionRosterPublishedResponse
+} from "@/lib/session-roster";
+import { sessionRosterActionError, type SessionRosterActionError } from "@/lib/session-roster-ui";
 
 function positiveInteger(value: FormDataEntryValue | null) {
   const parsed = Number(value);
@@ -305,4 +312,195 @@ export async function generateRotation(formData: FormData) {
   revalidatePath("/student/weekly-plan");
   revalidatePath("/teacher");
   redirect(rotationRedirectPath(context, weekStart, "generated"));
+}
+
+type SessionRosterActionScope = {
+  masjidId: string;
+  cohortId: string;
+  weekStart: string;
+};
+
+type SessionRosterActionResult<T> =
+  | {
+    ok: true;
+    data: T;
+    history: SessionRosterHistoryResponse;
+    published: SessionRosterPublishedResponse;
+  }
+  | { ok: false; error: SessionRosterActionError; message: string };
+
+async function requireSessionRosterActionContext(input: SessionRosterActionScope) {
+  const weekStart = validRotationWeekStart(input.weekStart);
+  const { profile } = await requireProfile(["admin"]);
+  const adminSupabase = createSupabaseAdminClient();
+  const cohort = await assertAdminCanManageCohort({
+    adminSupabase,
+    admin: profile,
+    cohortId: input.cohortId || null
+  });
+
+  if (!input.masjidId || cohort.masjid_id !== input.masjidId) {
+    throw new Error("session_roster_unauthorized_actor");
+  }
+
+  return { adminSupabase, profile, cohort, weekStart };
+}
+
+async function sessionRosterReadState(input: {
+  adminSupabase: ReturnType<typeof createSupabaseAdminClient>;
+  actorId: string;
+  cohortId: string;
+  weekStart: string;
+}) {
+  const [historyResult, publishedResult] = await Promise.all([
+    input.adminSupabase.rpc("get_session_roster_history", {
+      input_actor_id: input.actorId,
+      input_cohort_id: input.cohortId,
+      input_week_start: input.weekStart
+    }),
+    input.adminSupabase.rpc("get_current_session_roster", {
+      input_actor_id: input.actorId,
+      input_cohort_id: input.cohortId,
+      input_week_start: input.weekStart
+    })
+  ]);
+
+  if (historyResult.error || publishedResult.error || !historyResult.data || !publishedResult.data) {
+    throw new Error(historyResult.error?.message || publishedResult.error?.message || "Unable to reload the session roster.");
+  }
+
+  return {
+    history: historyResult.data as SessionRosterHistoryResponse,
+    published: publishedResult.data as SessionRosterPublishedResponse
+  };
+}
+
+async function runSessionRosterAction<T>(
+  scope: SessionRosterActionScope,
+  operation: (input: Awaited<ReturnType<typeof requireSessionRosterActionContext>>) => PromiseLike<{
+    data: unknown;
+    error: { message: string; code?: string } | null;
+  }>
+): Promise<SessionRosterActionResult<T>> {
+  try {
+    const context = await requireSessionRosterActionContext(scope);
+    const result = await operation(context);
+
+    if (result.error || !result.data) {
+      const message = result.error?.message || "The session roster action did not return a result.";
+      return { ok: false, error: sessionRosterActionError(message), message };
+    }
+
+    const state = await sessionRosterReadState({
+      adminSupabase: context.adminSupabase,
+      actorId: context.profile.id,
+      cohortId: context.cohort.id,
+      weekStart: context.weekStart
+    });
+    revalidatePath("/admin/rotation");
+    return { ok: true, data: result.data as T, ...state };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to update the session roster.";
+    return { ok: false, error: sessionRosterActionError(message), message };
+  }
+}
+
+export async function moveSessionRosterStudent(input: SessionRosterActionScope & {
+  draftId: string;
+  studentId: string;
+  sessionGroupId: string | null;
+  expectedStateVersion: number;
+}) {
+  return runSessionRosterAction<SessionRosterDraftResponse>(input, ({ adminSupabase, profile }) =>
+    adminSupabase.rpc("move_session_roster_student", {
+      input_request_id: crypto.randomUUID(),
+      input_actor_id: profile.id,
+      input_draft_id: input.draftId,
+      input_student_id: input.studentId,
+      input_session_group_id: input.sessionGroupId,
+      input_expected_state_version: input.expectedStateVersion
+    })
+  );
+}
+
+export async function assignSessionRosterPrimaryTeacher(input: SessionRosterActionScope & {
+  draftId: string;
+  groupId: string;
+  primaryTeacherId: string | null;
+  expectedStateVersion: number;
+}) {
+  return runSessionRosterAction<SessionRosterDraftResponse>(input, ({ adminSupabase, profile }) =>
+    adminSupabase.rpc("assign_session_roster_primary_teacher", {
+      input_request_id: crypto.randomUUID(),
+      input_actor_id: profile.id,
+      input_draft_id: input.draftId,
+      input_group_id: input.groupId,
+      input_primary_teacher_id: input.primaryTeacherId,
+      input_expected_state_version: input.expectedStateVersion
+    })
+  );
+}
+
+export async function reviewSessionRosterDraft(input: SessionRosterActionScope & {
+  draftId: string;
+  expectedStateVersion: number;
+}) {
+  return runSessionRosterAction<SessionRosterDraftResponse>(input, ({ adminSupabase, profile }) =>
+    adminSupabase.rpc("review_session_roster_draft", {
+      input_request_id: crypto.randomUUID(),
+      input_actor_id: profile.id,
+      input_draft_id: input.draftId,
+      input_expected_state_version: input.expectedStateVersion
+    })
+  );
+}
+
+export async function publishSessionRosterDraft(input: SessionRosterActionScope & {
+  draftId: string;
+  expectedStateVersion: number;
+}) {
+  return runSessionRosterAction<SessionRosterPublishedResponse>(input, ({ adminSupabase, profile }) =>
+    adminSupabase.rpc("publish_session_roster_draft", {
+      input_request_id: crypto.randomUUID(),
+      input_actor_id: profile.id,
+      input_draft_id: input.draftId,
+      input_expected_state_version: input.expectedStateVersion
+    })
+  );
+}
+
+export async function createSessionRosterRevision(input: SessionRosterActionScope & {
+  expectedPublishedVersionId: string;
+}) {
+  return runSessionRosterAction<SessionRosterDraftResponse>(input, ({ adminSupabase, profile, cohort, weekStart }) =>
+    adminSupabase.rpc("create_session_roster_revision", {
+      input_request_id: crypto.randomUUID(),
+      input_actor_id: profile.id,
+      input_cohort_id: cohort.id,
+      input_week_start: weekStart,
+      input_expected_published_version_id: input.expectedPublishedVersionId
+    })
+  );
+}
+
+export async function refreshSessionRosterDraft(input: SessionRosterActionScope & {
+  draftId: string;
+  expectedStateVersion: number;
+  expectedSourceStateDigest: string;
+  expectedPublishedVersionId: string | null;
+  confirmDiscardChanges: boolean;
+}) {
+  return runSessionRosterAction<RefreshSessionRosterDraftResponse>(input, ({ adminSupabase, profile, cohort, weekStart }) =>
+    adminSupabase.rpc("refresh_session_roster_draft", {
+      input_request_id: crypto.randomUUID(),
+      input_actor_id: profile.id,
+      input_cohort_id: cohort.id,
+      input_week_start: weekStart,
+      input_draft_id: input.draftId,
+      input_expected_state_version: input.expectedStateVersion,
+      input_expected_source_state_digest: input.expectedSourceStateDigest,
+      input_expected_published_version_id: input.expectedPublishedVersionId,
+      input_confirm_discard_changes: input.confirmDiscardChanges
+    })
+  );
 }
