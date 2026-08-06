@@ -1,4 +1,11 @@
-import type { SessionRosterHistoryEvent, SessionRosterReadiness } from "@/lib/session-roster";
+import type {
+  RefreshSessionRosterDraftResponse,
+  SessionRosterDraftResponse,
+  SessionRosterHistoryEvent,
+  SessionRosterHistoryResponse,
+  SessionRosterPublishedResponse,
+  SessionRosterReadiness
+} from "@/lib/session-roster";
 
 export type SessionRosterActionError = "stale" | "blocked" | "unauthorized" | "conflict" | "failed";
 
@@ -48,4 +55,32 @@ export function sessionRosterReadinessSummary(readiness: SessionRosterReadiness)
     return "Review this draft before publishing.";
   }
   return "Ready to publish.";
+}
+
+export type SessionRosterAuthoritativeState = {
+  draft: SessionRosterDraftResponse | null;
+  history: SessionRosterHistoryResponse;
+  published: SessionRosterPublishedResponse;
+};
+
+/** The UI only accepts server-returned values after each stateful operation. */
+export function sessionRosterAfterDraftMutation(input: {
+  draft: SessionRosterDraftResponse;
+  history: SessionRosterHistoryResponse;
+  published: SessionRosterPublishedResponse;
+}): SessionRosterAuthoritativeState {
+  return { draft: input.draft, history: input.history, published: input.published };
+}
+
+export function sessionRosterAfterPublish(input: {
+  published: SessionRosterPublishedResponse;
+  history: SessionRosterHistoryResponse;
+}): SessionRosterAuthoritativeState {
+  return { draft: null, history: input.history, published: input.published };
+}
+
+export function sessionRosterRefreshNotice(response: RefreshSessionRosterDraftResponse) {
+  return response.refresh.discarded_manual_edits && response.refresh.requires_review
+    ? "Draft refreshed. Unpublished placement and primary-teacher edits were discarded; review is required again."
+    : "Draft refresh did not return the required discard confirmation.";
 }

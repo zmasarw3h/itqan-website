@@ -108,6 +108,12 @@ draft is stale, **Refresh stale draft** requires an explicit acknowledgement tha
 primary-responsibility edits will be discarded; the returned fresh draft must be reviewed again before it
 can publish.
 
+The same page also retains two existing, clearly separate operations: **Permanent group setup & balancing**
+changes normal group memberships only after an explicit confirmation, while **Weekly teacher-assignment
+publication** continues to use its established preview and stale-state safeguards until the later
+teacher-authorization rollout deliberately replaces or adapts that workflow. Neither operation is a
+Saturday-only session placement change.
+
 The session-roster backend contract is deliberately separate from weekly teacher
 assignment publication:
 

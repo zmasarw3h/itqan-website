@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vitest";
 import type { SessionRosterReadiness } from "@/lib/session-roster";
 import {
+  sessionRosterAfterDraftMutation,
+  sessionRosterAfterPublish,
   sessionRosterActionError,
   sessionRosterAuditLabel,
   sessionRosterPublishBlocked,
+  sessionRosterRefreshNotice,
   sessionRosterReadinessSummary
 } from "@/lib/session-roster-ui";
+import type {
+  RefreshSessionRosterDraftResponse,
+  SessionRosterDraftResponse,
+  SessionRosterHistoryResponse,
+  SessionRosterPublishedResponse
+} from "@/lib/session-roster";
 
 function readiness(overrides: Partial<SessionRosterReadiness> = {}): SessionRosterReadiness {
   return {
@@ -63,4 +72,79 @@ describe("session roster UI action states", () => {
     expect(sessionRosterAuditLabel("revision_created")).toBe("Revision started");
     expect(sessionRosterAuditLabel("draft_refreshed")).toBe("Stale draft refreshed");
   });
+
+  it("replaces local state with authoritative server responses after every draft mutation", () => {
+    const published = publishedResponse();
+    const history = historyResponse();
+    for (const revision of [2, 3, 4, 5]) {
+      const draft = draftResponse(revision);
+      expect(sessionRosterAfterDraftMutation({ draft, history, published })).toEqual({ draft, history, published });
+    }
+  });
+
+  it("uses the atomically returned published version and clears the editable draft", () => {
+    const published = publishedResponse();
+    const history = historyResponse();
+    expect(sessionRosterAfterPublish({ published, history })).toEqual({ draft: null, history, published });
+  });
+
+  it("only reports stale refresh success when the server confirms discard plus review-required", () => {
+    const response = {
+      ...draftResponse(6),
+      refresh: {
+        superseded_draft_id: "old-draft",
+        superseded_state_version: 4,
+        refreshed_draft_id: "new-draft",
+        refreshed_state_version: 0,
+        discarded_manual_edits: true,
+        discarded_manual_edit_kinds: ["student_placement", "primary_teacher_responsibility"],
+        requires_review: true,
+        published_version_unchanged: true,
+        published_version_id: "version-1",
+        source_state_digest: "fresh"
+      }
+    } satisfies RefreshSessionRosterDraftResponse;
+    expect(sessionRosterRefreshNotice(response)).toContain("discarded");
+    expect(sessionRosterRefreshNotice({ ...response, refresh: { ...response.refresh, requires_review: false } } as unknown as RefreshSessionRosterDraftResponse)).toContain("did not return");
+  });
 });
+
+function draftResponse(revisionNumber: number): SessionRosterDraftResponse {
+  return {
+    contract_version: 1,
+    draft: {
+      id: `draft-${revisionNumber}`,
+      masjid_id: "masjid-a",
+      cohort_id: "cohort-a",
+      week_start: "2026-08-02",
+      halaqa_saturday: "2026-08-08",
+      revision_number: revisionNumber,
+      status: "draft",
+      base_published_version_id: null,
+      source_state_digest: "source",
+      current_source_digest: "source",
+      source_stale: false,
+      state_version: revisionNumber,
+      reviewed_at: null,
+      reviewed_by: null,
+      reviewed_state_version: null,
+      published_version_id: null,
+      created_by: "admin-a",
+      updated_by: "admin-a",
+      created_at: "2026-08-01T00:00:00Z",
+      updated_at: "2026-08-01T00:00:00Z"
+    },
+    groups: [],
+    students: [],
+    roster: [],
+    readiness: readiness()
+  };
+}
+
+function publishedResponse(): SessionRosterPublishedResponse {
+  return { contract_version: 1, version: null, groups: [], roster: [] };
+}
+
+function historyResponse(): SessionRosterHistoryResponse {
+  return { contract_version: 1, cohort_id: "cohort-a", week_start: "2026-08-02", halaqa_saturday: "2026-08-08", versions: [], audit_events: [] };
+}

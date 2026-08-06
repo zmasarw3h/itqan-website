@@ -8,7 +8,7 @@ import {
   ArrowsClockwise,
   LockKey
 } from "@phosphor-icons/react";
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import {
   assignSessionRosterPrimaryTeacher,
   createSessionRosterRevision,
@@ -29,8 +29,11 @@ import type {
 } from "@/lib/session-roster";
 import {
   sessionRosterActionError,
+  sessionRosterAfterDraftMutation,
+  sessionRosterAfterPublish,
   sessionRosterAuditLabel,
   sessionRosterPublishBlocked,
+  sessionRosterRefreshNotice,
   sessionRosterReadinessSummary
 } from "@/lib/session-roster-ui";
 import { focusRotationSection } from "@/lib/rotation-workflow";
@@ -41,6 +44,8 @@ type Props = {
   initialDraft: SessionRosterDraftResponse | null;
   initialHistory: SessionRosterHistoryResponse;
   initialPublished: SessionRosterPublishedResponse;
+  legacyGroupManagement: ReactNode;
+  legacyTeacherAssignment: ReactNode;
   masjidId: string;
   teachers: RotationTeacherRow[];
   weekStart: string;
@@ -66,6 +71,8 @@ export default function SessionRosterEditor({
   initialDraft,
   initialHistory,
   initialPublished,
+  legacyGroupManagement,
+  legacyTeacherAssignment,
   masjidId,
   teachers,
   weekStart
@@ -98,9 +105,14 @@ export default function SessionRosterEditor({
       return;
     }
 
-    setDraft(result.data);
-    setHistory(result.history);
-    setPublished(result.published);
+    const next = sessionRosterAfterDraftMutation({
+      draft: result.data,
+      history: result.history,
+      published: result.published
+    });
+    setDraft(next.draft);
+    setHistory(next.history);
+    setPublished(next.published);
   };
 
   const applySessionActionFailure = (result: {
@@ -167,9 +179,10 @@ export default function SessionRosterEditor({
         applySessionActionFailure(result);
         return;
       }
-      setDraft(null);
-      setPublished(result.data);
-      setHistory(result.history);
+      const next = sessionRosterAfterPublish({ history: result.history, published: result.data });
+      setDraft(next.draft);
+      setPublished(next.published);
+      setHistory(next.history);
       setNotice({ tone: "success", text: `Saturday roster version ${result.data.version?.version_number ?? ""} is now live.` });
     });
   }
@@ -214,7 +227,7 @@ export default function SessionRosterEditor({
       setConfirmDiscard(false);
       setNotice({
         tone: "success",
-        text: "Draft refreshed. Unpublished placement and primary-teacher edits were discarded; review is required again."
+        text: sessionRosterRefreshNotice(refreshed)
       });
     });
   }
@@ -322,6 +335,7 @@ export default function SessionRosterEditor({
             <div className="mt-4 flex justify-end"><button className="min-h-11 rounded-md bg-moss px-4 text-sm font-medium text-white hover:bg-ink" onClick={() => focusRotationSection(document, "teacher-responsibilities")} type="button">Continue to teacher responsibilities <ArrowRight aria-hidden="true" className="ml-1 inline size-4" /></button></div>
           </>
         ) : <PublishedSetupNotice published={published} onRevise={createRevision} pending={isPending} />}
+        {legacyGroupManagement}
       </section>
 
       <section className="scroll-mt-6 border-y border-stone-200 bg-white px-4 py-5 sm:mt-6 sm:rounded-lg sm:border sm:p-6" id="teacher-responsibilities" tabIndex={-1}>
@@ -332,6 +346,7 @@ export default function SessionRosterEditor({
 
       <section className="scroll-mt-6 border-y border-stone-200 bg-white px-4 py-5 sm:mt-6 sm:rounded-lg sm:border sm:p-6" id="assignment-review" tabIndex={-1}>
         {draft && readiness ? <DraftReview draft={draft} history={history} actorNames={actorNames} onPublish={publishDraft} onReview={reviewDraft} pending={isPending} published={published} /> : <PublishedReview history={history} actorNames={actorNames} published={published} onRevise={createRevision} pending={isPending} />}
+        {legacyTeacherAssignment}
       </section>
     </RotationAvailabilityProvider>
   );
