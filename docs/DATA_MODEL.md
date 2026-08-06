@@ -114,6 +114,7 @@ Rotation mutations are intentionally separate:
   `move_session_roster_student`, `assign_session_roster_primary_teacher`,
   `compute_session_roster_readiness`, `review_session_roster_draft`,
   `publish_session_roster_draft`, `create_session_roster_revision`,
+  `refresh_session_roster_draft`,
   `get_current_session_roster`, and `get_session_roster_history`: service-only
   contracts for the attendance-aware Saturday session roster layer described below.
 
@@ -135,7 +136,9 @@ The public tables are:
 
 - `session_roster_drafts`: one current mutable draft per cohort/week, with a monotonic revision number,
   source-state digest, optimistic `state_version`, review metadata, and links to its base/current
-  published version.
+  published version. A stale draft refresh marks the old row `superseded` (readable but not editable)
+  and creates a new `draft` row; the old manual placement/responsibility edits are retained only as
+  historical evidence and are explicitly discarded by the refresh response.
 - `session_roster_draft_groups`: active group snapshots plus nullable primary responsible-teacher
   identity/name. These are session responsibilities, not weekly assignment replacements.
 - `session_roster_draft_students`: one row per effective active student in the usual group for the
@@ -146,9 +149,11 @@ The public tables are:
   immutable published snapshots. Published student rows contain attending, placed students only, so an
   unavailable student never appears in a published roster. Snapshot names, group identity, week/Saturday,
   primary-teacher identity/name, version, and publishing actor/time are retained for history.
-- `session_roster_audit_events`: append-only draft movement, responsibility, review, publish, and
-  revision history. `private.session_roster_mutation_requests` stores request UUID, normalized input,
-  actor, and result for exact replay; changing any input under a committed request UUID is rejected.
+- `session_roster_audit_events`: append-only draft movement, responsibility, review, publish, revision,
+  and `draft_refreshed` history. A refresh event records the superseded and replacement draft/version
+  identities, source digest, actor, request, and discard scope in its before/after/metadata payloads.
+  `private.session_roster_mutation_requests` stores request UUID, normalized input, actor, and result
+  for exact replay; changing any input under a committed request UUID is rejected.
 
 Readiness is database-derived. Every attending student must be placed exactly once; unplaced attending
 students, source changes, an unreviewed current state, no session groups with attending students, and
@@ -162,7 +167,10 @@ Publishing locks the cohort/week, checks the expected draft `state_version`, rec
 eligibility, inserts a new immutable version and all snapshot rows, closes the draft, records the audit
 event, and stores the replay result in one transaction. A revision creates a new draft from the current
 published placement/responsibility snapshot while the published version remains live. Concurrent or
-stale submissions fail with a refresh/review error rather than partially applying.
+stale submissions fail with a refresh/review error rather than partially applying. The
+`refresh_session_roster_draft(...)` contract is the explicit stale recovery path: it revalidates the
+canonical Sunday, normal-admin scope, draft/state/source/published tokens, and current authoritative
+inputs under the same lock; it never implicitly reviews or publishes the replacement draft.
 
 ## Scoped Operational Records
 

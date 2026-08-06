@@ -467,5 +467,10 @@ teacher assignments. A failed publish must leave no partial version/audit rows.
 
 It must then verify immutable published rows, revision seeding from the live version, source-change and
 expected-state stale failures, exact replay of successful mutation/publish requests, rejection of changed
-payload reuse, and history containing version/actor/request identity. The next backend slice will add
-cohort-wide authorized teacher view/grade access; these tests must not broaden teacher authorization here.
+payload reuse, and history containing version/actor/request identity. It must exercise stale-draft refresh
+with an authorized normal admin, verify one winner under concurrent refresh, reject fresh/old/replayed
+tokens safely, prove the published version is unchanged, prove current attendance/membership/group and
+eligible responsibility inputs are reflected, and verify the replacement requires review again. The
+refresh audit must identify both drafts and the live version, and an injected failure must roll back the
+supersession, replacement rows, and audit row together. The next backend slice will add cohort-wide
+authorized teacher view/grade access; these tests must not broaden teacher authorization here.

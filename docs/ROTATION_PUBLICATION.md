@@ -26,6 +26,16 @@ are service-only, normal-admin scoped, request-replay-safe, and protected by a c
 plus an expected draft state version. Signed super-admin access is intentionally not accepted by this
 workflow. Cohort-wide teacher view/grade authorization is deferred to the next backend slice.
 
+When source state makes a draft stale, `refresh_session_roster_draft(...)` is the only recovery path. It
+requires the expected draft state/source digest, expected current published version identity, and an
+explicit `confirm_discard_changes = true`. Under the same lock it marks the old draft `superseded`,
+rebuilds a new draft from current attendance/usual memberships/active groups, and carries forward only
+currently eligible responsibility inputs from the live published snapshot. The response explicitly says
+that manual placement and primary-responsibility edits were discarded and requires a fresh review. Exact
+replay returns the stored replacement result; a second refresh against the superseded draft or a fresh
+non-stale draft fails safely. The refresh audit event records both draft identities, source/version
+markers, actor, and request atomically.
+
 Publication is a prepare/apply workflow. `prepare_teacher_rotation_publication(...)` stores a request UUID and returns the ordered canonical state: cohort/masjid activity, rotation settings, active groups and ordering, teacher memberships/profile activity, exact availability rows, Saturday-eligible teachers, and current/relevant prior assignments. The TypeScript planner consumes only this snapshot and does not receive unavailable teachers.
 
 `apply_teacher_rotation_publication(...)` accepts that exact state and the desired assignment set, locks `rotation-publication:<cohort_id>:<week_start>`, locks relevant rows, recomputes state, and rejects a mismatch as stale. It takes a private per-cohort state-version row in shared mode only after locking the relevant public rows; all canonical-state writers first lock their public row and then advance that version under the conflicting lock. This order avoids writer/publication deadlocks and closes the missing-row race for availability, staff, groups, and assignments that ordinary row locks cannot see. Group activity/order, settings, availability, staff dates, profile activity, assignments, cohort activity, and masjid activity invalidate a prepared plan.

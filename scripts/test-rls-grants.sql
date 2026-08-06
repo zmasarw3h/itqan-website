@@ -242,6 +242,7 @@ begin
       ('get_scoped_user_setup_auth_recovery(uuid,uuid,text,text,text,text,date,date,uuid,uuid)'),
       ('get_scoped_user_setup_request_result(uuid,uuid,text,text,text,text,date,date,uuid,uuid)'),
       ('load_or_create_session_roster_draft(uuid,uuid,uuid,date)'),
+      ('refresh_session_roster_draft(uuid,uuid,uuid,date,uuid,bigint,text,uuid,boolean)'),
       ('get_session_roster_draft(uuid,uuid)'),
       ('move_session_roster_student(uuid,uuid,uuid,uuid,uuid,bigint)'),
       ('assign_session_roster_primary_teacher(uuid,uuid,uuid,uuid,uuid,bigint)'),
@@ -300,6 +301,7 @@ begin
   end if;
 
   if not has_function_privilege('service_role', 'public.load_or_create_session_roster_draft(uuid,uuid,uuid,date)', 'EXECUTE')
+    or not has_function_privilege('service_role', 'public.refresh_session_roster_draft(uuid,uuid,uuid,date,uuid,bigint,text,uuid,boolean)', 'EXECUTE')
     or not has_function_privilege('service_role', 'public.get_session_roster_draft(uuid,uuid)', 'EXECUTE')
     or not has_function_privilege('service_role', 'public.move_session_roster_student(uuid,uuid,uuid,uuid,uuid,bigint)', 'EXECUTE')
     or not has_function_privilege('service_role', 'public.assign_session_roster_primary_teacher(uuid,uuid,uuid,uuid,uuid,bigint)', 'EXECUTE')

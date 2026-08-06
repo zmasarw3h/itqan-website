@@ -123,6 +123,7 @@ enforce Saturday eligibility plus an exact `available = true` row, and compare c
 under a cohort/week advisory lock. Browser roles cannot execute either RPC. The legacy generation RPC is
 also service-role-only and guarded, but temporarily has no request-ID stale-state protection.
 The session-roster contracts (`load_or_create_session_roster_draft(...)`,
+`refresh_session_roster_draft(...)`,
 `get_session_roster_draft(...)`, `move_session_roster_student(...)`,
 `assign_session_roster_primary_teacher(...)`, `compute_session_roster_readiness(...)`,
 `review_session_roster_draft(...)`, `publish_session_roster_draft(...)`,
@@ -131,6 +132,10 @@ The session-roster contracts (`load_or_create_session_roster_draft(...)`,
 `super_admin`, enforce active masjid/cohort scope, use canonical Sunday identity, serialize the
 cohort/week, and keep each mutation plus its audit event atomic. `can_read_session_roster_cohort(...)`
 is the only signed-role helper for these tables and grants scoped normal-admin reads only.
+Refresh is also service-only and requires an explicit discard-confirmation input. It can supersede only
+the exact stale draft token supplied by the scoped normal admin; it cannot be used by a super-admin
+through this normal-admin path, cannot mutate permanent memberships or existing teacher assignments,
+and cannot change the live published version.
 The Phase 1A functions `apply_scoped_user_setup(...)`,
 `get_scoped_user_setup_request_result(...)`, `get_scoped_user_setup_auth_recovery(...)`,
 `get_person_access_state(uuid,uuid)`, `apply_super_admin_access_change(...)`,

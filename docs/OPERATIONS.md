@@ -123,6 +123,16 @@ assignment publication:
    `publish_session_roster_draft(...)` with the reviewed version. Publish atomically creates the next
    immutable version, snapshot rows, and audit event. A stale state, changed source attendance/membership
    snapshot, or changed teacher eligibility fails safely and requires reload/review.
+6. If the draft is stale, show an explicit discard confirmation and call
+   `refresh_session_roster_draft(request_id, actor_id, cohort_id, week_start, draft_id,
+   expected_state_version, expected_source_state_digest, expected_published_version_id,
+   confirm_discard_changes = true)`. The contract marks the old draft `superseded` and atomically
+   rebuilds a new draft from current availability (missing means attending), effective usual
+   memberships, active groups, and currently eligible published responsibility inputs. The response's
+   `refresh.discarded_manual_edits` is always `true`, with the discarded placement/responsibility kinds,
+   fresh draft ID/state version/source digest, and `requires_review = true`. The current published version
+   remains live and unchanged. A fresh draft is rejected as `session_roster_refresh_not_stale`; a stale
+   token, superseded draft token, changed published version, or changed request payload is rejected safely.
 
 After publication, use `get_current_session_roster(...)` for the live Saturday snapshot and
 `get_session_roster_history(...)` for version/audit history. To change a published roster, call

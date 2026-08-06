@@ -65,7 +65,7 @@ export type SessionRosterDraftMetadata = {
   week_start: string;
   halaqa_saturday: string;
   revision_number: number;
-  status: "draft" | "published";
+  status: "draft" | "published" | "superseded";
   base_published_version_id: string | null;
   source_state_digest: string;
   current_source_digest: string | null;
@@ -88,6 +88,40 @@ export type SessionRosterDraftResponse = {
   students: SessionRosterDraftStudent[];
   roster: SessionRosterDraftRosterStudent[];
   readiness: SessionRosterReadiness;
+};
+
+export type SessionRosterManualEditKind =
+  | "student_placement"
+  | "primary_teacher_responsibility";
+
+export type RefreshSessionRosterDraftInput = {
+  request_id: string;
+  actor_id: string;
+  cohort_id: string;
+  week_start: string;
+  draft_id: string;
+  expected_state_version: number;
+  expected_source_state_digest: string;
+  expected_published_version_id: string | null;
+  /** Must be true because a refresh intentionally discards stale manual edits. */
+  confirm_discard_changes: true;
+};
+
+export type RefreshSessionRosterDraftSummary = {
+  superseded_draft_id: string;
+  superseded_state_version: number;
+  refreshed_draft_id: string;
+  refreshed_state_version: number;
+  discarded_manual_edits: true;
+  discarded_manual_edit_kinds: SessionRosterManualEditKind[];
+  requires_review: true;
+  published_version_unchanged: true;
+  published_version_id: string | null;
+  source_state_digest: string;
+};
+
+export type RefreshSessionRosterDraftResponse = SessionRosterDraftResponse & {
+  refresh: RefreshSessionRosterDraftSummary;
 };
 
 export type SessionRosterPublishedVersion = {
@@ -130,7 +164,8 @@ export type SessionRosterHistoryEvent = {
     | "primary_teacher_assigned"
     | "draft_reviewed"
     | "version_published"
-    | "revision_created";
+    | "revision_created"
+    | "draft_refreshed";
   draft_id: string | null;
   version_id: string | null;
   request_id: string;
@@ -159,6 +194,7 @@ export type SessionRosterHistoryResponse = {
 
 export type SessionRosterRpcName =
   | "load_or_create_session_roster_draft"
+  | "refresh_session_roster_draft"
   | "get_session_roster_draft"
   | "move_session_roster_student"
   | "assign_session_roster_primary_teacher"

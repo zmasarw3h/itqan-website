@@ -26,8 +26,10 @@ published versions. A draft starts attending students in their usual active grou
 absences, supports Saturday-only moves and primary teacher responsibility, and requires review before
 publish. Unplaced students, stale source state, and missing responsibility block publish; imbalance is a
 warning only. Session-roster mutations are service-only and normal-admin scoped, and publishing never
-changes permanent memberships or current teacher assignments. The later admin UI will consume the stable
-contracts documented in [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md).
+changes permanent memberships or current teacher assignments. A stale draft can be explicitly refreshed
+into a new review-required draft; the old manual placement/responsibility edits are discarded and the
+currently published version remains live. The later admin UI will consume the stable contracts documented
+in [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md).
 
 ## Stack
 
