@@ -110,9 +110,67 @@ Rotation mutations are intentionally separate:
   eligibility plus exact availability, and derives all run results.
 - `apply_teacher_rotation_generation`: temporary service-only compatibility wrapper for the prior app
   signature. It enforces the guarded database boundary but has no request-ID stale-state protection.
+- `load_or_create_session_roster_draft`, `get_session_roster_draft`,
+  `move_session_roster_student`, `assign_session_roster_primary_teacher`,
+  `compute_session_roster_readiness`, `review_session_roster_draft`,
+  `publish_session_roster_draft`, `create_session_roster_revision`,
+  `refresh_session_roster_draft`,
+  `get_current_session_roster`, and `get_session_roster_history`: service-only
+  contracts for the attendance-aware Saturday session roster layer described below.
 
 RLS is conservative: active admins for the scoped masjid manage rotation data. Teachers may read only
-their own availability rows.
+their own availability rows. Session-roster tables grant signed sessions only scoped `SELECT`; all
+draft, review, publish, revision, and audit writes stay inside the service-only contracts. The helper
+`can_read_session_roster_cohort(cohort_id)` intentionally recognizes only an active normal admin
+(`profiles.role = 'admin'` plus an active admin staff membership), so a signed super-admin session does
+not inherit this normal-admin workflow.
+
+## Attendance-Aware Saturday Session Rosters
+
+The session-roster layer is an additive Saturday-specific planning and historical snapshot. Its identity
+is `(cohort_id, week_start)`, where `week_start` is canonical Sunday and
+`halaqa_saturday = week_start + 6`. It consumes `student_rotation_availability` but does not replace it,
+and it never mutates `student_group_memberships` or `group_teacher_assignments`.
+
+The public tables are:
+
+- `session_roster_drafts`: one current mutable draft per cohort/week, with a monotonic revision number,
+  source-state digest, optimistic `state_version`, review metadata, and links to its base/current
+  published version. A stale draft refresh marks the old row `superseded` (readable but not editable)
+  and creates a new `draft` row; the old manual placement/responsibility edits are retained only as
+  historical evidence and are explicitly discarded by the refresh response.
+- `session_roster_draft_groups`: active group snapshots plus nullable primary responsible-teacher
+  identity/name. These are session responsibilities, not weekly assignment replacements.
+- `session_roster_draft_students`: one row per effective active student in the usual group for the
+  selected week. Missing availability is `attending`; an explicit absence is `unavailable` and cannot
+  have a session group. Attending students are initially placed in their usual group and can be moved
+  only within the draft's active session groups.
+- `session_roster_versions`, `session_roster_version_groups`, and `session_roster_version_students`:
+  immutable published snapshots. Published student rows contain attending, placed students only, so an
+  unavailable student never appears in a published roster. Snapshot names, group identity, week/Saturday,
+  primary-teacher identity/name, version, and publishing actor/time are retained for history.
+- `session_roster_audit_events`: append-only draft movement, responsibility, review, publish, revision,
+  and `draft_refreshed` history. A refresh event records the superseded and replacement draft/version
+  identities, source digest, actor, request, and discard scope in its before/after/metadata payloads.
+  `private.session_roster_mutation_requests` stores request UUID, normalized input, actor, and result
+  for exact replay; changing any input under a committed request UUID is rejected.
+
+Readiness is database-derived. Every attending student must be placed exactly once; unplaced attending
+students, source changes, an unreviewed current state, no session groups with attending students, and
+missing primary responsibility are blockers. A group-count imbalance is a warning only. Primary
+teachers must be active, authorized cohort teachers with Saturday staff coverage and exact positive
+teacher availability; responsibility is a highlight/ownership marker, not an exclusivity rule for future
+teacher viewing or grading. Cohort-wide teacher access is intentionally deferred to the next backend
+slice.
+
+Publishing locks the cohort/week, checks the expected draft `state_version`, rechecks source and teacher
+eligibility, inserts a new immutable version and all snapshot rows, closes the draft, records the audit
+event, and stores the replay result in one transaction. A revision creates a new draft from the current
+published placement/responsibility snapshot while the published version remains live. Concurrent or
+stale submissions fail with a refresh/review error rather than partially applying. The
+`refresh_session_roster_draft(...)` contract is the explicit stale recovery path: it revalidates the
+canonical Sunday, normal-admin scope, draft/state/source/published tokens, and current authoritative
+inputs under the same lock; it never implicitly reviews or publishes the replacement draft.
 
 ## Scoped Operational Records
 
@@ -157,6 +215,11 @@ Existing admins receive TIC admin staff memberships. Existing active students re
 - One teacher availability row per teacher, cohort, and tracker week.
 - One explicit absence row per student, cohort, and tracker week; a missing row means attending.
 - One active rotation settings row per cohort.
+- One current session-roster draft per cohort/week, one row per scoped student in that draft, and one
+  immutable published version number per cohort/week. Published rosters contain each attending student
+  exactly once and no unavailable students.
+- Session roster drafts and publish/revision audit events are mutated only by atomic service contracts;
+  browser clients have no direct write grants, and signed reads are normal-admin masjid/cohort scoped.
 - Students can only view and submit their own records. Student leaderboard rows are limited to the student's cohort for the selected week.
 - Student checklist items must match the canonical task key/label/weight for the date. Database triggers protect check-in identity, scope, date, and attribution and recalculate score-bearing columns from task completion.
 - Active students without an effective group membership see setup-incomplete screens and cannot create check-ins, weekly plans, or partner recitations.

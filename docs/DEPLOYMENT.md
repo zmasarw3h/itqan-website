@@ -108,6 +108,38 @@ adapt it to target staging or production.
 
 Apply migrations with the Supabase CLI or the Supabase SQL editor in filename order. Avoid dashboard schema edits except for emergencies, and capture any emergency schema change in a migration afterward.
 
+### Attendance-aware Saturday session-roster backend
+
+The session-roster migration is additive and depends on the canonical availability foundation:
+
+1. Apply `20260806144640_student_rotation_availability.sql` (from the availability foundation branch)
+   before `20260806170351_session_roster_backend_foundation.sql`. Do not copy or rewrite the availability
+   migration; the session-roster migration only adds its own tables, locks, triggers, contracts, grants,
+   and audit/version metadata.
+2. Apply `20260806190708_session_roster_refresh_recovery.sql` after the session-roster foundation. This
+   additive function/constraint replacement adds only the stale-draft recovery state and service RPC;
+   it does not drop tables/columns or mutate production/source rows.
+3. Before staging, run `npm run test:rls`, `npx supabase db lint --local --schema public --level warning
+   --fail-on error`, and `npx supabase db advisors --local --type all --level warn --fail-on error` against
+   a disposable local stack. The advisor command may report existing warnings on legacy tables and the
+   public `btree_gist` extension; treat new findings from this migration as release blockers.
+4. Apply all three migrations to staging, verify the normal-admin draft/review/publish flow and the
+   explicit stale-draft refresh/review flow for an explicitly selected cohort, and verify that signed
+   browser clients cannot write roster tables or execute the mutation RPCs. Confirm that the existing
+   availability and teacher-rotation flows remain unchanged.
+5. Back up production, apply the same migration order manually, run the catalog/RLS smoke checks, and
+   deploy application code only after the schema is ready. This backend slice does not backfill drafts,
+   versions, memberships, grades, plans, or teacher assignments; production remains unchanged until an
+   admin explicitly uses the later application workflow.
+
+The migration keeps published versions immutable and has no destructive down migration. If the new flow
+has a problem, pause session-roster calls, leave the availability and existing teacher-rotation paths in
+place, preserve any published snapshots for audit, and ship a forward-fix migration. Do not delete
+published/superseded rows or roll back by mutating permanent memberships/assignments. A revision or
+forward refresh fix is the supported way to correct a published Saturday roster after the current version
+is reviewed. Do not reverse the constraint replacement on a live database merely to hide a failed refresh;
+preserve the audit trail and use a reviewed forward fix.
+
 ## Rollback
 
 App rollback is handled through Vercel. If a deployment is bad, promote or roll back to the last known good Vercel deployment, then smoke test login, student check-in, admin dashboard, and CSV export.

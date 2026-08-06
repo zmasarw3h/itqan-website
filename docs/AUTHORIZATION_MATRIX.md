@@ -71,7 +71,7 @@ policy was already super-admin-only and remains unchanged):
 | `student_group_memberships` | Student own history; effective assigned-teacher read; subject-, attribution-, and masjid-scoped normal-admin insert and open-row closure; signed super-admin direct writes and all direct deletes denied |
 | `masjid_staff_memberships` | Own history; teacher-only, attribution-checked normal-admin insert and deactivation/closure; signed super-admin direct writes and all direct deletes denied |
 | `group_teacher_assignments` | Saturday-eligible teacher own reads; eligible-teacher, attribution-, and masjid-scoped admin insert and active-to-inactive transition; a table-specific trigger independently enforces Saturday eligibility for direct service-role inserts, identity changes, and active-only reactivation; immutable teacher/group/week/creator history; delete is super-admin-only |
-| Rotation tables | Saturday-eligible teacher own availability read; masjid-scoped admin/super-admin management for availability and settings; signed-session run access is scoped `SELECT` only and guarded generation is service-role-only |
+| Rotation tables | Saturday-eligible teacher own availability read; masjid-scoped admin/super-admin management for availability and settings; signed-session run access is scoped `SELECT` only and guarded generation is service-role-only. Session-roster drafts, published snapshots, and audit rows are readable only by the scoped normal admin for the cohort; all session-roster mutations are service-role-only and super-admin sessions are deliberately excluded |
 | `super_admin_audit_events` | `Active super admins can read audit events`; no signed-role insert/update/delete policy; table ACL grants service role only `SELECT` and `INSERT` |
 | `super_admin_guided_change_reviews` | RLS enabled with no signed-role policies; table ACL revokes `anon` and `authenticated`; the service role alone may create/read/delete a short-lived review intent that binds operation, scope, effective date, target, actor, and expected canonical access state |
 | `storage.objects` weekly-plan policies | Student-owned select and masjid-scoped admin select via `can_admin_read_weekly_plan_path(text)`; bucket-scoped restrictive policies deny authenticated insert/update/delete regardless of any differently named permissive policy because guarded server actions own that workflow |
@@ -122,6 +122,20 @@ service-role-only. They independently validate a current Toronto-civil-date admi
 enforce Saturday eligibility plus an exact `available = true` row, and compare canonical prepared state
 under a cohort/week advisory lock. Browser roles cannot execute either RPC. The legacy generation RPC is
 also service-role-only and guarded, but temporarily has no request-ID stale-state protection.
+The session-roster contracts (`load_or_create_session_roster_draft(...)`,
+`refresh_session_roster_draft(...)`,
+`get_session_roster_draft(...)`, `move_session_roster_student(...)`,
+`assign_session_roster_primary_teacher(...)`, `compute_session_roster_readiness(...)`,
+`review_session_roster_draft(...)`, `publish_session_roster_draft(...)`,
+`create_session_roster_revision(...)`, `get_current_session_roster(...)`, and
+`get_session_roster_history(...)`) are service-role-only. Their normal-admin actor checks exclude
+`super_admin`, enforce active masjid/cohort scope, use canonical Sunday identity, serialize the
+cohort/week, and keep each mutation plus its audit event atomic. `can_read_session_roster_cohort(...)`
+is the only signed-role helper for these tables and grants scoped normal-admin reads only.
+Refresh is also service-only and requires an explicit discard-confirmation input. It can supersede only
+the exact stale draft token supplied by the scoped normal admin; it cannot be used by a super-admin
+through this normal-admin path, cannot mutate permanent memberships or existing teacher assignments,
+and cannot change the live published version.
 The Phase 1A functions `apply_scoped_user_setup(...)`,
 `get_scoped_user_setup_request_result(...)`, `get_scoped_user_setup_auth_recovery(...)`,
 `get_person_access_state(uuid,uuid)`, `apply_super_admin_access_change(...)`,

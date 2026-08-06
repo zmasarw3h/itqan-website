@@ -36,6 +36,13 @@ Tables with RLS enabled:
 - `public.teacher_rotation_availability`
 - `public.cohort_rotation_settings`
 - `public.teacher_rotation_runs`
+- `public.session_roster_versions`
+- `public.session_roster_drafts`
+- `public.session_roster_draft_groups`
+- `public.session_roster_draft_students`
+- `public.session_roster_version_groups`
+- `public.session_roster_version_students`
+- `public.session_roster_audit_events`
 - `public.super_admin_audit_events`
 
 Helper functions used by policies:
@@ -49,6 +56,7 @@ Helper functions used by policies:
 - `public.current_toronto_civil_date()`
 - `public.week_start_for_date(date)`
 - `public.current_partner_recitation_round()`
+- `public.can_read_session_roster_cohort(cohort_id)` (normal-admin-only signed read scope)
 - Caller-relative scope helpers documented in `docs/AUTHORIZATION_MATRIX.md`.
 - Raw cross-user scope resolution lives in the unexposed `private` schema.
 
@@ -61,6 +69,10 @@ Uniqueness and check constraints that are security-relevant:
 - `partner_recitations_points_check` requires student/admin partner recitation points to be `75`.
 - `halaqa_grades_student_week_unique` allows one halaqa grade per student/week.
 - `halaqa_grades_points_check` enforces the valid attendance/recitation point combinations.
+- `session_roster_drafts_current_unique_idx` permits only one mutable draft per cohort/week.
+- Session-roster tables enforce canonical Sunday/Saturday identity, draft/version scope, one student row
+  per draft/version, valid group foreign keys, unavailable-student exclusion, and unique published
+  placement order.
 
 ## Test Data
 
@@ -359,6 +371,13 @@ Phase 1 is not mergeable until a local disposable Supabase harness:
   and the currently open partner-recitation confirmation without a service-role client.
 - Proves rotation-run reads remain scoped while signed-session insert/update/delete are denied and the
   guarded service-role generation transaction still succeeds.
+- Proves session-roster reads are normal-admin masjid/cohort scoped while signed sessions, including
+  super-admin sessions, cannot execute mutation RPCs or directly write roster tables. It covers canonical
+  Sunday identity, missing-availability attendance defaults, explicit absence exclusion, usual-group
+  seeding, exactly-once attending placement, unplaced blockers, warning-only imbalance, missing primary
+  teacher blockers, Saturday teacher eligibility, atomic publish/audit, immutable versions, revision
+  creation while the current version remains live, stale source/state rejection, exact request replay,
+  changed-payload rejection, and actor identity in audit history.
 - Rejects non-Sunday week inputs to weekly projection RPCs.
 - Catalog-checks Storage policy command, role, permissiveness, and expressions, plus exact function and
   audit-table privileges rather than relying only on behavioral happy paths.
@@ -431,3 +450,27 @@ profile activity, assignment, cohort, and masjid; every apply must be stale. An 
 return one original run; changed payload must fail. Two simultaneous same-cohort/week applies must result
 in one success and one stale conflict. Exercise the retained legacy signature with a valid available
 teacher and with unavailable/missing/ineligible teachers; counts from that caller are never authoritative.
+
+### Attendance-aware session-roster integrity
+
+The signed-session integration suite must exercise the service-only roster contracts for two masjids and
+at least one cross-cohort admin. A normal admin may read only the selected cohort's drafts, versions,
+snapshot groups/students, and audit events. A super admin is not a substitute for normal-admin scope in
+this workflow. Direct authenticated insert/update/delete attempts must fail.
+
+The suite must load a draft from the Sunday availability source, verify that missing rows mean attending
+and explicit absence rows never enter `roster`, then move a student, test an unplaced blocker, and verify
+that every attending student appears once. It must assign Saturday-eligible primary teachers, distinguish
+warning-only imbalance from publish blockers, require review, and verify that publish inserts all snapshot
+rows plus one actor-linked audit event atomically without changing permanent memberships or existing
+teacher assignments. A failed publish must leave no partial version/audit rows.
+
+It must then verify immutable published rows, revision seeding from the live version, source-change and
+expected-state stale failures, exact replay of successful mutation/publish requests, rejection of changed
+payload reuse, and history containing version/actor/request identity. It must exercise stale-draft refresh
+with an authorized normal admin, verify one winner under concurrent refresh, reject fresh/old/replayed
+tokens safely, prove the published version is unchanged, prove current attendance/membership/group and
+eligible responsibility inputs are reflected, and verify the replacement requires review again. The
+refresh audit must identify both drafts and the live version, and an injected failure must roll back the
+supersession, replacement rows, and audit row together. The next backend slice will add cohort-wide
+authorized teacher view/grade access; these tests must not broaden teacher authorization here.

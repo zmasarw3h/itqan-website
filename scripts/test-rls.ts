@@ -3,6 +3,11 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { calculateDailySubmission, tasksForDate } from "../lib/scoring";
+import type {
+  RefreshSessionRosterDraftResponse,
+  SessionRosterDraftResponse,
+  SessionRosterPublishedResponse
+} from "../lib/session-roster";
 
 const url = process.env.RLS_SUPABASE_URL ?? "";
 const anonKey = process.env.RLS_SUPABASE_ANON_KEY ?? "";
@@ -216,6 +221,13 @@ function startLocalPsqlTransaction(sql: string, readyMarker: string) {
   writer.stdin.end(sql);
 
   return { ready, completion };
+}
+
+async function runLocalPsql(sql: string) {
+  const marker = `rls_sql_complete_${randomUUID()}`;
+  const execution = startLocalPsqlTransaction(`${sql}\n\\echo ${marker}\n`, marker);
+  await execution.ready;
+  await execution.completion;
 }
 
 async function requireData<T>(label: string, promise: PromiseLike<{ data: T | null; error: { message: string } | null }>) {
@@ -6229,11 +6241,836 @@ async function testStudentRotationAvailability(ids: SeedIds) {
   assert.equal(remainingAbsences?.length, 0, "missing rows did not restore default attendance");
 }
 
+async function testStudentSessionRosters(ids: SeedIds) {
+  const service = localClient(serviceRoleKey);
+  const [adminA, adminB, superAdmin, studentA] = await Promise.all([
+    signIn("adminA"),
+    signIn("adminB"),
+    signIn("superAdmin"),
+    signIn("studentA")
+  ]);
+
+  // Exercise explicit absence exclusion in a separate scoped cohort so the
+  // main publish fixture can remain fully attending.
+  const writerAbsence = await service.rpc("apply_student_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: ids.weekStart,
+    input_absences: [{ student_id: ids.users.studentWriter, reason: "Away" }]
+  });
+  assert.equal(writerAbsence.error, null, writerAbsence.error?.message);
+  const writerDraftResult = await service.rpc("load_or_create_session_roster_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(writerDraftResult.error, null, writerDraftResult.error?.message);
+  const writerDraft = writerDraftResult.data as SessionRosterDraftResponse;
+  assert.equal(writerDraft.roster.length, 0, "unavailable students appeared in the draft roster");
+  assert.equal(
+    writerDraft.students.find((student) => student.student_id === ids.users.studentWriter)?.attendance_status,
+    "unavailable",
+    "explicit absence did not become unavailable source state"
+  );
+  const writerRestore = await service.rpc("apply_student_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: ids.weekStart,
+    input_absences: []
+  });
+  assert.equal(writerRestore.error, null, writerRestore.error?.message);
+
+  const requestId = randomUUID();
+  const created = await service.rpc("load_or_create_session_roster_draft", {
+    input_request_id: requestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(created.error, null, `session roster draft create failed: ${created.error?.message}`);
+  const initialDraft = created.data as SessionRosterDraftResponse;
+  const draftId = initialDraft.draft.id;
+  assert.equal(initialDraft.draft.week_start, ids.weekStart);
+  assert.equal(initialDraft.draft.halaqa_saturday, addDays(ids.weekStart, 6));
+  assert.equal(initialDraft.draft.state_version, 0);
+  const initialAttendingStudents = initialDraft.students.filter((student) => student.attendance_status === "attending");
+  assert.equal(initialAttendingStudents.length, 4);
+  assert.equal(initialDraft.roster.length, initialAttendingStudents.length, "attending students were not seeded into usual groups");
+  assert.equal(initialDraft.readiness.unplaced_count, 0);
+  assert.ok(initialDraft.readiness.blocker_codes.includes("missing_primary_teacher_responsibility"));
+
+  await assertVisible(adminA, "session_roster_drafts", draftId);
+  await assertHidden(adminB, "session_roster_drafts", draftId);
+  await assertHidden(superAdmin, "session_roster_drafts", draftId);
+  await assertHidden(studentA, "session_roster_drafts", draftId);
+  await assertInsertBlocked(adminA, "session_roster_drafts", {});
+  await assertUpdateBlocked(adminA, "session_roster_drafts", draftId, { state_version: 99 });
+  await assertRpcDenied(adminA, "load_or_create_session_roster_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  await assertRpcDenied(superAdmin, "load_or_create_session_roster_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+
+  const crossMasjid = await service.rpc("load_or_create_session_roster_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminB,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.ok(crossMasjid.error?.message.includes("session_roster_unauthorized_actor"));
+
+  let stateVersion = initialDraft.draft.state_version;
+  const groupA = initialDraft.groups.find((group) => group.group_id === ids.groupA)!;
+  const groupAdminTeacher = initialDraft.groups.find((group) => group.group_id === ids.groupAdminTeacher)!;
+  const groupFridayOnly = initialDraft.groups.find((group) => group.group_id === ids.groupFridayOnly)!;
+  assert.ok(groupA && groupAdminTeacher && groupFridayOnly, "expected all active session groups in the draft");
+
+  const unplace = await service.rpc("move_session_roster_student", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: draftId,
+    input_student_id: ids.users.studentA2,
+    input_session_group_id: null,
+    input_expected_state_version: stateVersion
+  });
+  assert.equal(unplace.error, null, unplace.error?.message);
+  stateVersion = (unplace.data as SessionRosterDraftResponse).draft.state_version;
+  const unplacedReadiness = await service.rpc("compute_session_roster_readiness", {
+    input_actor_id: ids.users.adminA,
+    input_draft_id: draftId
+  });
+  assert.equal(unplacedReadiness.error, null, unplacedReadiness.error?.message);
+  assert.equal((unplacedReadiness.data as SessionRosterDraftResponse["readiness"]).can_publish, false);
+  assert.ok((unplacedReadiness.data as SessionRosterDraftResponse["readiness"]).blocker_codes.includes("unplaced_attending_students"));
+
+  const placeBack = await service.rpc("move_session_roster_student", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: draftId,
+    input_student_id: ids.users.studentA2,
+    input_session_group_id: ids.groupA,
+    input_expected_state_version: stateVersion
+  });
+  assert.equal(placeBack.error, null, placeBack.error?.message);
+  stateVersion = (placeBack.data as SessionRosterDraftResponse).draft.state_version;
+
+  const concurrentExpectedStateVersion = stateVersion;
+  const concurrentMoves = await Promise.all([
+    service.rpc("move_session_roster_student", {
+      input_request_id: randomUUID(),
+      input_actor_id: ids.users.adminA,
+      input_draft_id: draftId,
+      input_student_id: ids.users.studentA,
+      input_session_group_id: ids.groupAdminTeacher,
+      input_expected_state_version: concurrentExpectedStateVersion
+    }),
+    service.rpc("move_session_roster_student", {
+      input_request_id: randomUUID(),
+      input_actor_id: ids.users.adminA,
+      input_draft_id: draftId,
+      input_student_id: ids.users.studentA2,
+      input_session_group_id: ids.groupFridayOnly,
+      input_expected_state_version: concurrentExpectedStateVersion
+    })
+  ]);
+  const concurrentSuccesses = concurrentMoves.filter((result) => result.error === null);
+  const concurrentFailures = concurrentMoves.filter((result) => result.error !== null);
+  assert.equal(concurrentSuccesses.length, 1, "concurrent session-roster mutations both committed");
+  assert.equal(concurrentFailures.length, 1, "concurrent session-roster mutation did not fail safely");
+  assert.ok(concurrentFailures[0].error?.message.includes("session_roster_stale_draft"));
+  stateVersion = (concurrentSuccesses[0].data as SessionRosterDraftResponse).draft.state_version;
+
+  const resetStudentA = await service.rpc("move_session_roster_student", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: draftId,
+    input_student_id: ids.users.studentA,
+    input_session_group_id: ids.groupA,
+    input_expected_state_version: stateVersion
+  });
+  assert.equal(resetStudentA.error, null, resetStudentA.error?.message);
+  stateVersion = (resetStudentA.data as SessionRosterDraftResponse).draft.state_version;
+  const resetStudentA2 = await service.rpc("move_session_roster_student", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: draftId,
+    input_student_id: ids.users.studentA2,
+    input_session_group_id: ids.groupA,
+    input_expected_state_version: stateVersion
+  });
+  assert.equal(resetStudentA2.error, null, resetStudentA2.error?.message);
+  stateVersion = (resetStudentA2.data as SessionRosterDraftResponse).draft.state_version;
+
+  // The same expected token cannot be used twice; a replay with the exact
+  // request is safe, while changing the payload under that request ID is not.
+  const concurrentRequestId = randomUUID();
+  const firstMove = await service.rpc("move_session_roster_student", {
+    input_request_id: concurrentRequestId,
+    input_actor_id: ids.users.adminA,
+    input_draft_id: draftId,
+    input_student_id: ids.users.studentA,
+    input_session_group_id: ids.groupAdminTeacher,
+    input_expected_state_version: stateVersion
+  });
+  assert.equal(firstMove.error, null, firstMove.error?.message);
+  const replayedMove = await service.rpc("move_session_roster_student", {
+    input_request_id: concurrentRequestId,
+    input_actor_id: ids.users.adminA,
+    input_draft_id: draftId,
+    input_student_id: ids.users.studentA,
+    input_session_group_id: ids.groupAdminTeacher,
+    input_expected_state_version: stateVersion
+  });
+  assert.equal(replayedMove.error, null, replayedMove.error?.message);
+  assert.deepEqual(replayedMove.data, firstMove.data, "exact mutation replay did not return the stored result");
+  const reusedRequest = await service.rpc("move_session_roster_student", {
+    input_request_id: concurrentRequestId,
+    input_actor_id: ids.users.adminA,
+    input_draft_id: draftId,
+    input_student_id: ids.users.studentA,
+    input_session_group_id: ids.groupFridayOnly,
+    input_expected_state_version: stateVersion
+  });
+  assert.ok(reusedRequest.error?.message.includes("session_roster_request_reused"));
+  const staleMove = await service.rpc("move_session_roster_student", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: draftId,
+    input_student_id: ids.users.studentA2,
+    input_session_group_id: ids.groupFridayOnly,
+    input_expected_state_version: stateVersion
+  });
+  assert.ok(staleMove.error?.message.includes("session_roster_stale_draft"));
+  stateVersion = (firstMove.data as SessionRosterDraftResponse).draft.state_version;
+  const balanceMove = await service.rpc("move_session_roster_student", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: draftId,
+    input_student_id: ids.users.studentA,
+    input_session_group_id: ids.groupA,
+    input_expected_state_version: stateVersion
+  });
+  assert.equal(balanceMove.error, null, balanceMove.error?.message);
+  stateVersion = (balanceMove.data as SessionRosterDraftResponse).draft.state_version;
+
+  const teacherAGroup = await service.rpc("assign_session_roster_primary_teacher", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: draftId,
+    input_group_id: ids.groupA,
+    input_primary_teacher_id: ids.users.teacherA,
+    input_expected_state_version: stateVersion
+  });
+  assert.equal(teacherAGroup.error, null, teacherAGroup.error?.message);
+  stateVersion = (teacherAGroup.data as SessionRosterDraftResponse).draft.state_version;
+  const adminTeacherGroup = await service.rpc("assign_session_roster_primary_teacher", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: draftId,
+    input_group_id: ids.groupAdminTeacher,
+    input_primary_teacher_id: ids.users.adminA,
+    input_expected_state_version: stateVersion
+  });
+  assert.equal(adminTeacherGroup.error, null, adminTeacherGroup.error?.message);
+  stateVersion = (adminTeacherGroup.data as SessionRosterDraftResponse).draft.state_version;
+  const fridayGroup = await service.rpc("assign_session_roster_primary_teacher", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: draftId,
+    input_group_id: ids.groupFridayOnly,
+    input_primary_teacher_id: ids.users.teacherA,
+    input_expected_state_version: stateVersion
+  });
+  assert.equal(fridayGroup.error, null, fridayGroup.error?.message);
+  stateVersion = (fridayGroup.data as SessionRosterDraftResponse).draft.state_version;
+
+  const crossTeacher = await service.rpc("assign_session_roster_primary_teacher", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: draftId,
+    input_group_id: ids.groupA,
+    input_primary_teacher_id: ids.users.teacherB,
+    input_expected_state_version: stateVersion
+  });
+  assert.ok(crossTeacher.error?.message.includes("session_roster_primary_teacher_unavailable"));
+
+  const ready = await service.rpc("compute_session_roster_readiness", {
+    input_actor_id: ids.users.adminA,
+    input_draft_id: draftId
+  });
+  assert.equal(ready.error, null, ready.error?.message);
+  const readyData = ready.data as SessionRosterDraftResponse["readiness"];
+  assert.equal(readyData.unplaced_count, 0);
+  assert.equal(readyData.missing_primary_teachers.length, 0);
+  assert.ok(readyData.warning_codes.includes("group_imbalance"), "imbalance was not reported as a warning");
+  assert.equal(readyData.can_publish, false, "unreviewed draft was publish-ready");
+
+  const reviewRequestId = randomUUID();
+  const reviewed = await service.rpc("review_session_roster_draft", {
+    input_request_id: reviewRequestId,
+    input_actor_id: ids.users.adminA,
+    input_draft_id: draftId,
+    input_expected_state_version: stateVersion
+  });
+  assert.equal(reviewed.error, null, reviewed.error?.message);
+  const reviewedData = reviewed.data as SessionRosterDraftResponse;
+  stateVersion = reviewedData.draft.state_version;
+  assert.equal(reviewedData.readiness.can_publish, true, "warning-only imbalance blocked publish");
+  assert.equal(reviewedData.readiness.warning_codes.length, 1);
+
+  const assignmentBeforePublish = await requireData<{ teacher_id: string; active: boolean }>(
+    "read existing teacher assignment before session publish",
+    service.from("group_teacher_assignments").select("teacher_id,active").eq("id", ids.assignmentA).single()
+  );
+  const publishedRequestId = randomUUID();
+  const published = await service.rpc("publish_session_roster_draft", {
+    input_request_id: publishedRequestId,
+    input_actor_id: ids.users.adminA,
+    input_draft_id: draftId,
+    input_expected_state_version: stateVersion
+  });
+  assert.equal(published.error, null, `session roster publish failed: ${published.error?.message}`);
+  const publishedData = published.data as SessionRosterPublishedResponse;
+  assert.equal(publishedData.version?.version_number, 1);
+  assert.equal(publishedData.version?.week_start, ids.weekStart);
+  assert.equal(publishedData.roster.length, initialAttendingStudents.length);
+  assert.equal(
+    new Set(publishedData.roster.map((student) => student.student_id)).size,
+    publishedData.roster.length,
+    "published roster duplicated a student"
+  );
+  assert.ok(publishedData.roster.every((student) => student.student_id !== ids.users.studentWriter));
+  const assignmentAfterPublish = await requireData<{ teacher_id: string; active: boolean }>(
+    "read existing teacher assignment after session publish",
+    service.from("group_teacher_assignments").select("teacher_id,active").eq("id", ids.assignmentA).single()
+  );
+  assert.deepEqual(assignmentAfterPublish, assignmentBeforePublish, "session publish changed current teacher assignment");
+  await assertUpdateBlocked(adminA, "session_roster_versions", publishedData.version!.id, { version_number: 9 });
+  await assertInsertBlocked(adminA, "session_roster_audit_events", {});
+  const publishedReplay = await service.rpc("publish_session_roster_draft", {
+    input_request_id: publishedRequestId,
+    input_actor_id: ids.users.adminA,
+    input_draft_id: draftId,
+    input_expected_state_version: stateVersion
+  });
+  assert.equal(publishedReplay.error, null, publishedReplay.error?.message);
+  assert.deepEqual(publishedReplay.data, published.data, "publish replay created a different result");
+
+  const revision = await service.rpc("create_session_roster_revision", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_expected_published_version_id: publishedData.version!.id
+  });
+  assert.equal(revision.error, null, revision.error?.message);
+  const revisionData = revision.data as SessionRosterDraftResponse;
+  assert.equal(revisionData.draft.revision_number, 2);
+  assert.equal(revisionData.draft.base_published_version_id, publishedData.version!.id);
+  assert.equal(revisionData.roster.length, publishedData.roster.length);
+  const revisionDraftId = revisionData.draft.id;
+  const versionsBeforeFailedRevisionPublish = await requireData<Array<{ id: string }>>(
+    "read versions before failed revision publish",
+    service
+      .from("session_roster_versions")
+      .select("id")
+      .eq("cohort_id", ids.cohortA)
+      .eq("week_start", ids.weekStart)
+  );
+  const failedRevisionPublish = await service.rpc("publish_session_roster_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: revisionDraftId,
+    input_expected_state_version: revisionData.draft.state_version
+  });
+  assert.ok(failedRevisionPublish.error, "unreviewed revision publish unexpectedly succeeded");
+  const versionsAfterFailedRevisionPublish = await requireData<Array<{ id: string }>>(
+    "read versions after failed revision publish",
+    service
+      .from("session_roster_versions")
+      .select("id")
+      .eq("cohort_id", ids.cohortA)
+      .eq("week_start", ids.weekStart)
+  );
+  assert.equal(
+    versionsAfterFailedRevisionPublish.length,
+    versionsBeforeFailedRevisionPublish.length,
+    "failed publish created a partial version"
+  );
+  const failedRevisionAudits = await requireData<Array<{ id: string }>>(
+    "read failed revision publish audits",
+    service
+      .from("session_roster_audit_events")
+      .select("id")
+      .eq("draft_id", revisionDraftId)
+      .eq("action", "version_published")
+  );
+  assert.equal(failedRevisionAudits.length, 0, "failed publish created a partial audit event");
+  const manualPlacement = await service.rpc("move_session_roster_student", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: revisionDraftId,
+    input_student_id: ids.users.studentA2,
+    input_session_group_id: ids.groupFridayOnly,
+    input_expected_state_version: revisionData.draft.state_version
+  });
+  assert.equal(manualPlacement.error, null, manualPlacement.error?.message);
+  const manualPlacementData = manualPlacement.data as SessionRosterDraftResponse;
+  const revisionStateVersionBeforeRefresh = manualPlacementData.draft.state_version;
+  const manualResponsibility = await service.rpc("assign_session_roster_primary_teacher", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: revisionDraftId,
+    input_group_id: ids.groupA,
+    input_primary_teacher_id: ids.users.adminA,
+    input_expected_state_version: revisionStateVersionBeforeRefresh
+  });
+  assert.equal(manualResponsibility.error, null, manualResponsibility.error?.message);
+  const manualResponsibilityData = manualResponsibility.data as SessionRosterDraftResponse;
+  const revisionStateVersion = manualResponsibilityData.draft.state_version;
+
+  const currentBeforeRefresh = await service.rpc("get_current_session_roster", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(currentBeforeRefresh.error, null, currentBeforeRefresh.error?.message);
+  assert.equal(
+    (currentBeforeRefresh.data as SessionRosterPublishedResponse).version?.id,
+    publishedData.version?.id,
+    "refresh fixture did not start from the expected live published version"
+  );
+
+  const revisionSourceChange = await service.rpc("apply_student_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_absences: [{ student_id: ids.users.studentA, reason: "Changed after revision load" }]
+  });
+  assert.equal(revisionSourceChange.error, null, revisionSourceChange.error?.message);
+  const sourceStale = await service.rpc("move_session_roster_student", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: revisionDraftId,
+    input_student_id: ids.users.studentA2,
+    input_session_group_id: ids.groupFridayOnly,
+    input_expected_state_version: revisionStateVersion
+  });
+  assert.ok(sourceStale.error?.message.includes("session_roster_source_stale"));
+
+  const expectedVersionMismatch = await service.rpc("refresh_session_roster_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_draft_id: revisionDraftId,
+    input_expected_state_version: revisionStateVersion - 1,
+    input_expected_source_state_digest: revisionData.draft.source_state_digest,
+    input_expected_published_version_id: publishedData.version!.id,
+    input_confirm_discard_changes: true
+  });
+  assert.ok(expectedVersionMismatch.error?.message.includes("session_roster_stale_draft"));
+
+  const crossMasjidRefresh = await service.rpc("refresh_session_roster_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminB,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_draft_id: revisionDraftId,
+    input_expected_state_version: revisionStateVersion,
+    input_expected_source_state_digest: revisionData.draft.source_state_digest,
+    input_expected_published_version_id: publishedData.version!.id,
+    input_confirm_discard_changes: true
+  });
+  assert.ok(crossMasjidRefresh.error?.message.includes("session_roster_unauthorized_actor"));
+
+  const crossCohortRefresh = await service.rpc("refresh_session_roster_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: ids.weekStart,
+    input_draft_id: revisionDraftId,
+    input_expected_state_version: revisionStateVersion,
+    input_expected_source_state_digest: revisionData.draft.source_state_digest,
+    input_expected_published_version_id: publishedData.version!.id,
+    input_confirm_discard_changes: true
+  });
+  assert.ok(crossCohortRefresh.error?.message.includes("session_roster_draft_scope_mismatch"));
+
+  const nonCanonicalRefresh = await service.rpc("refresh_session_roster_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: addDays(ids.weekStart, 1),
+    input_draft_id: revisionDraftId,
+    input_expected_state_version: revisionStateVersion,
+    input_expected_source_state_digest: revisionData.draft.source_state_digest,
+    input_expected_published_version_id: publishedData.version!.id,
+    input_confirm_discard_changes: true
+  });
+  assert.ok(nonCanonicalRefresh.error?.message.includes("session_roster_invalid_week"));
+
+  const superAdminRefresh = await service.rpc("refresh_session_roster_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_draft_id: revisionDraftId,
+    input_expected_state_version: revisionStateVersion,
+    input_expected_source_state_digest: revisionData.draft.source_state_digest,
+    input_expected_published_version_id: publishedData.version!.id,
+    input_confirm_discard_changes: true
+  });
+  assert.ok(superAdminRefresh.error?.message.includes("session_roster_unauthorized_actor"));
+
+  const teacherUnavailable = await service
+    .from("teacher_rotation_availability")
+    .update({ available: false })
+    .eq("teacher_id", ids.users.teacherA)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart)
+    .select("id")
+    .single();
+  assert.equal(teacherUnavailable.error, null, teacherUnavailable.error?.message);
+
+  const draftsBeforeFailedRefresh = await requireData<Array<{
+    id: string;
+    status: string;
+    revision_number: number;
+    state_version: number;
+  }>>(
+    "read drafts before failed refresh",
+    service
+      .from("session_roster_drafts")
+      .select("id,status,revision_number,state_version")
+      .eq("cohort_id", ids.cohortA)
+      .eq("week_start", ids.weekStart)
+      .order("revision_number")
+  );
+  const failedRefreshRequestId = randomUUID();
+  await runLocalPsql(`
+create or replace function public.test_reject_session_roster_refresh_audit()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.action = 'draft_refreshed' then
+    raise exception using errcode = 'P0001', message = 'forced session roster refresh audit failure';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists test_reject_session_roster_refresh_audit_trigger
+  on public.session_roster_audit_events;
+create trigger test_reject_session_roster_refresh_audit_trigger
+  before insert on public.session_roster_audit_events
+  for each row execute function public.test_reject_session_roster_refresh_audit();
+`);
+  const failedRefresh = await service.rpc("refresh_session_roster_draft", {
+    input_request_id: failedRefreshRequestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_draft_id: revisionDraftId,
+    input_expected_state_version: revisionStateVersion,
+    input_expected_source_state_digest: revisionData.draft.source_state_digest,
+    input_expected_published_version_id: publishedData.version!.id,
+    input_confirm_discard_changes: true
+  });
+  assert.ok(failedRefresh.error?.message.includes("forced session roster refresh audit failure"));
+  const draftsAfterFailedRefresh = await requireData<Array<{
+    id: string;
+    status: string;
+    revision_number: number;
+    state_version: number;
+  }>>(
+    "read drafts after failed refresh",
+    service
+      .from("session_roster_drafts")
+      .select("id,status,revision_number,state_version")
+      .eq("cohort_id", ids.cohortA)
+      .eq("week_start", ids.weekStart)
+      .order("revision_number")
+  );
+  assert.deepEqual(draftsAfterFailedRefresh, draftsBeforeFailedRefresh, "failed refresh partially changed draft rows");
+  const failedRefreshAudits = await requireData<Array<{ id: string }>>(
+    "read failed refresh audits",
+    service
+      .from("session_roster_audit_events")
+      .select("id")
+      .eq("request_id", failedRefreshRequestId)
+  );
+  assert.equal(failedRefreshAudits.length, 0, "failed refresh left an audit row");
+  await runLocalPsql(`
+drop trigger if exists test_reject_session_roster_refresh_audit_trigger
+  on public.session_roster_audit_events;
+drop function if exists public.test_reject_session_roster_refresh_audit();
+`);
+
+  const refreshAttempts = [
+    { requestId: randomUUID() },
+    { requestId: randomUUID() }
+  ];
+  const refreshResults = await Promise.all(
+    refreshAttempts.map(({ requestId }) => service.rpc("refresh_session_roster_draft", {
+      input_request_id: requestId,
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: ids.cohortA,
+      input_week_start: ids.weekStart,
+      input_draft_id: revisionDraftId,
+      input_expected_state_version: revisionStateVersion,
+      input_expected_source_state_digest: revisionData.draft.source_state_digest,
+      input_expected_published_version_id: publishedData.version!.id,
+      input_confirm_discard_changes: true
+    }))
+  );
+  const refreshSuccesses = refreshResults.filter((result) => result.error === null);
+  const refreshFailures = refreshResults.filter((result) => result.error !== null);
+  assert.equal(refreshSuccesses.length, 1, "concurrent refresh attempts both committed");
+  assert.equal(refreshFailures.length, 1, "concurrent refresh attempts did not fail safely");
+  assert.ok(refreshFailures[0].error?.message.includes("session_roster_draft_not_editable"));
+  const winnerIndex = refreshResults.findIndex((result) => result.error === null);
+  const winnerRequestId = refreshAttempts[winnerIndex].requestId;
+  const refreshedData = refreshSuccesses[0].data as RefreshSessionRosterDraftResponse;
+  const refreshedDraftId = refreshedData.refresh.refreshed_draft_id;
+  assert.notEqual(refreshedDraftId, revisionDraftId);
+  assert.equal(refreshedData.draft.id, refreshedDraftId);
+  assert.equal(refreshedData.draft.status, "draft");
+  assert.equal(refreshedData.draft.state_version, 0);
+  assert.equal(refreshedData.refresh.superseded_draft_id, revisionDraftId);
+  assert.equal(refreshedData.refresh.discarded_manual_edits, true);
+  assert.deepEqual(
+    [...refreshedData.refresh.discarded_manual_edit_kinds].sort(),
+    ["primary_teacher_responsibility", "student_placement"].sort()
+  );
+  assert.equal(refreshedData.refresh.requires_review, true);
+  assert.equal(refreshedData.refresh.published_version_unchanged, true);
+  assert.equal(refreshedData.refresh.published_version_id, publishedData.version!.id);
+  assert.equal(
+    refreshedData.students.find((student) => student.student_id === ids.users.studentA)?.attendance_status,
+    "unavailable"
+  );
+  assert.equal(
+    refreshedData.roster.some((student) => student.student_id === ids.users.studentA),
+    false,
+    "refreshed roster retained an unavailable student"
+  );
+  assert.equal(
+    refreshedData.students.find((student) => student.student_id === ids.users.studentA2)?.session_group_id,
+    publishedData.roster.find((student) => student.student_id === ids.users.studentA2)?.session_group_id,
+    "refresh retained the old manual placement"
+  );
+  assert.equal(
+    refreshedData.groups.find((group) => group.group_id === ids.groupA)?.primary_teacher_id,
+    null,
+    "refresh retained an ineligible historical primary teacher"
+  );
+  assert.equal(refreshedData.readiness.reviewed_current, false);
+  assert.equal(refreshedData.readiness.can_publish, false);
+  assert.ok(refreshedData.readiness.blocker_codes.includes("review_required"));
+  assert.ok(refreshedData.readiness.blocker_codes.includes("missing_primary_teacher_responsibility"));
+
+  const refreshedReplay = await service.rpc("refresh_session_roster_draft", {
+    input_request_id: winnerRequestId,
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_draft_id: revisionDraftId,
+    input_expected_state_version: revisionStateVersion,
+    input_expected_source_state_digest: revisionData.draft.source_state_digest,
+    input_expected_published_version_id: publishedData.version!.id,
+    input_confirm_discard_changes: true
+  });
+  assert.equal(refreshedReplay.error, null, refreshedReplay.error?.message);
+  assert.deepEqual(refreshedReplay.data, refreshedData, "refresh replay did not return the stored replacement");
+
+  const freshRefresh = await service.rpc("refresh_session_roster_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_draft_id: refreshedDraftId,
+    input_expected_state_version: refreshedData.draft.state_version,
+    input_expected_source_state_digest: refreshedData.draft.source_state_digest,
+    input_expected_published_version_id: publishedData.version!.id,
+    input_confirm_discard_changes: true
+  });
+  assert.ok(freshRefresh.error?.message.includes("session_roster_refresh_not_stale"));
+
+  const oldDraftRead = await service.rpc("get_session_roster_draft", {
+    input_actor_id: ids.users.adminA,
+    input_draft_id: revisionDraftId
+  });
+  assert.equal(oldDraftRead.error, null, oldDraftRead.error?.message);
+  assert.equal((oldDraftRead.data as SessionRosterDraftResponse).draft.status, "superseded");
+  const supersededMove = await service.rpc("move_session_roster_student", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: revisionDraftId,
+    input_student_id: ids.users.studentA2,
+    input_session_group_id: ids.groupA,
+    input_expected_state_version: revisionStateVersion
+  });
+  assert.ok(supersededMove.error?.message.includes("session_roster_draft_not_editable"));
+
+  const currentAfterRefresh = await service.rpc("get_current_session_roster", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(currentAfterRefresh.error, null, currentAfterRefresh.error?.message);
+  assert.deepEqual(currentAfterRefresh.data, currentBeforeRefresh.data, "refresh changed the live published version");
+
+  const refreshAudit = await requireData<Array<{
+    actor_id: string;
+    action: string;
+    draft_id: string;
+    version_id: string | null;
+    request_id: string;
+    before_data: { draft_id?: string; state_version?: number };
+    after_data: { draft_id?: string; state_version?: number };
+    metadata: {
+      superseded_draft_id?: string;
+      refreshed_draft_id?: string;
+      published_version_unchanged?: boolean;
+    };
+  }>>(
+    "read refresh audit",
+    service
+      .from("session_roster_audit_events")
+      .select("actor_id,action,draft_id,version_id,request_id,before_data,after_data,metadata")
+      .eq("action", "draft_refreshed")
+      .eq("request_id", winnerRequestId)
+  );
+  assert.equal(refreshAudit.length, 1);
+  assert.equal(refreshAudit[0].actor_id, ids.users.adminA);
+  assert.equal(refreshAudit[0].draft_id, refreshedDraftId);
+  assert.equal(refreshAudit[0].version_id, publishedData.version!.id);
+  assert.equal(refreshAudit[0].before_data.draft_id, revisionDraftId);
+  assert.equal(refreshAudit[0].after_data.draft_id, refreshedDraftId);
+  assert.equal(refreshAudit[0].metadata.superseded_draft_id, revisionDraftId);
+  assert.equal(refreshAudit[0].metadata.refreshed_draft_id, refreshedDraftId);
+  assert.equal(refreshAudit[0].metadata.published_version_unchanged, true);
+
+  const teacherAvailabilityRestore = await service
+    .from("teacher_rotation_availability")
+    .update({ available: true })
+    .eq("teacher_id", ids.users.teacherA)
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart)
+    .select("id")
+    .single();
+  assert.equal(teacherAvailabilityRestore.error, null, teacherAvailabilityRestore.error?.message);
+  const restoredTeacherAssignment = await service.rpc("assign_session_roster_primary_teacher", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: refreshedDraftId,
+    input_group_id: ids.groupA,
+    input_primary_teacher_id: ids.users.teacherA,
+    input_expected_state_version: refreshedData.draft.state_version
+  });
+  assert.equal(restoredTeacherAssignment.error, null, restoredTeacherAssignment.error?.message);
+  const restoredFridayTeacher = await service.rpc("assign_session_roster_primary_teacher", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: refreshedDraftId,
+    input_group_id: ids.groupFridayOnly,
+    input_primary_teacher_id: ids.users.teacherA,
+    input_expected_state_version: (restoredTeacherAssignment.data as SessionRosterDraftResponse).draft.state_version
+  });
+  assert.equal(restoredFridayTeacher.error, null, restoredFridayTeacher.error?.message);
+  const refreshedStateVersion = (restoredFridayTeacher.data as SessionRosterDraftResponse).draft.state_version;
+
+  const unreviewedRefreshPublish = await service.rpc("publish_session_roster_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: refreshedDraftId,
+    input_expected_state_version: refreshedStateVersion
+  });
+  assert.ok(unreviewedRefreshPublish.error?.message.includes("session_roster_review_required"));
+
+  const revisionReviewed = await service.rpc("review_session_roster_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: refreshedDraftId,
+    input_expected_state_version: refreshedStateVersion
+  });
+  assert.equal(revisionReviewed.error, null, revisionReviewed.error?.message);
+  const revisionReviewedData = revisionReviewed.data as SessionRosterDraftResponse;
+  const revisionPublished = await service.rpc("publish_session_roster_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: refreshedDraftId,
+    input_expected_state_version: revisionReviewedData.draft.state_version
+  });
+  assert.equal(revisionPublished.error, null, revisionPublished.error?.message);
+  const revisionPublishedData = revisionPublished.data as SessionRosterPublishedResponse;
+  assert.equal(revisionPublishedData.version?.version_number, 2);
+  assert.equal(revisionPublishedData.roster.some((student) => student.student_id === ids.users.studentA), false);
+  const currentPublished = await service.rpc("get_current_session_roster", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(currentPublished.error, null, currentPublished.error?.message);
+  assert.equal((currentPublished.data as SessionRosterPublishedResponse).version?.version_number, 2);
+
+  const staleRevision = await service.rpc("create_session_roster_revision", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_expected_published_version_id: publishedData.version!.id
+  });
+  assert.ok(staleRevision.error?.message.includes("session_roster_published_version_stale"), "stale published version was accepted");
+
+  const history = await service.rpc("get_session_roster_history", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(history.error, null, history.error?.message);
+  const historyData = history.data as {
+    versions: unknown[];
+    audit_events: Array<{ action: string; actor_id: string; request_id: string }>;
+  };
+  assert.equal(historyData.versions.length, 2);
+  assert.ok(historyData.audit_events.some((event) => event.action === "revision_created"));
+  assert.ok(historyData.audit_events.some((event) => event.action === "draft_refreshed"));
+  assert.ok(
+    historyData.audit_events.some(
+      (event) =>
+        event.action === "version_published" &&
+        event.actor_id === ids.users.adminA &&
+        event.request_id === publishedRequestId
+    ),
+    "publish audit did not preserve actor/request identity"
+  );
+
+  const sourceRestore = await service.rpc("apply_student_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_absences: []
+  });
+  assert.equal(sourceRestore.error, null, sourceRestore.error?.message);
+}
+
 async function main() {
   const ids = await seed();
   await runAssertions(ids);
   await testRotationPublicationIntegrity(ids);
   await testStudentRotationAvailability(ids);
+  await testStudentSessionRosters(ids);
   console.log("RLS integration suite passed: signed-session multi-masjid boundaries are enforced.");
 }
 
