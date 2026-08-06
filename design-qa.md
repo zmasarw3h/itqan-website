@@ -114,3 +114,29 @@ No P0, P1, or P2 visual defects were found. A full-page browser capture was not 
 ## Final result
 
 Passed.
+
+---
+
+# Admin Session Rotation corrective amendment — Design QA
+
+## Comparison target
+
+- Approved source visuals: Step 1 implementation reference plus the supplied Step 2 and Step 4 draft/published/stale canvases.
+- Deployed implementation: `https://itqan-lite-6ib0pfwky-zmasarw3hs-projects.vercel.app/admin/rotation`, Vercel deployment `2ehHEAcyFBFKrjhUu42no6iMZTFd`, commit `25e5645`.
+- Intended authenticated states: normal scoped admin desktop and mobile `/admin/rotation` workflow.
+
+## Browser evidence
+
+The deployed route rendered successfully but redirected the available browser session to `/login`. The login page loaded without browser console errors or warnings. No scoped normal-admin credentials or seeded safe test account are available in this environment, so the authenticated four-step page, desktop/mobile table behavior, scroll/focus continuation, draft/revision/stale states, and restored legacy controls could not be rendered or interacted with.
+
+Static and test evidence confirms that the permanent group settings/rebalance operation is rendered after Saturday-only session redistribution in Step 2, and that guarded weekly teacher-assignment preview/publication is rendered after session-roster review in Step 4. This does not substitute for authenticated visual comparison.
+
+## Required fidelity surfaces
+
+- Fonts, spacing, colors, responsive table overflow, and control state fidelity: blocked pending authenticated rendering.
+- Accessibility interaction checks: static coverage confirms semantic controls and section-focus continuation; browser keyboard/focus verification is blocked pending authentication.
+- Console: no errors or warnings on the deployed login redirect; authenticated route console remains unverified.
+
+## Final result
+
+final result: blocked

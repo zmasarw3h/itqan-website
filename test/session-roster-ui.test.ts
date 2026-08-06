@@ -62,6 +62,8 @@ describe("session roster UI action states", () => {
     expect(sessionRosterActionError("session_roster_revision_conflict")).toBe("conflict");
     expect(sessionRosterActionError("session_roster_request_reused")).toBe("conflict");
     expect(sessionRosterActionError("session_roster_request_payload_mismatch")).toBe("conflict");
+    expect(sessionRosterActionError("session_roster_unauthorized_actor")).toBe("unauthorized");
+    expect(sessionRosterActionError("session_roster_unplaced_attending_students")).toBe("blocked");
   });
 
   it("renders audit events for draft loading, edits, publication, revision, and stale refresh", () => {
