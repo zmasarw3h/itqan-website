@@ -12,6 +12,7 @@ import {
 } from "@/app/admin/rotation/data";
 import { assertAdminCanManageCohort } from "@/lib/admin-scope";
 import { rotationPath } from "@/lib/rotation-scope";
+import { parseStudentRotationAbsences } from "@/lib/student-rotation-availability";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import {
@@ -156,6 +157,33 @@ export async function saveTeacherAvailability(formData: FormData) {
 
   revalidatePath("/admin/rotation");
   redirect(rotationRedirectPath(context, weekStart, "availability-saved"));
+}
+
+export async function saveStudentAvailability(formData: FormData) {
+  const weekStart = validRotationWeekStart(String(formData.get("week_start") ?? ""));
+  const { profile, context } = await requireRotationContext(formData, weekStart);
+  let absences: ReturnType<typeof parseStudentRotationAbsences>;
+
+  try {
+    absences = parseStudentRotationAbsences(formData.get("absences"));
+  } catch {
+    redirect(rotationRedirectPath(context, weekStart, "student-availability-invalid"));
+  }
+
+  const adminSupabase = createSupabaseAdminClient();
+  const { error } = await adminSupabase.rpc("apply_student_rotation_availability", {
+    input_actor_id: profile.id,
+    input_cohort_id: context.cohort.id,
+    input_week_start: weekStart,
+    input_absences: absences
+  });
+
+  if (error) {
+    redirect(rotationRedirectPath(context, weekStart, "student-availability-error"));
+  }
+
+  revalidatePath("/admin/rotation");
+  redirect(rotationRedirectPath(context, weekStart, "student-availability-saved"));
 }
 
 export async function rebalanceStudentGroups(formData: FormData) {

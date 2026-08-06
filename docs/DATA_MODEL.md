@@ -34,6 +34,7 @@ Core tables:
 - `masjid_staff_memberships`: admin/teacher membership in one masjid.
 - `group_teacher_assignments`: one teacher assigned to one group for one tracker `week_start`.
 - `teacher_rotation_availability`: per-teacher, per-cohort weekly availability for Saturday halaqa rotation.
+- `student_rotation_availability`: explicit student absences for one cohort and tracker week. Missing rows mean attending.
 - `cohort_rotation_settings`: active rotation configuration for a cohort, including target stable group count.
 - `teacher_rotation_runs`: audit metadata for generated weekly rotation runs.
 - `super_admin_audit_events`: append-only audit target for future super-admin mutations and account recovery actions.
@@ -91,6 +92,7 @@ students automatically.
 
 Rotation tables:
 
+- `student_rotation_availability`: session-only attendance ledger for the selected Saturday. It is unique on `student_id`, `cohort_id`, and Sunday `week_start`; `available` is always `false` because attendance is represented by no row. An optional concise reason and `recorded_by` identify each absence update. Its service-only atomic save function verifies the current normal admin's masjid scope and the student's effective membership in the selected cohort/week. Browser RLS permits only scoped normal-admin reads and no direct browser writes; super-admin sessions are deliberately excluded.
 - `teacher_rotation_availability`: stores whether a teacher is available for one cohort and tracker week. Availability is opt-in: rows default to unavailable until an admin marks the teacher available. It is unique on `teacher_id`, `cohort_id`, and `week_start`, and `week_start` must be the Sunday tracker week start. Rows must reference an active teacher with an active teacher staff membership for the masjid during that week.
 - `cohort_rotation_settings`: stores one active rotation setting row per cohort. `target_group_count` must be positive.
 - `teacher_rotation_runs`: stores generation counts for audit: available teachers, groups, assignments, and warnings.
@@ -99,6 +101,7 @@ Rotation tables:
 
 Rotation mutations are intentionally separate:
 
+- `apply_student_rotation_availability`: atomically replaces only the selected cohort/week absence ledger after validating the normal admin actor, canonical Sunday, active cohort/masjid, and effective student membership. It does not write memberships, groups, or assignments.
 - `apply_cohort_group_rebalance`: creates missing active groups and applies effective-dated balanced
   student memberships for one cohort/week in a single transaction. It is service-role-only and verifies
   the supplied actor's scoped admin access.
@@ -152,6 +155,7 @@ Existing admins receive TIC admin staff memberships. Existing active students re
 - One active/effective staff membership per profile, masjid, staff role, and date range.
 - One teacher assignment per halaqa group and tracker week.
 - One teacher availability row per teacher, cohort, and tracker week.
+- One explicit absence row per student, cohort, and tracker week; a missing row means attending.
 - One active rotation settings row per cohort.
 - Students can only view and submit their own records. Student leaderboard rows are limited to the student's cohort for the selected week.
 - Student checklist items must match the canonical task key/label/weight for the date. Database triggers protect check-in identity, scope, date, and attribution and recalculate score-bearing columns from task completion.

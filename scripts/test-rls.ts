@@ -6100,10 +6100,140 @@ commit;
   );
 }
 
+async function testStudentRotationAvailability(ids: SeedIds) {
+  const service = localClient(serviceRoleKey);
+  const [adminA, adminB, superAdmin, studentA] = await Promise.all([
+    signIn("adminA"),
+    signIn("adminB"),
+    signIn("superAdmin"),
+    signIn("studentA")
+  ]);
+  const membershipBefore = await requireData<{ id: string; group_id: string; starts_on: string; ends_on: string | null }>(
+    "read student membership before session availability",
+    service
+      .from("student_group_memberships")
+      .select("id,group_id,starts_on,ends_on")
+      .eq("id", ids.studentMembershipA)
+      .single()
+  );
+  const assignmentBefore = await requireData<{ id: string; teacher_id: string; active: boolean }>(
+    "read teacher assignment before session availability",
+    service
+      .from("group_teacher_assignments")
+      .select("id,teacher_id,active")
+      .eq("id", ids.assignmentA)
+      .single()
+  );
+
+  const saved = await service.rpc("apply_student_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_absences: [{ student_id: ids.users.studentA, reason: "Family commitment" }]
+  });
+  assert.equal(saved.error, null, `student availability save failed: ${saved.error?.message}`);
+  assert.deepEqual(saved.data, {
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    absence_count: 1
+  });
+
+  const absence = await requireData<{ id: string; available: boolean; reason: string | null; recorded_by: string }>(
+    "read saved student absence",
+    service
+      .from("student_rotation_availability")
+      .select("id,available,reason,recorded_by")
+      .eq("student_id", ids.users.studentA)
+      .eq("cohort_id", ids.cohortA)
+      .eq("week_start", ids.weekStart)
+      .single()
+  );
+  assert.deepEqual(
+    { available: absence.available, reason: absence.reason, recorded_by: absence.recorded_by },
+    { available: false, reason: "Family commitment", recorded_by: ids.users.adminA },
+    "absence ledger did not persist the canonical absence state"
+  );
+  await assertVisible(adminA, "student_rotation_availability", absence.id);
+  await assertHidden(adminB, "student_rotation_availability", absence.id);
+  await assertHidden(superAdmin, "student_rotation_availability", absence.id);
+  await assertHidden(studentA, "student_rotation_availability", absence.id);
+
+  await assertInsertBlocked(adminA, "student_rotation_availability", {
+    student_id: ids.users.studentA2,
+    cohort_id: ids.cohortA,
+    week_start: ids.weekStart,
+    available: false,
+    recorded_by: ids.users.adminA
+  });
+  await assertRpcDenied(adminA, "apply_student_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_absences: []
+  });
+  await assertRpcDenied(superAdmin, "apply_student_rotation_availability", {
+    input_actor_id: ids.users.superAdmin,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_absences: []
+  });
+
+  const crossScope = await service.rpc("apply_student_rotation_availability", {
+    input_actor_id: ids.users.adminB,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_absences: []
+  });
+  assert.ok(crossScope.error?.message.includes("student_rotation_availability_unauthorized_actor"), "cross-masjid admin saved availability");
+  const nonSunday = await service.rpc("apply_student_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: addDays(ids.weekStart, 6),
+    input_absences: []
+  });
+  assert.ok(nonSunday.error?.message.includes("student_rotation_availability_invalid_week_start"), "Saturday was accepted as the storage identity");
+
+  const membershipAfter = await requireData<{ id: string; group_id: string; starts_on: string; ends_on: string | null }>(
+    "read student membership after session availability",
+    service
+      .from("student_group_memberships")
+      .select("id,group_id,starts_on,ends_on")
+      .eq("id", ids.studentMembershipA)
+      .single()
+  );
+  const assignmentAfter = await requireData<{ id: string; teacher_id: string; active: boolean }>(
+    "read teacher assignment after session availability",
+    service
+      .from("group_teacher_assignments")
+      .select("id,teacher_id,active")
+      .eq("id", ids.assignmentA)
+      .single()
+  );
+  assert.deepEqual(membershipAfter, membershipBefore, "session availability changed student membership");
+  assert.deepEqual(assignmentAfter, assignmentBefore, "session availability changed published assignment");
+
+  const allAttending = await service.rpc("apply_student_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_absences: []
+  });
+  assert.equal(allAttending.error, null, `mark all attending failed: ${allAttending.error?.message}`);
+  assert.equal(allAttending.data?.absence_count, 0, "mark all attending retained an absence row");
+  const { data: remainingAbsences, error: remainingAbsencesError } = await service
+    .from("student_rotation_availability")
+    .select("id")
+    .eq("cohort_id", ids.cohortA)
+    .eq("week_start", ids.weekStart);
+  assert.equal(remainingAbsencesError, null, remainingAbsencesError?.message);
+  assert.equal(remainingAbsences?.length, 0, "missing rows did not restore default attendance");
+}
+
 async function main() {
   const ids = await seed();
   await runAssertions(ids);
   await testRotationPublicationIntegrity(ids);
+  await testStudentRotationAvailability(ids);
   console.log("RLS integration suite passed: signed-session multi-masjid boundaries are enforced.");
 }
 
