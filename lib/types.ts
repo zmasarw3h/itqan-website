@@ -92,6 +92,19 @@ export type TeacherRotationAvailability = {
   updated_at: string;
 };
 
+export type StudentRotationAvailability = {
+  id: string;
+  student_id: string;
+  cohort_id: string;
+  week_start: string;
+  // Explicit rows represent absences. A missing row means attending.
+  available: false;
+  reason: string | null;
+  recorded_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type CohortRotationSettings = {
   id: string;
   masjid_id: string;

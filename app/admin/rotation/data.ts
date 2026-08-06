@@ -49,6 +49,9 @@ export type RotationStudentRow = RotationStudent & {
   created_at: string | null;
   group_id: string;
   group_name: string;
+  available: boolean;
+  availability_reason: string | null;
+  availability_updated_at: string | null;
 };
 
 export type RotationTeacherRow = RotationTeacher & {
@@ -87,8 +90,27 @@ export type RotationPageData = {
   setupIssues: string[];
 };
 
+type StudentRotationAvailabilityRow = {
+  student_id: string;
+  available: boolean;
+  reason: string | null;
+  updated_at: string;
+};
+
 type TeacherProfile = Pick<Profile, "id" | "name" | "email" | "created_at">;
 export const ROTATION_STATUS_MESSAGES: Record<string, { text: string; className: string }> = {
+  "student-availability-saved": {
+    text: "Student availability saved.",
+    className: "bg-green-50 text-green-800"
+  },
+  "student-availability-invalid": {
+    text: "Review the student availability changes and try again.",
+    className: "bg-red-50 text-red-700"
+  },
+  "student-availability-error": {
+    text: "Unable to save student availability.",
+    className: "bg-red-50 text-red-700"
+  },
   "settings-saved": {
     text: "Rotation settings saved.",
     className: "bg-green-50 text-green-800"
@@ -277,8 +299,24 @@ export async function loadRotationStudents(input: {
     input.adminSupabase,
     [...new Set(memberships.map((membership) => membership.student_id))]
   );
+  const availabilityRows = groupIds.length > 0
+    ? await input.adminSupabase
+      .from("student_rotation_availability")
+      .select("student_id,available,reason,updated_at")
+      .eq("week_start", input.weekStart)
+      .eq("cohort_id", input.groups[0]!.cohort_id)
+      .returns<StudentRotationAvailabilityRow[]>()
+    : { data: [] as StudentRotationAvailabilityRow[], error: null };
+
+  if (availabilityRows.error) {
+    throw new Error("Unable to load student availability.");
+  }
+
   const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
   const groupById = new Map(input.groups.map((group) => [group.id, group]));
+  const availabilityByStudentId = new Map(
+    (availabilityRows.data ?? []).map((availability) => [availability.student_id, availability])
+  );
 
   return {
     memberships: memberships.filter((membership) => profileById.has(membership.student_id)),
@@ -291,12 +329,18 @@ export async function loadRotationStudents(input: {
           return null;
         }
 
+        const availability = availabilityByStudentId.get(profile.id);
+
         return {
           id: profile.id,
           name: profile.name,
           created_at: profile.created_at ?? null,
           group_id: group.id,
-          group_name: group.name
+          group_name: group.name,
+          // Missing rows intentionally mean attending for this session.
+          available: availability?.available ?? true,
+          availability_reason: availability?.reason ?? null,
+          availability_updated_at: availability?.updated_at ?? null
         };
       })
       .filter((student): student is RotationStudentRow => student !== null)

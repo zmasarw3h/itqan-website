@@ -3,6 +3,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import AppNav from "@/app/nav";
 import RotationScopeSelector from "@/app/admin/rotation/scope-selector";
+import RotationStepIndicator from "@/app/admin/rotation/rotation-step-indicator";
+import StudentAvailabilityForm from "@/app/admin/rotation/student-availability-form";
 import TeacherAvailabilityForm from "@/app/admin/rotation/teacher-availability-form";
 import {
   RotationAvailabilityProvider,
@@ -95,15 +97,12 @@ export default async function AdminRotationPage({
 
   return (
     <>
-      <AppNav role={profile.role} name={profile.name} />
+      <AppNav activeHref="/admin/rotation" role={profile.role} name={profile.name} variant="rotation" />
       <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
         <header>
           <p className="text-sm font-medium text-moss">Saturday halaqa operations</p>
           <h1 className="mt-1 text-2xl font-semibold text-ink">Weekly Rotation</h1>
-          <p className="mt-1 text-sm text-stone-600">
-            {data.context ? `${data.context.masjid.name} · ` : ""}
-            {formatHalaqaSaturday(data.selectedWeekStart)}
-          </p>
+          <p className="mt-1 text-sm text-stone-600">Prepare availability, session groups, and teacher responsibilities for the selected Saturday.</p>
         </header>
 
         <section className="mt-5 border-y border-stone-200 bg-white px-4 py-4 sm:rounded-lg sm:border">
@@ -154,39 +153,78 @@ export default async function AdminRotationPage({
           </section>
         ) : null}
 
-        <section aria-label="Rotation readiness" className="mt-5 grid divide-y divide-stone-200 border-y border-stone-200 bg-white sm:grid-cols-4 sm:divide-x sm:divide-y-0 sm:rounded-lg sm:border">
+        <section aria-label="Rotation readiness" className="mt-5 grid divide-y divide-stone-200 border-y border-stone-200 bg-white sm:grid-cols-2 lg:grid-cols-5 lg:divide-x lg:divide-y-0 lg:rounded-lg lg:border">
           <div className="min-w-0 px-4 py-4">
             <p className="text-xs font-semibold uppercase text-stone-500">Students</p>
             <p className="mt-1 text-2xl font-semibold text-ink">{data.students.length}</p>
             <p className="mt-1 text-xs text-stone-500">In this cohort</p>
           </div>
           <div className="min-w-0 px-4 py-4">
-            <p className="text-xs font-semibold uppercase text-stone-500">Active groups</p>
+            <p className="text-xs font-semibold uppercase text-stone-500">Attending</p>
+            <p className="mt-1 text-2xl font-semibold text-moss">
+              {data.students.filter((student) => student.available).length}
+            </p>
+            <p className="mt-1 text-xs text-stone-500">This Saturday</p>
+          </div>
+          <div className="min-w-0 px-4 py-4">
+            <p className="text-xs font-semibold uppercase text-stone-500">Absent</p>
+            <p className="mt-1 text-2xl font-semibold text-red-700">
+              {data.students.filter((student) => !student.available).length}
+            </p>
+            <p className="mt-1 text-xs text-stone-500">Marked unavailable</p>
+          </div>
+          <div className="min-w-0 px-4 py-4">
+            <p className="text-xs font-semibold uppercase text-stone-500">Session groups</p>
             <p className="mt-1 text-2xl font-semibold text-ink">{data.groups.length}</p>
             <p className="mt-1 text-xs text-stone-500">
               Target {data.settings?.target_group_count ?? "not set"}
             </p>
           </div>
           <div className="min-w-0 px-4 py-4">
-            <p className="text-xs font-semibold uppercase text-stone-500">Available teachers</p>
-            <p className="mt-1 text-2xl font-semibold text-ink">{availableTeacherCount}</p>
-            <p className="mt-1 text-xs text-stone-500">Of {data.teachers.length} active</p>
-          </div>
-          <div className="min-w-0 px-4 py-4">
-            <p className="text-xs font-semibold uppercase text-stone-500">Assignment coverage</p>
+            <p className="text-xs font-semibold uppercase text-stone-500">Teacher coverage</p>
             <p className="mt-1 text-2xl font-semibold text-ink">
               {proposedAssignmentCount}/{data.groups.length}
             </p>
-            <p className="mt-1 text-xs text-stone-500">{publishedAssignmentCount} currently published</p>
+            <p className="mt-1 text-xs text-stone-500">
+              {availableTeacherCount} available · {publishedAssignmentCount} published
+            </p>
           </div>
         </section>
 
+        <RotationStepIndicator />
+
         <div className="mt-6 space-y-6">
-          <section className="border-y border-stone-200 bg-white px-4 py-5 sm:rounded-lg sm:border sm:p-6">
+          <section
+            className="scroll-mt-6 border-y border-stone-200 bg-white px-4 py-5 sm:rounded-lg sm:border sm:p-6"
+            id="student-availability"
+            tabIndex={-1}
+          >
+            <div>
+              <p className="text-xs font-semibold uppercase text-moss">Step 1</p>
+              <h2 className="mt-1 text-lg font-semibold text-ink">Student availability</h2>
+              <p className="mt-1 text-sm text-stone-600">Mark absences for {formatHalaqaSaturday(data.selectedWeekStart)}. Attendance applies only to this session.</p>
+            </div>
+            {data.context ? (
+              <StudentAvailabilityForm
+                key={`${data.context.cohort.id}:${data.selectedWeekStart}`}
+                cohortId={data.context.cohort.id}
+                masjidId={data.context.masjid.id}
+                saturdayLabel={formatHalaqaSaturday(data.selectedWeekStart)}
+                students={data.students}
+                weekStart={data.selectedWeekStart}
+              />
+            ) : null}
+          </section>
+
+          <section
+            className="scroll-mt-6 border-y border-stone-200 bg-white px-4 py-5 sm:rounded-lg sm:border sm:p-6"
+            id="session-group-setup"
+            tabIndex={-1}
+          >
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-semibold uppercase text-moss">Step 1</p>
-                <h2 className="mt-1 text-lg font-semibold text-ink">Group setup</h2>
+                <p className="text-xs font-semibold uppercase text-moss">Step 2</p>
+                <h2 className="mt-1 text-lg font-semibold text-ink">Session group setup</h2>
                 <p className="mt-1 text-sm text-stone-600">Balanced student groups effective this halaqa week.</p>
               </div>
               <form action={saveRotationSettings} className="flex flex-wrap items-end gap-2">
@@ -296,10 +334,14 @@ export default async function AdminRotationPage({
               .filter((teacher) => teacher.available)
               .map((teacher) => teacher.id)}
           >
-            <section className="border-y border-stone-200 bg-white px-4 py-5 sm:rounded-lg sm:border sm:p-6">
+            <section
+              className="scroll-mt-6 border-y border-stone-200 bg-white px-4 py-5 sm:rounded-lg sm:border sm:p-6"
+              id="teacher-responsibilities"
+              tabIndex={-1}
+            >
               <div>
-                <p className="text-xs font-semibold uppercase text-moss">Step 2</p>
-                <h2 className="mt-1 text-lg font-semibold text-ink">Teacher availability</h2>
+                <p className="text-xs font-semibold uppercase text-moss">Step 3</p>
+                <h2 className="mt-1 text-lg font-semibold text-ink">Teacher availability &amp; responsibilities</h2>
                 <p className="mt-1 text-sm text-stone-600">Availability applies only to this cohort and Saturday.</p>
               </div>
               {data.context ? (
@@ -313,11 +355,15 @@ export default async function AdminRotationPage({
               ) : null}
             </section>
 
-            <section className="border-y border-stone-200 bg-white px-4 py-5 sm:rounded-lg sm:border sm:p-6">
+            <section
+              className="scroll-mt-6 border-y border-stone-200 bg-white px-4 py-5 sm:rounded-lg sm:border sm:p-6"
+              id="assignment-review"
+              tabIndex={-1}
+            >
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs font-semibold uppercase text-moss">Step 3</p>
-                  <h2 className="mt-1 text-lg font-semibold text-ink">Assignment preview</h2>
+                  <p className="text-xs font-semibold uppercase text-moss">Step 4</p>
+                  <h2 className="mt-1 text-lg font-semibold text-ink">Assignment preview, review &amp; publish</h2>
                   <p className="mt-1 text-sm text-stone-600">One teacher per group for this Saturday.</p>
                 </div>
                 <form action={generateRotation}>

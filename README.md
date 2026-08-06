@@ -16,6 +16,11 @@ teacher staff eligibility is evaluated on Saturday, and missing exact availabili
 Publication uses a database snapshot, request-ID replay, stale-state comparison, and a scoped advisory
 lock. See [`docs/ROTATION_PUBLICATION.md`](docs/ROTATION_PUBLICATION.md).
 
+Student availability is a separate, session-only admin ledger on `/admin/rotation`. It is scoped to the
+selected masjid, cohort, and canonical Sunday `week_start`; the page displays the corresponding Saturday.
+Students attend by default, so only an explicit absence row is stored. This workflow never changes
+`student_group_memberships`, historical placement, or published teacher assignments.
+
 ## Stack
 
 - Next.js App Router

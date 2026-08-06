@@ -54,3 +54,28 @@ A separate focused crop was not needed because the source and implementation wer
 ## Final result
 
 final result: passed
+
+---
+
+# Student availability design QA
+
+## Visual references
+
+- Source visual truth: `/Users/zmasarweh/.codex/generated_images/019fd2bd-297c-70c3-aae9-29b4ca82e251/exec-62d3be5b-a237-48c8-82b7-2589029e024a.png` (1487 × 1058).
+- Implementation capture: `/tmp/itqan-student-availability-qa/implementation-desktop.png` (1280 × 720).
+- Mobile capture: `/tmp/itqan-student-availability-qa/implementation-mobile.png` (390 × 844).
+- Side-by-side comparison: `/tmp/itqan-student-availability-qa/reference-vs-implementation.png`.
+
+## Evidence and findings
+
+The implemented page retains the existing ITQAN shell while applying the reference's dark green rotation header, compact readiness ledger, four-step in-page indicator, table-first availability section, default-attending language, and green/white control system. The implementation intentionally uses the application's existing scoped masjid/cohort/week controls and responsive card/table conventions rather than duplicating mock-only data or creating another route.
+
+At the desktop capture, the availability table is the first workflow section and exposes all required columns and controls. At 390 px, the controls wrap and the table remains usable through horizontal scrolling (860 px table width within a 326 px scroll viewport). The reference's bottom action treatment is adapted into the Step 1 action row so it stays reachable within the existing page flow.
+
+Interaction QA covered marking a student absent, entering an optional reason, searching, filtering to absences, the absence count/save state, and selecting Continue. Continue moved keyboard focus and scrolled to `#session-group-setup` without changing route. Browser console error logs were empty.
+
+No P0, P1, or P2 visual defects were found. A full-page browser capture was not used as evidence because its stitched result duplicated the page header; targeted desktop and mobile captures were used instead.
+
+## Final result
+
+Passed.

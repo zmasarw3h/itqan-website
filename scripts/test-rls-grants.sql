@@ -221,6 +221,7 @@ begin
     select signature
     from (values
       ('apply_cohort_group_rebalance(uuid,date,uuid,integer)'),
+      ('apply_student_rotation_availability(uuid,uuid,date,jsonb)'),
       ('apply_official_scoring_start_change(uuid,uuid,uuid,date,date,text)'),
       ('apply_scoped_user_setup(uuid,uuid,uuid,text,text,text,text,date,date,uuid,uuid)'),
       ('apply_super_admin_access_change(uuid,uuid,uuid,text,date,uuid,uuid,jsonb)'),
@@ -266,6 +267,10 @@ begin
   if not has_function_privilege(
     'service_role',
     'public.apply_cohort_group_rebalance(uuid,date,uuid,integer)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'service_role',
+    'public.apply_student_rotation_availability(uuid,uuid,date,jsonb)',
     'EXECUTE'
   ) or not has_function_privilege(
     'service_role',

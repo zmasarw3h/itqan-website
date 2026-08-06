@@ -86,6 +86,15 @@ Seeded masajid:
 
 Thunder Bay starts without assigned staff. Add an active `masjid_staff_memberships` row for each admin or teacher who should access that masjid before expecting them to manage students or rotation there.
 
+## Record Student Availability For Saturday Halaqa
+
+1. Sign in as a normal admin or admin-teacher and open `Admin Dashboard -> Rotation`.
+2. Select the scoped masjid, cohort, and tracker week. The page stores the Sunday `week_start` and displays its Saturday halaqa date.
+3. In Step 1, mark only students who are absent and optionally add a concise reason. Students attend by default, so an attending student has no saved availability row.
+4. Use **Save availability** before leaving the page. **Continue to session group setup** only scrolls to Step 2; it does not navigate or publish anything.
+
+This ledger is session-only. It must never be used to move a student, edit `student_group_memberships`, or change a teacher assignment. Attendance-aware session-roster redistribution is not part of this workflow yet.
+
 ## Legacy Import: Validation Only
 
 The legacy importer is quarantined and must not be used to mutate production. It has no Supabase
