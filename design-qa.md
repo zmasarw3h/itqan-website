@@ -123,19 +123,44 @@ Passed.
 
 - Approved source visuals: Step 1 implementation reference plus the supplied Step 2 and Step 4 draft/published/stale canvases.
 - Deployed implementation: `https://itqan-lite-6ib0pfwky-zmasarw3hs-projects.vercel.app/admin/rotation`, Vercel deployment `2ehHEAcyFBFKrjhUu42no6iMZTFd`, commit `25e5645`.
-- Intended authenticated states: normal scoped admin desktop and mobile `/admin/rotation` workflow.
+- Source visual truth: `/Users/zmasarweh/.codex/generated_images/019fd2bd-297c-70c3-aae9-29b4ca82e251/exec-62d3be5b-a237-48c8-82b7-2589029e024a.png` (1487 × 1058).
+- Authenticated implementation captures: `/Users/zmasarweh/.codex/visualizations/2026/08/06/019fd865-3979-7850-a6e8-990c9e8cb83c/admin-rotation-authenticated-server-error-desktop.png` (1280 × 720 desktop) and `/Users/zmasarweh/.codex/visualizations/2026/08/06/019fd865-3979-7850-a6e8-990c9e8cb83c/admin-rotation-authenticated-server-error-mobile-390x844.png` (390 × 844 mobile).
+- State: successful normal scoped-admin login, then `/admin/rotation`.
 
 ## Browser evidence
 
-The deployed route rendered successfully but redirected the available browser session to `/login`. The login page loaded without browser console errors or warnings. No scoped normal-admin credentials or seeded safe test account are available in this environment, so the authenticated four-step page, desktop/mobile table behavior, scroll/focus continuation, draft/revision/stale states, and restored legacy controls could not be rendered or interacted with.
+The supplied scoped-admin account successfully authenticated and reached the admin dashboard. On navigation to `/admin/rotation`, the deployed page failed before rendering the workflow on both desktop and mobile. The page reports `This page couldn’t load` with digest `644741890`; the Vercel runtime log identifies the underlying server error as `Unable to load student availability.`
 
-Static and test evidence confirms that the permanent group settings/rebalance operation is rendered after Saturday-only session redistribution in Step 2, and that guarded weekly teacher-assignment preview/publication is rendered after session-roster review in Step 4. This does not substitute for authenticated visual comparison.
+This arises in the first server-side availability query against `student_rotation_availability`. The source migration exists at `supabase/migrations/20260806144640_student_rotation_availability.sql`, but the preview environment cannot serve that query. This is a deployment-environment/schema availability blocker, not a change to be masked in the UI or repaired by altering backend contracts.
+
+The source and implementation were opened together for comparison. The reference is the intended green-header/warm-white four-section workflow; the authenticated implementation is an error screen, so the state and viewport cannot be normalized for fidelity comparison. The failure is a P0 functional and visual blocker.
+
+**Findings**
+
+- [P0] Authenticated rotation page crashes before Step 1.
+  Location: deployed `/admin/rotation` at desktop 1280 × 720 and mobile 390 × 844.
+  Evidence: browser capture shows the server error screen; Vercel runtime log reports `Unable to load student availability.` after successful authenticated access.
+  Impact: the four-section workflow, restored permanent balancing controls, teacher-assignment controls, table behavior, focus/scroll continuation, and draft states are inaccessible.
+  Fix: deploy the already-approved availability/session-roster backend schema to the preview's Supabase environment (or point the preview to an environment that contains it), then rerun authenticated QA. Do not substitute client defaults or weaken the availability/backend contract.
+
+**Open Questions**
+
+- The deployed preview's database migration state is not exposed by the application. The runtime error proves the availability query fails but does not distinguish a missing table from a schema/permission mismatch.
+
+**Implementation Checklist**
+
+1. Make the preview's backend schema match the stacked availability/session-roster branch without altering the UI contract.
+2. Recheck `/admin/rotation` with the scoped admin at desktop and mobile, including rendering, horizontal overflow, Continue focus/scroll, and safe non-destructive draft states.
+3. Capture matching Step 1/2/4 views and update this report after the route renders.
 
 ## Required fidelity surfaces
 
-- Fonts, spacing, colors, responsive table overflow, and control state fidelity: blocked pending authenticated rendering.
-- Accessibility interaction checks: static coverage confirms semantic controls and section-focus continuation; browser keyboard/focus verification is blocked pending authentication.
-- Console: no errors or warnings on the deployed login redirect; authenticated route console remains unverified.
+- Fonts and typography: blocked by P0 before app content renders.
+- Spacing and layout rhythm: blocked by P0 before app content renders.
+- Colors and visual tokens: blocked by P0 before app content renders.
+- Image quality and asset fidelity: no image assets are reachable on the implementation because of P0.
+- Copy/content: the intended workflow content is absent; only the generic server error copy is visible.
+- Accessibility interaction, responsive table usability, horizontal overflow, focus/scroll continuation, draft edit/review/publish/revision/stale states: blocked by P0. Console contains the matching Server Components error on both viewport captures.
 
 ## Final result
 
