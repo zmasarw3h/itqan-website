@@ -129,39 +129,31 @@ Passed.
 
 ## Browser evidence
 
-The supplied scoped-admin account successfully authenticated and reached the admin dashboard. On navigation to `/admin/rotation`, the deployed page failed before rendering the workflow on both desktop and mobile. The page reports `This page couldn’t load` with digest `644741890`; the Vercel runtime log identifies the underlying server error as `Unable to load student availability.`
+The initial authenticated run correctly exposed a missing-schema deployment blocker. After applying the reviewed availability, session-roster foundation, and stale-draft recovery migrations in filename order, the same deployed preview rendered successfully for the scoped admin.
 
-This arises in the first server-side availability query against `student_rotation_availability`. The source migration exists at `supabase/migrations/20260806144640_student_rotation_availability.sql`, but the preview environment cannot serve that query. This is a deployment-environment/schema availability blocker, not a change to be masked in the UI or repaired by altering backend contracts.
+Post-migration captures:
 
-The source and implementation were opened together for comparison. The reference is the intended green-header/warm-white four-section workflow; the authenticated implementation is an error screen, so the state and viewport cannot be normalized for fidelity comparison. The failure is a P0 functional and visual blocker.
+- `/Users/zmasarweh/.codex/visualizations/2026/08/06/final-admin-rotation-qa/desktop-step2-1440x1024.png`
+- `/Users/zmasarweh/.codex/visualizations/2026/08/06/final-admin-rotation-qa/desktop-step4-1440x1024.png`
+- `/Users/zmasarweh/.codex/visualizations/2026/08/06/final-admin-rotation-qa/mobile-step2-390x844-v2.png`
+- `/Users/zmasarweh/.codex/visualizations/2026/08/06/final-admin-rotation-qa/mobile-step4-390x844.png`
 
-**Findings**
+The rendered page preserves the approved green-header, warm-white, table-first language and the single scrollable four-step sequence. Step 2 clearly separates Saturday-only placements from permanent group management. Step 4 shows blocker-aware roster review and retains the separate weekly teacher-assignment publication panel.
 
-- [P0] Authenticated rotation page crashes before Step 1.
-  Location: deployed `/admin/rotation` at desktop 1280 × 720 and mobile 390 × 844.
-  Evidence: browser capture shows the server error screen; Vercel runtime log reports `Unable to load student availability.` after successful authenticated access.
-  Impact: the four-section workflow, restored permanent balancing controls, teacher-assignment controls, table behavior, focus/scroll continuation, and draft states are inaccessible.
-  Fix: deploy the already-approved availability/session-roster backend schema to the preview's Supabase environment (or point the preview to an environment that contains it), then rerun authenticated QA. Do not substitute client defaults or weaken the availability/backend contract.
+Desktop verification at 1440 × 1024 found no body-level horizontal overflow or browser console warnings/errors. Mobile verification at 390 × 844 found no body-level horizontal overflow; wide data tables remain contained in nine explicit horizontal-scroll regions. Continue actions moved keyboard focus to `#session-group-setup`, `#teacher-responsibilities`, and `#assignment-review` without changing routes.
 
-**Open Questions**
-
-- The deployed preview's database migration state is not exposed by the application. The runtime error proves the availability query fails but does not distinguish a missing table from a schema/permission mismatch.
-
-**Implementation Checklist**
-
-1. Make the preview's backend schema match the stacked availability/session-roster branch without altering the UI contract.
-2. Recheck `/admin/rotation` with the scoped admin at desktop and mobile, including rendering, horizontal overflow, Continue focus/scroll, and safe non-destructive draft states.
-3. Capture matching Step 1/2/4 views and update this report after the route renders.
+No form was submitted during authenticated QA. Loading the page initialized the expected unpublished draft for the selected week, but availability, placements, permanent memberships, teacher assignments, review/publication, revision, and stale-refresh mutations were not exercised against live data. Those state transitions remain covered by the disposable database/RLS suite and focused application tests.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: blocked by P0 before app content renders.
-- Spacing and layout rhythm: blocked by P0 before app content renders.
-- Colors and visual tokens: blocked by P0 before app content renders.
-- Image quality and asset fidelity: no image assets are reachable on the implementation because of P0.
-- Copy/content: the intended workflow content is absent; only the generic server error copy is visible.
-- Accessibility interaction, responsive table usability, horizontal overflow, focus/scroll continuation, draft edit/review/publish/revision/stale states: blocked by P0. Console contains the matching Server Components error on both viewport captures.
+- Fonts and typography: passed for the rendered draft state.
+- Spacing and layout rhythm: passed at desktop and mobile; dense tables use intentional contained scrolling on mobile.
+- Colors and visual tokens: passed against the approved moss, warm-white, stone, and warning treatments.
+- Image quality and asset fidelity: no new raster assets are required by these operational surfaces.
+- Copy/content: passed for availability, session placement, permanent-management distinction, teacher responsibility, review blockers, and legacy assignment publication.
+- Accessibility interaction: section focus/scroll continuation passed; semantic labels, tables, and status copy rendered correctly.
+- Published, revision, and stale-refresh visuals were not activated against live data; their contracts and render paths remain test-covered.
 
 ## Final result
 
-final result: blocked
+final result: passed for authenticated non-destructive draft-state QA; live publication/revision mutations intentionally not exercised
