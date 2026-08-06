@@ -57,6 +57,41 @@ final result: passed
 
 ---
 
+# Admin Session Rotation UI — Design QA
+
+## Comparison target
+
+- Source visual truth: `/Users/zmasarweh/.codex/generated_images/019fd2bd-297c-70c3-aae9-29b4ca82e251/exec-62d3be5b-a237-48c8-82b7-2589029e024a.png`, plus the approved Step 2 and Step 4 canvases in `/Users/zmasarweh/.codex/visualizations/2026/08/06/019fd78c-8176-76f1-8d19-678eac4efc45/`.
+- Intended implementation route: `/admin/rotation`.
+- Browser attempt: `http://127.0.0.1:3001/admin/rotation`, desktop viewport.
+
+## Evidence
+
+The browser-rendered implementation could not reach the authenticated Rotation UI. The local server stops at the server-side configuration guard because this worktree has no `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_ANON_KEY`. The captured browser artifact is the Next.js configuration error at `http://127.0.0.1:3001/admin/rotation`; it is not treated as a visual implementation capture.
+
+Static implementation review confirms that the added UI preserves the approved one-page sequence and existing green-header/warm-white/table-first language: Step 2 provides session-only placement, group counts, moved/unchanged distinction, unplaced blockers, and imbalance warnings; Step 3 retains availability and adds primary responsibility selection; Step 4 composes availability, placements, teacher responsibility, review, atomic publish, live-version, revision, stale-refresh confirmation, and audit states. Native controls have at least 44px heights and semantic tables/labels are retained. This review does not replace browser comparison.
+
+## Required fidelity surfaces
+
+- Fonts and typography: blocked from browser comparison.
+- Spacing and layout rhythm: blocked from browser comparison.
+- Colors and visual tokens: blocked from browser comparison.
+- Image quality and asset fidelity: no new raster assets are required by the supplied dense application references; blocked from browser comparison.
+- Copy and content: verified statically against the approved state labels; browser verification remains blocked.
+- Accessibility and responsiveness: semantic table/label and mobile-control implementation reviewed statically; browser verification remains blocked.
+
+## Primary interactions intended for browser verification
+
+- Draft load, student placement/unplacement, primary-teacher assignment, review, publish, revision, and stale refresh confirmation.
+- Desktop and mobile table overflow, section continuation focus/scroll, blocked versus warning-only readiness, and published/read-only audit views.
+- Console error check after configured authenticated rendering.
+
+## Final result
+
+final result: blocked
+
+---
+
 # Student availability design QA
 
 ## Visual references
@@ -79,3 +114,46 @@ No P0, P1, or P2 visual defects were found. A full-page browser capture was not 
 ## Final result
 
 Passed.
+
+---
+
+# Admin Session Rotation corrective amendment — Design QA
+
+## Comparison target
+
+- Approved source visuals: Step 1 implementation reference plus the supplied Step 2 and Step 4 draft/published/stale canvases.
+- Deployed implementation: `https://itqan-lite-6ib0pfwky-zmasarw3hs-projects.vercel.app/admin/rotation`, Vercel deployment `2ehHEAcyFBFKrjhUu42no6iMZTFd`, commit `25e5645`.
+- Source visual truth: `/Users/zmasarweh/.codex/generated_images/019fd2bd-297c-70c3-aae9-29b4ca82e251/exec-62d3be5b-a237-48c8-82b7-2589029e024a.png` (1487 × 1058).
+- Authenticated implementation captures: `/Users/zmasarweh/.codex/visualizations/2026/08/06/019fd865-3979-7850-a6e8-990c9e8cb83c/admin-rotation-authenticated-server-error-desktop.png` (1280 × 720 desktop) and `/Users/zmasarweh/.codex/visualizations/2026/08/06/019fd865-3979-7850-a6e8-990c9e8cb83c/admin-rotation-authenticated-server-error-mobile-390x844.png` (390 × 844 mobile).
+- State: successful normal scoped-admin login, then `/admin/rotation`.
+
+## Browser evidence
+
+The initial authenticated run correctly exposed a missing-schema deployment blocker. After applying the reviewed availability, session-roster foundation, and stale-draft recovery migrations in filename order, the same deployed preview rendered successfully for the scoped admin.
+
+Post-migration captures:
+
+- `/Users/zmasarweh/.codex/visualizations/2026/08/06/final-admin-rotation-qa/desktop-step2-1440x1024.png`
+- `/Users/zmasarweh/.codex/visualizations/2026/08/06/final-admin-rotation-qa/desktop-step4-1440x1024.png`
+- `/Users/zmasarweh/.codex/visualizations/2026/08/06/final-admin-rotation-qa/mobile-step2-390x844-v2.png`
+- `/Users/zmasarweh/.codex/visualizations/2026/08/06/final-admin-rotation-qa/mobile-step4-390x844.png`
+
+The rendered page preserves the approved green-header, warm-white, table-first language and the single scrollable four-step sequence. Step 2 clearly separates Saturday-only placements from permanent group management. Step 4 shows blocker-aware roster review and retains the separate weekly teacher-assignment publication panel.
+
+Desktop verification at 1440 × 1024 found no body-level horizontal overflow or browser console warnings/errors. Mobile verification at 390 × 844 found no body-level horizontal overflow; wide data tables remain contained in nine explicit horizontal-scroll regions. Continue actions moved keyboard focus to `#session-group-setup`, `#teacher-responsibilities`, and `#assignment-review` without changing routes.
+
+No form was submitted during authenticated QA. Loading the page initialized the expected unpublished draft for the selected week, but availability, placements, permanent memberships, teacher assignments, review/publication, revision, and stale-refresh mutations were not exercised against live data. Those state transitions remain covered by the disposable database/RLS suite and focused application tests.
+
+## Required fidelity surfaces
+
+- Fonts and typography: passed for the rendered draft state.
+- Spacing and layout rhythm: passed at desktop and mobile; dense tables use intentional contained scrolling on mobile.
+- Colors and visual tokens: passed against the approved moss, warm-white, stone, and warning treatments.
+- Image quality and asset fidelity: no new raster assets are required by these operational surfaces.
+- Copy/content: passed for availability, session placement, permanent-management distinction, teacher responsibility, review blockers, and legacy assignment publication.
+- Accessibility interaction: section focus/scroll continuation passed; semantic labels, tables, and status copy rendered correctly.
+- Published, revision, and stale-refresh visuals were not activated against live data; their contracts and render paths remain test-covered.
+
+## Final result
+
+final result: passed for authenticated non-destructive draft-state QA; live publication/revision mutations intentionally not exercised

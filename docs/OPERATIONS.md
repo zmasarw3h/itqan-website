@@ -99,7 +99,22 @@ ledger or permanent placement.
 
 ## Prepare And Publish A Saturday Session Roster
 
-The backend contract for the later `/admin/rotation` UI is deliberately separate from weekly teacher
+The normal-admin UI is the single scrollable `Admin Dashboard -> Rotation` page: Step 2 opens the
+Saturday-only session draft and lets admins move attending students without changing usual memberships;
+Step 3 retains teacher availability and assigns one available primary responsible teacher per session group;
+Step 4 reviews and atomically publishes the historical Saturday version. Published versions are read-only.
+Use **Revise this Saturday** to create a new draft while the current live version remains in force. If a
+draft is stale, **Refresh stale draft** requires an explicit acknowledgement that unpublished placement and
+primary-responsibility edits will be discarded; the returned fresh draft must be reviewed again before it
+can publish.
+
+The same page also retains two existing, clearly separate operations: **Permanent group setup & balancing**
+changes normal group memberships only after an explicit confirmation, while **Weekly teacher-assignment
+publication** continues to use its established preview and stale-state safeguards until the later
+teacher-authorization rollout deliberately replaces or adapts that workflow. Neither operation is a
+Saturday-only session placement change.
+
+The session-roster backend contract is deliberately separate from weekly teacher
 assignment publication:
 
 1. Load or create the selected cohort/week draft with
