@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isTrackerWeekStart } from "@/lib/teacher-dashboard";
 import {
-  assertTeacherStudentAssignment,
   loadActiveTeacherCapability,
+  loadTeacherSessionStudentContext,
   TeacherScopeError
 } from "@/lib/teacher-scope";
 import { getCurrentProfile } from "@/lib/supabase-server";
@@ -27,21 +27,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return new NextResponse("Forbidden", { status: 403 });
   }
 
-  const { data: plan, error: planError } = await auth.supabase
-    .from("weekly_plans")
-    .select("id,student_id,week_start,file_path,file_name,file_type,file_size,uploaded_at,masjid_id,cohort_id,halaqa_group_id")
-    .eq("student_id", studentId)
-    .eq("week_start", weekStart)
-    .maybeSingle<WeeklyPlan>();
-
-  if (planError || !plan?.halaqa_group_id) {
-    return NextResponse.redirect(new URL(`/teacher?week=${weekStart}`, request.url));
-  }
-
-  const groupId = plan.halaqa_group_id;
-
+  let sessionContext;
   try {
-    await assertTeacherStudentAssignment(auth.supabase, studentId, groupId, weekStart);
+    sessionContext = await loadTeacherSessionStudentContext(auth.supabase, studentId, weekStart);
   } catch (error) {
     if (error instanceof TeacherScopeError) {
       return new NextResponse("Forbidden", { status: 403 });
@@ -49,6 +37,19 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     throw error;
   }
+
+  const { data: plan, error: planError } = await auth.supabase
+    .from("weekly_plans")
+    .select("id,student_id,week_start,file_path,file_name,file_type,file_size,uploaded_at,masjid_id,cohort_id,halaqa_group_id")
+    .eq("student_id", studentId)
+    .eq("week_start", weekStart)
+    .maybeSingle<WeeklyPlan>();
+
+  if (planError || !plan) {
+    return NextResponse.redirect(new URL(`/teacher?week=${weekStart}`, request.url));
+  }
+
+  const groupId = sessionContext.group.group_id;
 
   const returnUrl = new URL(`/teacher/groups/${groupId}`, request.url);
   returnUrl.searchParams.set("week", weekStart);

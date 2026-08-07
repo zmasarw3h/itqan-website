@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isTrackerWeekStart, parseTeacherGradeInput } from "@/lib/teacher-dashboard";
 import {
-  assertTeacherStudentAssignment,
+  loadTeacherSessionStudentContext,
   requireTeacherExperience,
   TeacherScopeError
 } from "@/lib/teacher-scope";
@@ -32,36 +32,33 @@ export async function saveTeacherHalaqaGrade(formData: FormData) {
     redirect(groupPath(groupId, weekStart, "grade-invalid"));
   }
 
-  const { supabase, profile } = await requireTeacherExperience(weekStart);
+  const { supabase } = await requireTeacherExperience(weekStart);
 
   try {
-    await assertTeacherStudentAssignment(supabase, studentId, groupId, weekStart);
+    const context = await loadTeacherSessionStudentContext(supabase, studentId, weekStart);
+    if (context.group.group_id !== groupId) {
+      throw new TeacherScopeError("This student is in a different published session group.");
+    }
+
+    const { error } = await supabase.rpc("save_teacher_session_halaqa_grade", {
+      input_version_id: context.publication.version_id,
+      input_group_id: context.group.group_id,
+      input_student_id: studentId,
+      input_week_start: weekStart,
+      input_attended: grade.attended,
+      input_recitation_points: grade.recitationPoints,
+      input_notes: grade.notes
+    });
+
+    if (error) {
+      throw new TeacherScopeError("The published session roster changed while saving this grade.");
+    }
   } catch (error) {
     if (error instanceof TeacherScopeError) {
       redirect(groupPath(groupId, weekStart, "grade-denied"));
     }
 
     throw error;
-  }
-
-  const now = new Date().toISOString();
-  const { error } = await supabase.from("halaqa_grades").upsert(
-    {
-      student_id: studentId,
-      week_start: weekStart,
-      attended: grade.attended,
-      attendance_points: grade.attendancePoints,
-      recitation_points: grade.recitationPoints,
-      notes: grade.notes,
-      graded_by: profile.id,
-      graded_at: now,
-      updated_at: now
-    },
-    { onConflict: "student_id,week_start" }
-  );
-
-  if (error) {
-    redirect(groupPath(groupId, weekStart, "grade-error"));
   }
 
   revalidatePath("/teacher");

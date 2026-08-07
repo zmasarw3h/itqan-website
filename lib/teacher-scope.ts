@@ -6,6 +6,7 @@ import {
   type TeacherAssignmentContext,
   type TeacherRosterContext
 } from "@/lib/teacher-dashboard";
+import type { TeacherSessionStudentContextResponse } from "@/lib/teacher-session";
 import type { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requireProfile } from "@/lib/supabase-server";
 import type { Profile } from "@/lib/types";
@@ -129,4 +130,21 @@ export async function loadTeacherGroupRoster(
     partnerRounds: Number(student.partner_rounds ?? 0),
     partnerPoints: Number(student.partner_points ?? 0)
   }));
+}
+
+export async function loadTeacherSessionStudentContext(
+  supabase: SupabaseClient,
+  studentId: string,
+  weekStart: string
+) {
+  const { data, error } = await supabase.rpc("get_teacher_session_student_context", {
+    input_student_id: studentId,
+    input_week_start: weekStart
+  });
+
+  if (error || !data) {
+    throw new TeacherScopeError("This student is not in your published session roster for the selected week.");
+  }
+
+  return data as TeacherSessionStudentContextResponse;
 }
