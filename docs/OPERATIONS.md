@@ -445,19 +445,26 @@ Active teacher profiles land on `/teacher`. Admin-teachers continue to land on `
 teacher staff membership is effective for that assignment week. This does not grant unrelated weeks.
 
 The dashboard defaults to the current tracker week and also lists weeks with effective assignments. A
-valid Sunday that is neither current nor assigned is canonicalized back to the current week. Opening a
-group shows the roster effective for that exact week, including compact capped daily-check-in and
-partner-recitation progress. Teachers cannot query student profile rows; the roster projection returns
-only ID, name, and those aggregates. Teachers can download a student's plan through a five-minute signed
-link and save the student's halaqa grade. If a profile is no longer an active student or a membership,
-staff window, or assignment no longer covers that week, the server action and RLS both deny the operation.
+valid Sunday that is neither current nor assigned is canonicalized back to the current week. The current
+route renders only `get_teacher_session_dashboard(...)` results: every group in each authorized cohort's
+current published version is reachable, while `assigned_group_ids` and `is_assigned_group` are display-only
+responsibility highlights. If no current version is published, the dashboard and group route show a clear
+unavailable state and expose no students, plans, or grade forms. Teachers cannot query student profile rows
+or raw `checkins`/`checkin_items`; checklist details use only the sanitized published-session RPC. Group
+pages use the versioned roster contract for plan availability and grade projections. Plan links recheck the
+same student/group/version context and create five-minute signed URLs. Grade actions map stale-version
+conflicts to reload, authorization failures to denied, validation failures to invalid, and unexpected
+database failures to an error state.
 
-Apply `20260720191514_teacher_dashboard_scope.sql` before deploying the teacher routes. The migration is
-additive and supplies the assignment projection plus teacher-scoped weekly-plan Storage authorization.
-
-The legacy `/teacher` route may continue to use its assignment navigation while the later Terra UI is
-built. Its backend consumer should use the published-session contracts above for cohort-wide access;
-do not infer permission from `primary_teacher_id` or from the assigned-group highlight.
+Apply the teacher/session migrations in filename order before deploying the matching app code, including
+`20260806185342_teacher_session_authorization_read_api.sql`,
+`20260806190708_session_roster_refresh_recovery.sql`,
+`20260807001300_teacher_session_authorization_refresh_reconciliation.sql`, and
+`20260807032835_teacher_session_privacy_and_legacy_roster_reconciliation.sql`. The final additive
+migration narrows only the `checkins` and `checkin_items` SELECT policies to scoped admins/super-admins,
+revokes the legacy `teacher_group_roster_context(uuid,date)` endpoint for every role, and leaves
+`can_read_operational_student_row(...)` unchanged for preserved non-checklist surfaces. Deploy the
+database migrations first, verify a published and an unpublished cohort state, then deploy the app code.
 
 ## Weekly Incentive Run Constraint Limitation
 

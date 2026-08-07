@@ -10,13 +10,13 @@ are additive, while Guided Change replacement is confined to the selected
 masjid.
 
 This matrix records the current authorization boundary enforced by the database, server guards, and local
-RLS integration suite. The teacher session contracts below are additive to the legacy assigned-group
-navigation projections.
+RLS integration suite. Teacher operational reads now use only the current published-session contracts;
+the legacy permanent-membership roster endpoint is revoked.
 
 | Surface | Student | Teacher / admin-teacher | Scoped admin | Super admin |
 | --- | --- | --- | --- | --- |
 | Profiles | Own active profile only | Own profile; student identity is returned only through documented published-session roster projections, never by direct student-profile reads | Active people with student or staff history in a currently administered masjid | Global read; writes only through guarded service-role workflows |
-| Check-ins and items | Own rows; writes require an effective matching group snapshot, canonical tasks, and database-derived scores | Read only rows in an effective assigned group for that row's tracker week | Read only through RLS; corrections use one internally scoped transactional RPC | Global operational access |
+| Check-ins and items | Own rows; writes require an effective matching group snapshot, canonical tasks, and database-derived scores | No direct raw-table reads; current published students' checklist details are available only through the sanitized version/group/student/date RPC | Read only through RLS; corrections use one internally scoped transactional RPC | Global operational access |
 | Weekly plans | Own metadata and own storage path only | Read only metadata for students in the current published session snapshot of an authorized cohort/week; signed links use the same published-session check | Read only metadata and signed links for students in a currently administered masjid | Global operational access |
 | Partner recitation | Own rows; current round writes require an effective, matching group snapshot | Read only assigned group/week rows | Scoped read/write for administered masajid | Global operational access |
 | Halaqa grades | Own read only | Read and grade any group in the current published session snapshot of an authorized cohort/week; exact published version/group/student membership is required for each grade write, and assigned/primary groups are highlight-only | Scoped read/write for administered masajid; historical session-backed grades retain their snapshot identity | Global operational access |
@@ -60,8 +60,8 @@ policy was already super-admin-only and remains unchanged):
 | Relation | Policies after Phase 1 |
 | --- | --- |
 | `profiles` | `Users can read own active profile`; `Admins can read all profiles` (scoped read); assigned teachers cannot read student profile rows and use the safe roster RPC instead; `Admins can insert profiles` and `Admins can update profiles` (super-admin-only) |
-| `checkins` | Student own select/current-day insert/constrained update; database trigger protects date, scope, attribution, and derived totals; scoped admin or assigned-teacher select; direct signed-admin insert/update/delete denied, with corrections routed through the scoped transactional RPC |
-| `checkin_items` | Student own parent-consistent select/canonical insert/completion-only update; database trigger validates task definitions and recalculates the parent score; parent-inherited scoped admin or teacher select; direct signed-admin insert/update/delete denied, with replacement included in the correction transaction |
+| `checkins` | Student own select/current-day insert/constrained update; database trigger protects date, scope, attribution, and derived totals; scoped-admin/super-admin select only; teachers have no direct raw SELECT, and checklist reads use the sanitized published-session RPC; direct signed-admin insert/update/delete denied, with corrections routed through the scoped transactional RPC |
+| `checkin_items` | Student own parent-consistent select/canonical insert/completion-only update; database trigger validates task definitions and recalculates the parent score; parent-inherited scoped-admin/super-admin select only; teachers have no direct raw SELECT, and checklist reads use the sanitized published-session RPC; direct signed-admin insert/update/delete denied, with replacement included in the correction transaction |
 | `weekly_plans` | Student own select and path/snapshot-checked insert/update; scoped admin or current published-session cohort-authorized teacher select |
 | `partner_recitations` | Student own select and current-round insert; scoped admin or assigned-teacher select; scoped admin insert/update/delete |
 | `halaqa_grades` | Student own select; scoped admin or current published-session cohort-authorized teacher select; scoped admin or exact current published-session version/group/student teacher insert/update. Historical session snapshots remain available to the scoped admin correction path. |
@@ -121,9 +121,14 @@ The `authenticated` role can execute only these caller-relative definer function
   marker alone and never expose super-admin access through teacher surfaces.
 - Application RPCs: `student_weekly_teacher_name(date)`,
   `student_cohort_leaderboard_for_week(date)`, `student_leaderboard_available_weeks()`,
-  `teacher_assignment_contexts()`, `teacher_group_roster_context(uuid,date)`, and
+  `teacher_assignment_contexts()`, and
   `admin_students_for_week(date)`, plus the atomic, actor-scoped
   `apply_admin_checkin_correction(uuid,date,text,text,text[])` mutation.
+
+`teacher_group_roster_context(uuid,date)` remains in the catalog inventory for migration-drift checks,
+but its `PUBLIC`, `anon`, `authenticated`, and `service_role` execute privileges are revoked. It cannot
+be used as a permanent-membership teacher roster endpoint before publication, for a draft, or for a
+superseded version.
 
 `prepare_teacher_rotation_publication(...)` and `apply_teacher_rotation_publication(...)` are
 service-role-only. They independently validate a current Toronto-civil-date admin/super-admin actor,

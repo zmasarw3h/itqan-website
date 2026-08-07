@@ -2704,12 +2704,16 @@ async function runAssertions(ids: SeedIds) {
     ["group_teacher_assignments", ids.assignmentA, ids.assignmentB],
     ["teacher_rotation_availability", ids.availabilityA, ids.availabilityB]
   ] as Array<[string, string, string]>) {
-    await assertVisible(teacherA, table, ownId);
+    if (table === "checkins" || table === "checkin_items") {
+      await assertHidden(teacherA, table, ownId);
+    } else {
+      await assertVisible(teacherA, table, ownId);
+    }
     await assertHidden(teacherA, table, crossId);
   }
   // Teacher plan and grade surfaces are intentionally closed until the
-  // cohort has a published session snapshot. The legacy assignment RPCs
-  // above remain available for capability-aware navigation only.
+  // cohort has a published session snapshot. Assignment labels remain
+  // available for capability-aware navigation only.
   await assertHidden(teacherA, "weekly_plans", ids.planA);
   await assertHidden(teacherA, "halaqa_grades", ids.gradeA);
   await assertHidden(fridayOnlyTeacher, "group_teacher_assignments", ids.assignmentFridayOnly);
@@ -2775,54 +2779,14 @@ async function runAssertions(ids: SeedIds) {
     "teacher assignment projection returned the wrong effective roster count"
   );
 
-  const { data: teacherRoster, error: teacherRosterError } = await teacherA.rpc(
-    "teacher_group_roster_context",
-    { input_group_id: ids.groupA, input_week_start: ids.weekStart }
-  );
-  assert.equal(teacherRosterError, null, teacherRosterError?.message);
-  assert.deepEqual(
-    (teacherRoster ?? []).map((row: { student_id: string }) => row.student_id).sort(),
-    [ids.users.setupStudent, ids.users.studentA, ids.users.studentA2].sort(),
-    "teacher roster projection returned students outside the effective assigned group"
-  );
-  const expectedTeacherRosterFields = [
-    "daily_checkin_days",
-    "daily_points",
-    "partner_points",
-    "partner_rounds",
-    "student_id",
-    "student_name"
-  ];
-  const { data: assignedWeekCheckins, error: assignedWeekCheckinsError } = await teacherA
-    .from("checkins")
-    .select("student_id,daily_score")
-    .gte("date", ids.weekStart)
-    .lte("date", addDays(ids.weekStart, 6));
-  assert.equal(assignedWeekCheckinsError, null, assignedWeekCheckinsError?.message);
-  const expectedDailyPointsByStudent = new Map<string, number>([
-    [ids.users.studentA, 0],
-    [ids.users.studentA2, 0],
-    [ids.users.setupStudent, 0]
-  ]);
-  for (const checkin of assignedWeekCheckins ?? []) {
-    expectedDailyPointsByStudent.set(
-      checkin.student_id,
-      Math.min(700, (expectedDailyPointsByStudent.get(checkin.student_id) ?? 0) + Number(checkin.daily_score ?? 0))
-    );
-  }
-  for (const row of teacherRoster ?? []) {
-    assert.deepEqual(Object.keys(row).sort(), expectedTeacherRosterFields, "teacher roster exposed unapproved fields");
-    assert.ok(!Object.values(row).includes(ids.users.studentB), "teacher roster leaked another group student");
-    const hasWeeklyActivity = row.student_id !== ids.users.setupStudent;
-    assert.equal(row.daily_checkin_days, hasWeeklyActivity ? 1 : 0, "teacher roster used the wrong check-in week");
-    assert.equal(
-      Number(row.daily_points),
-      expectedDailyPointsByStudent.get(row.student_id),
-      "teacher roster returned the wrong weekly daily score"
-    );
-    assert.equal(row.partner_rounds, hasWeeklyActivity ? 1 : 0, "teacher roster used the wrong partner-recitation week");
-    assert.equal(row.partner_points, hasWeeklyActivity ? 75 : 0, "teacher roster returned the wrong partner points");
-  }
+  // The former roster RPC is deliberately revoked. A signed teacher cannot
+  // use permanent membership to obtain a roster before publication.
+  await assertRpcDenied(teacherA, "teacher_group_roster_context", {
+    input_group_id: ids.groupA,
+    input_week_start: ids.weekStart
+  });
+  await assertHidden(teacherA, "checkins", ids.checkinA);
+  await assertHidden(teacherA, "checkin_items", ids.itemA);
   await assertRpcDenied(teacherA, "teacher_group_roster_context", {
     input_group_id: ids.groupB,
     input_week_start: ids.weekStart
@@ -4852,7 +4816,7 @@ async function runAssertions(ids: SeedIds) {
     input_group_id: ids.groupAdminTeacher,
     input_week_start: ids.weekStart
   });
-  assert.equal(saturdayStartRoster.error, null, saturdayStartRoster.error?.message);
+  assert.ok(saturdayStartRoster.error, "revoked legacy roster RPC was callable by a Saturday-starting teacher");
 
   const { data: historicalTeacherName, error: historicalTeacherNameError } = await studentA.rpc(
     "student_weekly_teacher_name",
@@ -6298,6 +6262,26 @@ async function testStudentSessionRosters(ids: SeedIds) {
   assert.equal(initialDraft.readiness.unplaced_count, 0);
   assert.ok(initialDraft.readiness.blocker_codes.includes("missing_primary_teacher_responsibility"));
 
+  const prepublicationDashboard = await teacherA.rpc("get_teacher_session_dashboard", {
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(prepublicationDashboard.error, null, prepublicationDashboard.error?.message);
+  assert.equal(
+    (prepublicationDashboard.data as { publication: unknown; groups: unknown[] }).publication,
+    null,
+    "teacher dashboard exposed an unpublished roster"
+  );
+  assert.deepEqual(
+    (prepublicationDashboard.data as { groups: unknown[] }).groups,
+    [],
+    "teacher dashboard exposed draft groups before publication"
+  );
+  await assertRpcDenied(teacherA, "teacher_group_roster_context", {
+    input_group_id: ids.groupA,
+    input_week_start: ids.weekStart
+  });
+
   await assertVisible(adminA, "session_roster_drafts", draftId);
   await assertHidden(adminB, "session_roster_drafts", draftId);
   await assertHidden(superAdmin, "session_roster_drafts", draftId);
@@ -7058,6 +7042,12 @@ drop function if exists public.test_reject_session_roster_refresh_audit();
 
   const currentVersionId = revisionPublishedData.version!.id;
   const previousVersionId = publishedData.version!.id;
+  // Revocation is independent of version state: the legacy endpoint cannot
+  // expose permanent-membership rosters for the superseded version either.
+  await assertRpcDenied(teacherA, "teacher_group_roster_context", {
+    input_group_id: ids.groupA,
+    input_week_start: ids.weekStart
+  });
   const { data: authorizedScopes, error: authorizedScopesError } = await teacherA.rpc(
     "teacher_session_authorized_scopes",
     { input_week_start: ids.weekStart }
@@ -7149,6 +7139,12 @@ drop function if exists public.test_reject_session_roster_refresh_audit();
     input_week_start: ids.weekStart
   });
   assert.equal(adminTeacherRoster.error, null, adminTeacherRoster.error?.message);
+  // Teacher checklist access is available only through the sanitized RPC;
+  // direct Data API reads of either raw table remain hidden after publication.
+  await assertHidden(teacherA, "checkins", ids.checkinA);
+  await assertHidden(teacherA, "checkin_items", ids.itemA);
+  await assertVisible(adminA, "checkins", ids.checkinA);
+  await assertVisible(adminA, "checkin_items", ids.itemA);
   await assertRpcDenied(adminB, "get_teacher_session_dashboard", {
     input_cohort_id: ids.cohortA,
     input_week_start: ids.weekStart

@@ -497,4 +497,15 @@ published session snapshot identity, and admin correction that preserves that id
 that weekly-plan metadata and short-lived signed links use the same published-session scope and do not
 leak another cohort or unpublished roster. Checklist-details reads must validate actor, group, student,
 tracker week, date, and current published version, return stored historical labels/weights and the four
-record states, and exclude notes, raw records, timestamps, correction actors, and audit metadata.
+record states, and exclude notes, raw records, timestamps, correction actors, and audit metadata. A signed
+authorized teacher must be denied direct Data API SELECT access to both `checkins` and `checkin_items`
+for a current published student, while the sanitized checklist RPC succeeds; scoped admin and student
+direct access must remain intact. The former `teacher_group_roster_context` RPC must be denied for a
+teacher before publication, while a draft exists, and after a newer version supersedes the old one; it
+must never restore permanent-membership roster access.
+
+The current `/teacher` and `/teacher/groups/[groupId]` consumers must be covered by a focused route/action
+review: no publication renders an unavailable state without students, every current published group is
+reachable for an authorized cohort teacher, plan/grade forms carry the displayed version/group/student
+context, and grade errors map PT412 to stale/reload, 42501 to denied, validation codes to invalid, and
+unexpected database errors to grade-error.

@@ -14,6 +14,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest, { params }: { params: Promise<{ studentId: string }> }) {
   const { studentId } = await params;
   const weekStart = request.nextUrl.searchParams.get("week") ?? "";
+  const requestedVersionId = request.nextUrl.searchParams.get("version");
   const auth = await getCurrentProfile();
 
   if (!auth.profile || !auth.user) {
@@ -38,6 +39,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     throw error;
   }
 
+  const groupId = sessionContext.group.group_id;
+  const returnUrl = new URL(`/teacher/groups/${groupId}`, request.url);
+  returnUrl.searchParams.set("week", weekStart);
+
+  if (requestedVersionId && requestedVersionId !== sessionContext.publication.version_id) {
+    returnUrl.searchParams.set("status", "plan-stale");
+    return NextResponse.redirect(returnUrl);
+  }
+
   const { data: plan, error: planError } = await auth.supabase
     .from("weekly_plans")
     .select("id,student_id,week_start,file_path,file_name,file_type,file_size,uploaded_at,masjid_id,cohort_id,halaqa_group_id")
@@ -48,11 +58,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (planError || !plan) {
     return NextResponse.redirect(new URL(`/teacher?week=${weekStart}`, request.url));
   }
-
-  const groupId = sessionContext.group.group_id;
-
-  const returnUrl = new URL(`/teacher/groups/${groupId}`, request.url);
-  returnUrl.searchParams.set("week", weekStart);
 
   if (!weeklyPlanPathBelongsToStudent(studentId, weekStart, plan.file_path)) {
     returnUrl.searchParams.set("status", "plan-missing");

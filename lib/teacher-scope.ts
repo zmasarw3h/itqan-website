@@ -3,23 +3,19 @@ import "server-only";
 import { redirect } from "next/navigation";
 import {
   canAccessTeacherExperience,
-  type TeacherAssignmentContext,
-  type TeacherRosterContext
+  type TeacherAssignmentContext
 } from "@/lib/teacher-dashboard";
-import type { TeacherSessionStudentContextResponse } from "@/lib/teacher-session";
+import type {
+  TeacherSessionAuthorizedScope,
+  TeacherSessionDashboardResponse,
+  TeacherSessionGroupRosterResponse,
+  TeacherSessionStudentContextResponse
+} from "@/lib/teacher-session";
 import type { createServerSupabaseClient } from "@/lib/supabase-server";
 import { requireProfile } from "@/lib/supabase-server";
 import type { Profile } from "@/lib/types";
 
 type SupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
-type TeacherRosterRpcRow = {
-  student_id: string;
-  student_name: string;
-  daily_checkin_days: number | string;
-  daily_points: number | string;
-  partner_rounds: number | string;
-  partner_points: number | string;
-};
 
 export class TeacherScopeError extends Error {}
 
@@ -77,59 +73,69 @@ export async function loadTeacherAssignmentContexts(supabase: SupabaseClient) {
   }));
 }
 
-export async function assertTeacherGroupAssignment(
+export async function loadTeacherSessionAuthorizedScopes(
   supabase: SupabaseClient,
+  weekStart: string
+) {
+  const { data, error } = await supabase.rpc("teacher_session_authorized_scopes", {
+    input_week_start: weekStart
+  });
+
+  if (error) {
+    throw new TeacherScopeError("Unable to load the published teacher session scope.");
+  }
+
+  return (data ?? []) as TeacherSessionAuthorizedScope[];
+}
+
+export async function loadTeacherSessionDashboard(
+  supabase: SupabaseClient,
+  cohortId: string,
+  weekStart: string
+) {
+  const { data, error } = await supabase.rpc("get_teacher_session_dashboard", {
+    input_cohort_id: cohortId,
+    input_week_start: weekStart
+  });
+
+  if (error || !data) {
+    throw new TeacherScopeError("Unable to load the published teacher session dashboard.");
+  }
+
+  return data as TeacherSessionDashboardResponse;
+}
+
+export async function loadTeacherSessionDashboards(
+  supabase: SupabaseClient,
+  weekStart: string
+) {
+  const scopes = await loadTeacherSessionAuthorizedScopes(supabase, weekStart);
+  return Promise.all(
+    scopes.map((scope) => loadTeacherSessionDashboard(supabase, scope.cohort_id, weekStart))
+  );
+}
+
+export async function loadTeacherSessionGroupRoster(
+  supabase: SupabaseClient,
+  versionId: string,
   groupId: string,
   weekStart: string
 ) {
-  const { error } = await supabase.rpc("teacher_group_roster_context", {
+  const { data, error } = await supabase.rpc("get_teacher_session_group_roster", {
+    input_version_id: versionId,
     input_group_id: groupId,
     input_week_start: weekStart
   });
 
   if (error) {
-    throw new TeacherScopeError("This group is not assigned to you for the selected week.");
-  }
-}
-
-export async function assertTeacherStudentAssignment(
-  supabase: SupabaseClient,
-  studentId: string,
-  groupId: string,
-  weekStart: string
-) {
-  const { data, error } = await supabase.rpc("teacher_group_roster_context", {
-    input_group_id: groupId,
-    input_week_start: weekStart
-  });
-
-  if (error || !(data as TeacherRosterRpcRow[] | null)?.some((student) => student.student_id === studentId)) {
-    throw new TeacherScopeError("This student is not in your assigned group for the selected week.");
-  }
-}
-
-export async function loadTeacherGroupRoster(
-  supabase: SupabaseClient,
-  groupId: string,
-  weekStart: string
-) {
-  const { data, error } = await supabase.rpc("teacher_group_roster_context", {
-    input_group_id: groupId,
-    input_week_start: weekStart
-  });
-
-  if (error) {
-    throw new TeacherScopeError("This group is not assigned to you for the selected week.");
+    throw new TeacherScopeError("This group is not in the current published session roster.");
   }
 
-  return ((data ?? []) as TeacherRosterRpcRow[]).map<TeacherRosterContext>((student) => ({
-    id: student.student_id,
-    name: student.student_name,
-    dailyCheckinDays: Number(student.daily_checkin_days ?? 0),
-    dailyPoints: Number(student.daily_points ?? 0),
-    partnerRounds: Number(student.partner_rounds ?? 0),
-    partnerPoints: Number(student.partner_points ?? 0)
-  }));
+  if (!data) {
+    throw new TeacherScopeError("This group is not in the current published session roster.");
+  }
+
+  return data as TeacherSessionGroupRosterResponse;
 }
 
 export async function loadTeacherSessionStudentContext(

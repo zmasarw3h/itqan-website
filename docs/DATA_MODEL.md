@@ -50,7 +50,7 @@ Server-side helper functions expose narrow caller-relative views used by the app
 - `student_weekly_teacher_name(week_start)`: returns only the signed-in student's assigned teacher display name.
 - `teacher_assignment_contexts()`: returns only the signed-in teacher's assignment labels. It returns a roster count only
   while the exact group/week passes operational authorization; upcoming and historical labels carry no roster data.
-- `teacher_group_roster_context(group_id, week_start)`: returns only active students effective in the caller's exact assigned group/week, with student ID/name and capped daily-check-in and partner-recitation aggregates. It never returns contact details, notes, or raw records.
+- `teacher_group_roster_context(group_id, week_start)`: legacy permanent-membership roster RPC retained only for catalog compatibility; execute is revoked for every role. It is not an application API.
 - `can_teacher_read_weekly_plan_path(path)`: authorizes a weekly-plan Storage path only when its metadata and the student's exact current published session snapshot agree with an authorized cohort/week teacher session.
 - `teacher_session_authorized_scopes(week_start)`: returns active teacher/admin-teacher capability for each authorized cohort/week, the current publication identity/time when present, and assigned group IDs only as responsibility highlights.
 - `get_teacher_session_dashboard(cohort_id, week_start)`: returns the stable dashboard contract: authorized scope, publication/version/time, every published group, primary-teacher identity, roster/plan counts, and grade progress.
@@ -207,6 +207,12 @@ snapshots rather than current task definitions, returns stored daily totals/scor
 state, and omits notes, raw check-in records, submission timestamps, correction actors, and audit metadata.
 Weekly-plan metadata and five-minute signed links use the same current published-session authorization
 boundary.
+
+Teachers cannot directly select `checkins` or `checkin_items`, even for a student in an authorized
+published session. The only teacher checklist read is `get_teacher_session_checklist_details(...)`,
+which returns the documented sanitized projection and excludes notes, raw rows, task IDs, submission or
+correction metadata, and audit fields. Scoped admins/super-admins and students retain their existing
+direct table behavior.
 
 ## Scoped Operational Records
 

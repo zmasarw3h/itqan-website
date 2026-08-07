@@ -62,7 +62,6 @@ insert into expected_authenticated_definers (signature) values
   ('teacher_assignment_contexts()'),
   ('teacher_can_read_membership(uuid,date,date)'),
   ('teacher_grade_scope_snapshot_matches(uuid,date,uuid,uuid,uuid)'),
-  ('teacher_group_roster_context(uuid,date)'),
   ('teacher_session_authorized_scopes(date)'),
   ('teacher_session_grade_row_visible(uuid,date,uuid,uuid)'),
   ('teacher_session_grade_scope_matches(uuid,date,uuid,uuid,uuid,uuid,uuid)'),

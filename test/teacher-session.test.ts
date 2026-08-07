@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyTeacherGradeSaveError,
   TEACHER_SESSION_CONTRACT_VERSION,
   classifyTeacherChecklistRecord
 } from "@/lib/teacher-session";
@@ -40,5 +41,16 @@ describe("teacher session read contracts", () => {
 
   it("keeps the stable contract version explicit", () => {
     expect(TEACHER_SESSION_CONTRACT_VERSION).toBe(1);
+  });
+
+  it("preserves actionable grade-save error states", () => {
+    expect(classifyTeacherGradeSaveError({ code: "PT412" })).toBe("grade-stale");
+    expect(classifyTeacherGradeSaveError({ message: "teacher_session_grade_roster_superseded (PT412)" })).toBe(
+      "grade-stale"
+    );
+    expect(classifyTeacherGradeSaveError({ code: "42501" })).toBe("grade-denied");
+    expect(classifyTeacherGradeSaveError({ code: "22023" })).toBe("grade-invalid");
+    expect(classifyTeacherGradeSaveError({ code: "23514" })).toBe("grade-invalid");
+    expect(classifyTeacherGradeSaveError({ code: "XX000" })).toBe("grade-error");
   });
 });

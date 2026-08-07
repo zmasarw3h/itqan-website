@@ -53,6 +53,19 @@ export type TeacherSessionDashboardGroup = {
   };
 };
 
+export type TeacherSessionGradeProjection = {
+  id: string;
+  attended: boolean;
+  attendance_points: number;
+  recitation_points: number;
+  notes: string | null;
+  graded_by: string | null;
+  graded_at: string;
+  updated_at: string | null;
+  session_roster_version_id: string | null;
+  session_group_id: string | null;
+};
+
 export type TeacherSessionDashboardResponse = {
   contract_version: typeof TEACHER_SESSION_CONTRACT_VERSION;
   scope: TeacherSessionDashboardScope;
@@ -92,19 +105,7 @@ export type TeacherSessionGroupRosterStudent = {
   placement_order: number;
   weekly_plan_available: boolean;
   grade_is_current: boolean;
-  grade: Pick<
-    TeacherSessionGrade,
-    | "id"
-    | "attended"
-    | "attendance_points"
-    | "recitation_points"
-    | "notes"
-    | "graded_by"
-    | "graded_at"
-    | "updated_at"
-    | "session_roster_version_id"
-    | "session_group_id"
-  > | null;
+  grade: TeacherSessionGradeProjection | null;
 };
 
 export type TeacherSessionGroupRosterResponse = {
@@ -164,6 +165,40 @@ export type TeacherSessionRpcName =
   | "get_teacher_session_student_context"
   | "get_teacher_session_checklist_details"
   | "save_teacher_session_halaqa_grade";
+
+export type TeacherGradeSaveStatus = "grade-stale" | "grade-denied" | "grade-invalid" | "grade-error";
+
+export type TeacherGradeSaveError = {
+  code?: string | null;
+  message?: string | null;
+};
+
+const TEACHER_GRADE_VALIDATION_CODES = new Set([
+  "22001",
+  "22007",
+  "22023",
+  "22P02",
+  "23514"
+]);
+
+export function classifyTeacherGradeSaveError(error: TeacherGradeSaveError): TeacherGradeSaveStatus {
+  const code = error.code ?? "";
+  const message = error.message ?? "";
+
+  if (code === "PT412" || message.includes("PT412")) {
+    return "grade-stale";
+  }
+
+  if (code === "42501") {
+    return "grade-denied";
+  }
+
+  if (TEACHER_GRADE_VALIDATION_CODES.has(code)) {
+    return "grade-invalid";
+  }
+
+  return "grade-error";
+}
 
 export function classifyTeacherChecklistRecord(input: {
   hasRecord: boolean;
