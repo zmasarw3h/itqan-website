@@ -6628,7 +6628,7 @@ async function testStudentSessionRosters(ids: SeedIds) {
     input_draft_id: revisionDraftId,
     input_student_id: ids.users.studentA2,
     input_session_group_id: ids.groupFridayOnly,
-    input_expected_state_version: revisionData.draft.state_version
+    input_expected_state_version: revisionStateVersion
   });
   assert.equal(manualPlacement.error, null, manualPlacement.error?.message);
   const manualPlacementData = manualPlacement.data as SessionRosterDraftResponse;
@@ -6643,7 +6643,7 @@ async function testStudentSessionRosters(ids: SeedIds) {
   });
   assert.equal(manualResponsibility.error, null, manualResponsibility.error?.message);
   const manualResponsibilityData = manualResponsibility.data as SessionRosterDraftResponse;
-  const revisionStateVersion = manualResponsibilityData.draft.state_version;
+  revisionStateVersion = manualResponsibilityData.draft.state_version;
 
   const currentBeforeRefresh = await service.rpc("get_current_session_roster", {
     input_actor_id: ids.users.adminA,
@@ -6661,7 +6661,7 @@ async function testStudentSessionRosters(ids: SeedIds) {
     input_actor_id: ids.users.adminA,
     input_cohort_id: ids.cohortA,
     input_week_start: ids.weekStart,
-    input_absences: [{ student_id: ids.users.studentA, reason: "Changed after revision load" }]
+    input_absences: [{ student_id: ids.users.studentA2, reason: "Changed after revision load" }]
   });
   assert.equal(revisionSourceChange.error, null, revisionSourceChange.error?.message);
   const sourceStale = await service.rpc("move_session_roster_student", {
@@ -6864,18 +6864,23 @@ drop function if exists public.test_reject_session_roster_refresh_audit();
   assert.equal(refreshedData.refresh.published_version_unchanged, true);
   assert.equal(refreshedData.refresh.published_version_id, publishedData.version!.id);
   assert.equal(
-    refreshedData.students.find((student) => student.student_id === ids.users.studentA)?.attendance_status,
+    refreshedData.students.find((student) => student.student_id === ids.users.studentA2)?.attendance_status,
     "unavailable"
   );
   assert.equal(
-    refreshedData.roster.some((student) => student.student_id === ids.users.studentA),
+    refreshedData.roster.some((student) => student.student_id === ids.users.studentA2),
     false,
     "refreshed roster retained an unavailable student"
   );
   assert.equal(
     refreshedData.students.find((student) => student.student_id === ids.users.studentA2)?.session_group_id,
-    publishedData.roster.find((student) => student.student_id === ids.users.studentA2)?.session_group_id,
-    "refresh retained the old manual placement"
+    null,
+    "refresh retained an unavailable student's session placement"
+  );
+  assert.equal(
+    refreshedData.students.find((student) => student.student_id === ids.users.studentA)?.session_group_id,
+    publishedData.roster.find((student) => student.student_id === ids.users.studentA)?.session_group_id,
+    "refresh retained the old manual placement for an available student"
   );
   assert.equal(
     refreshedData.groups.find((group) => group.group_id === ids.groupA)?.primary_teacher_id,
@@ -6996,7 +7001,25 @@ drop function if exists public.test_reject_session_roster_refresh_audit();
     input_expected_state_version: (restoredTeacherAssignment.data as SessionRosterDraftResponse).draft.state_version
   });
   assert.equal(restoredFridayTeacher.error, null, restoredFridayTeacher.error?.message);
-  const refreshedStateVersion = (restoredFridayTeacher.data as SessionRosterDraftResponse).draft.state_version;
+  const restoredStudentPlacement = await service.rpc("move_session_roster_student", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: refreshedDraftId,
+    input_student_id: ids.users.studentA,
+    input_session_group_id: ids.groupAdminTeacher,
+    input_expected_state_version: (restoredFridayTeacher.data as SessionRosterDraftResponse).draft.state_version
+  });
+  assert.equal(restoredStudentPlacement.error, null, restoredStudentPlacement.error?.message);
+  const restoredAdminTeacherResponsibility = await service.rpc("assign_session_roster_primary_teacher", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: refreshedDraftId,
+    input_group_id: ids.groupAdminTeacher,
+    input_primary_teacher_id: ids.users.adminA,
+    input_expected_state_version: (restoredStudentPlacement.data as SessionRosterDraftResponse).draft.state_version
+  });
+  assert.equal(restoredAdminTeacherResponsibility.error, null, restoredAdminTeacherResponsibility.error?.message);
+  const refreshedStateVersion = (restoredAdminTeacherResponsibility.data as SessionRosterDraftResponse).draft.state_version;
 
   const unreviewedRefreshPublish = await service.rpc("publish_session_roster_draft", {
     input_request_id: randomUUID(),
@@ -7024,7 +7047,7 @@ drop function if exists public.test_reject_session_roster_refresh_audit();
   assert.equal(revisionPublished.error, null, revisionPublished.error?.message);
   const revisionPublishedData = revisionPublished.data as SessionRosterPublishedResponse;
   assert.equal(revisionPublishedData.version?.version_number, 2);
-  assert.equal(revisionPublishedData.roster.some((student) => student.student_id === ids.users.studentA), false);
+  assert.equal(revisionPublishedData.roster.some((student) => student.student_id === ids.users.studentA), true);
   const currentPublished = await service.rpc("get_current_session_roster", {
     input_actor_id: ids.users.adminA,
     input_cohort_id: ids.cohortA,
@@ -7060,7 +7083,15 @@ drop function if exists public.test_reject_session_roster_refresh_audit();
   assert.equal(dashboardResult.error, null, dashboardResult.error?.message);
   const dashboard = dashboardResult.data as {
     contract_version: number;
-    publication: { version_id: string; version_number: number };
+    publication: {
+      version_id: string;
+      version_number: number;
+      source_draft_revision: number;
+      week_start: string;
+      halaqa_saturday: string;
+      published_by: string;
+      published_at: string;
+    };
     scope: { assigned_group_ids: string[] };
     groups: Array<{
       group_id: string;
@@ -7072,7 +7103,13 @@ drop function if exists public.test_reject_session_roster_refresh_audit();
   };
   assert.equal(dashboard.contract_version, 1);
   assert.deepEqual(dashboard.scope.assigned_group_ids, [ids.groupA]);
-  assert.deepEqual(dashboard.publication, { version_id: currentVersionId, version_number: 2 });
+  assert.equal(dashboard.publication.version_id, currentVersionId);
+  assert.equal(dashboard.publication.version_number, 2);
+  assert.equal(dashboard.publication.source_draft_revision, revisionPublishedData.version!.source_draft_revision);
+  assert.equal(dashboard.publication.week_start, ids.weekStart);
+  assert.equal(dashboard.publication.halaqa_saturday, addDays(ids.weekStart, 6));
+  assert.equal(dashboard.publication.published_by, ids.users.adminA);
+  assert.equal(typeof dashboard.publication.published_at, "string");
   const movedGroupDashboard = dashboard.groups.find((group) => group.group_id === ids.groupAdminTeacher)!;
   assert.ok(movedGroupDashboard, "published moved group was omitted from teacher dashboard");
   assert.equal(movedGroupDashboard.is_assigned_group, false, "primary assignment became a permission filter");
@@ -7132,6 +7169,18 @@ drop function if exists public.test_reject_session_roster_refresh_audit();
     input_cohort_id: ids.cohortB,
     input_week_start: ids.weekStart
   });
+  await assertRpcDenied(superAdmin, "get_teacher_session_group_roster", {
+    input_version_id: currentVersionId,
+    input_group_id: ids.groupAdminTeacher,
+    input_week_start: ids.weekStart
+  });
+  await assertRpcDenied(superAdmin, "get_teacher_session_checklist_details", {
+    input_version_id: currentVersionId,
+    input_group_id: ids.groupAdminTeacher,
+    input_student_id: ids.users.studentA,
+    input_week_start: ids.weekStart,
+    input_checklist_date: ids.today
+  });
   await assertRpcDenied(teacherA, "get_teacher_session_group_roster", {
     input_version_id: previousVersionId,
     input_group_id: ids.groupA,
@@ -7146,6 +7195,12 @@ drop function if exists public.test_reject_session_roster_refresh_audit();
   );
   assert.equal(currentPlanAllowedError, null, currentPlanAllowedError?.message);
   assert.equal(currentPlanAllowed, true);
+  const { data: superPlanAllowed, error: superPlanAllowedError } = await superAdmin.rpc(
+    "can_teacher_read_weekly_plan_path",
+    { input_file_path: currentPlanPath }
+  );
+  assert.equal(superPlanAllowedError, null, superPlanAllowedError?.message);
+  assert.equal(superPlanAllowed, false, "super-admin received a teacher-surface weekly-plan scope");
   const { data: crossPlanAllowed, error: crossPlanAllowedError } = await teacherA.rpc(
     "can_teacher_read_weekly_plan_path",
     { input_file_path: crossPlanPath }
@@ -7188,7 +7243,7 @@ drop function if exists public.test_reject_session_roster_refresh_audit();
   assert.equal(checklist.contract_version, 1);
   assert.equal(checklist.checklist_date, ids.today);
   assert.equal(checklist.tracker_week_start, ids.weekStart);
-  assert.equal(checklist.record_state, "complete");
+  assert.equal(checklist.record_state, "partial");
   assert.deepEqual(Object.keys(checklist).sort(), [
     "checklist_date",
     "contract_version",

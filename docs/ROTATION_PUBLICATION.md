@@ -24,7 +24,10 @@ Saturday snapshot with actor/time/version/audit metadata. `create_session_roster
 new draft from the current published snapshot while leaving that version live. All session-roster writes
 are service-only, normal-admin scoped, request-replay-safe, and protected by a cohort/week advisory lock
 plus an expected draft state version. Signed super-admin access is intentionally not accepted by this
-workflow. Cohort-wide teacher view/grade authorization is deferred to the next backend slice.
+workflow. The published-session teacher API is a separate read/grade boundary: an active authorized
+teacher or admin-teacher with any exact assignment in the cohort/week can read and grade every group in
+the current published version. The primary teacher remains a responsibility highlight only. Drafts,
+superseded versions, cross-scope requests, and super-admin teacher surfaces remain denied.
 
 When source state makes a draft stale, `refresh_session_roster_draft(...)` is the only recovery path. It
 requires the expected draft state/source digest, expected current published version identity, and an

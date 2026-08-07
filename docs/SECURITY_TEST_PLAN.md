@@ -57,6 +57,12 @@ Helper functions used by policies:
 - `public.week_start_for_date(date)`
 - `public.current_partner_recitation_round()`
 - `public.can_read_session_roster_cohort(cohort_id)` (normal-admin-only signed read scope)
+- `public.teacher_session_authorized_scopes(week_start)`
+- `public.get_teacher_session_dashboard(cohort_id, week_start)`
+- `public.get_teacher_session_group_roster(version_id, group_id, week_start)`
+- `public.get_teacher_session_student_context(student_id, week_start)`
+- `public.get_teacher_session_checklist_details(version_id, group_id, student_id, week_start, checklist_date)`
+- `public.save_teacher_session_halaqa_grade(version_id, group_id, student_id, week_start, attended, recitation_points, notes)`
 - Caller-relative scope helpers documented in `docs/AUTHORIZATION_MATRIX.md`.
 - Raw cross-user scope resolution lives in the unexposed `private` schema.
 
@@ -69,6 +75,8 @@ Uniqueness and check constraints that are security-relevant:
 - `partner_recitations_points_check` requires student/admin partner recitation points to be `75`.
 - `halaqa_grades_student_week_unique` allows one halaqa grade per student/week.
 - `halaqa_grades_points_check` enforces the valid attendance/recitation point combinations.
+- Session-backed `halaqa_grades` rows require a complete, exact published version/group/student snapshot;
+  the snapshot identity is preserved across admin correction and superseded-version history.
 - `session_roster_drafts_current_unique_idx` permits only one mutable draft per cohort/week.
 - Session-roster tables enforce canonical Sunday/Saturday identity, draft/version scope, one student row
   per draft/version, valid group foreign keys, unavailable-student exclusion, and unique published
@@ -323,9 +331,9 @@ Run these checks through the app using staging users:
 - Admin dashboard, filters, correction form, student/teacher creation, halaqa grade form, and CSV export expose only the admin's effective masjid scope.
 - A super admin can open `/super-admin`, `/super-admin/people`, `/super-admin/people/new`,
   `/super-admin/masajid`, `/super-admin/repairs`, and `/super-admin/audit`; all other roles are rejected server-side.
-- Teacher dashboard and group-detail routes expose only exact-week assignments and effective rosters; manual group/week URL changes are denied.
+- Teacher dashboard and group-detail routes expose only the current published session contract for an authorized cohort/week; assigned/primary group identity is a highlight and manual cohort/week/version changes are denied.
 - Assigned teachers cannot select student `profiles` rows or contact columns; the roster RPC returns only its documented safe fields and exact-week scoring aggregates.
-- Teacher weekly-plan links are short-lived and fail for unassigned students or weeks. Teacher grade writes fail outside the exact assignment.
+- Teacher weekly-plan links are short-lived and use the same published-session cohort scope. Teacher grade writes are individual-only and require the exact current published version/group/student snapshot; draft, superseded, stale, cross-masjid/cohort/week, unauthorized-role, and super-admin writes fail.
 - Switching between test users from masjid A and masjid B never leaks names, counts, IDs, files, grades, or leaderboard data across masjids.
 - Browser DevTools Network responses for student pages do not include another student's profile, check-ins, check-in items, weekly plans, partner recitations, or halaqa grades.
 - Browser bundles do not contain `SUPABASE_SERVICE_ROLE_KEY`.
@@ -472,5 +480,21 @@ with an authorized normal admin, verify one winner under concurrent refresh, rej
 tokens safely, prove the published version is unchanged, prove current attendance/membership/group and
 eligible responsibility inputs are reflected, and verify the replacement requires review again. The
 refresh audit must identify both drafts and the live version, and an injected failure must roll back the
-supersession, replacement rows, and audit row together. The next backend slice will add cohort-wide
-authorized teacher view/grade access; these tests must not broaden teacher authorization here.
+supersession, replacement rows, and audit row together.
+
+### Published-session teacher authorization and privacy
+
+The suite must then publish at least two versions for one cohort and verify that an active authorized
+teacher can read every group in the current version, including a group whose primary/assigned teacher is
+someone else. `assigned_group_ids` and `is_assigned_group` must remain highlight-only. The same teacher
+must be denied for another masjid, cohort, week, draft, superseded version, student, or unauthorized role;
+an active admin-teacher (`profiles.role = 'admin'` plus teacher staff capability) must succeed, while a
+super-admin must be denied through teacher surfaces.
+
+The suite must verify exact current published version/group/student membership for individual grade writes,
+stale and superseded version rejection, concurrent individual-write serialization, historical grader and
+published session snapshot identity, and admin correction that preserves that identity. It must verify
+that weekly-plan metadata and short-lived signed links use the same published-session scope and do not
+leak another cohort or unpublished roster. Checklist-details reads must validate actor, group, student,
+tracker week, date, and current published version, return stored historical labels/weights and the four
+record states, and exclude notes, raw records, timestamps, correction actors, and audit metadata.

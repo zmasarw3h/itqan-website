@@ -289,6 +289,44 @@ as $$
   );
 $$;
 
+-- Policy-facing wrapper for normal-admin historical corrections. Keep the raw
+-- snapshot resolver private and exclude super-admin teacher surfaces; existing
+-- super-admin operational access remains governed by the existing admin paths.
+create or replace function public.teacher_session_grade_snapshot_matches(
+  input_student_id uuid,
+  input_week_start date,
+  input_version_id uuid,
+  input_session_group_id uuid,
+  input_masjid_id uuid,
+  input_cohort_id uuid,
+  input_halaqa_group_id uuid
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select not private.raw_is_active_super_admin((select auth.uid()))
+    and public.is_admin_for_masjid(input_masjid_id)
+    and exists (
+      select 1
+      from public.profiles as students
+      where students.id = input_student_id
+        and students.role = 'student'
+        and students.active = true
+    )
+    and private.raw_teacher_session_grade_snapshot_matches(
+      input_student_id,
+      input_week_start,
+      input_version_id,
+      input_session_group_id,
+      input_masjid_id,
+      input_cohort_id,
+      input_halaqa_group_id
+    );
+$$;
+
 create or replace function public.teacher_session_plan_scope_matches(
   input_student_id uuid,
   input_week_start date
@@ -1294,7 +1332,7 @@ alter policy "Admins can insert halaqa grades"
           public.student_scope_snapshot_matches(
             student_id, week_start, masjid_id, cohort_id, halaqa_group_id
           )
-          or private.raw_teacher_session_grade_snapshot_matches(
+          or public.teacher_session_grade_snapshot_matches(
             student_id,
             week_start,
             session_roster_version_id,
@@ -1342,7 +1380,7 @@ alter policy "Admins can update halaqa grades"
           public.student_scope_snapshot_matches(
             student_id, week_start, masjid_id, cohort_id, halaqa_group_id
           )
-          or private.raw_teacher_session_grade_snapshot_matches(
+          or public.teacher_session_grade_snapshot_matches(
             student_id,
             week_start,
             session_roster_version_id,
@@ -1379,6 +1417,8 @@ revoke all on function private.raw_teacher_session_grade_snapshot_matches(uuid, 
   from public, anon, authenticated, service_role;
 revoke all on function private.enforce_halaqa_grade_session_snapshot()
   from public, anon, authenticated, service_role;
+revoke all on function public.teacher_session_grade_snapshot_matches(uuid, date, uuid, uuid, uuid, uuid, uuid)
+  from public, anon, authenticated, service_role;
 
 revoke all on function public.teacher_session_plan_scope_matches(uuid, date)
   from public, anon, authenticated, service_role;
@@ -1404,6 +1444,8 @@ revoke all on function public.can_teacher_read_weekly_plan_path(text)
 grant execute on function public.teacher_session_plan_scope_matches(uuid, date)
   to authenticated;
 grant execute on function public.teacher_session_grade_scope_matches(uuid, date, uuid, uuid, uuid, uuid, uuid)
+  to authenticated;
+grant execute on function public.teacher_session_grade_snapshot_matches(uuid, date, uuid, uuid, uuid, uuid, uuid)
   to authenticated;
 grant execute on function public.teacher_session_grade_row_visible(uuid, date, uuid, uuid)
   to authenticated;
@@ -1532,6 +1574,7 @@ as $$
     'public.teacher_session_authorized_scopes(date)',
     'public.teacher_session_grade_row_visible(uuid,date,uuid,uuid)',
     'public.teacher_session_grade_scope_matches(uuid,date,uuid,uuid,uuid,uuid,uuid)',
+    'public.teacher_session_grade_snapshot_matches(uuid,date,uuid,uuid,uuid,uuid,uuid)',
     'public.teacher_session_plan_scope_matches(uuid,date)',
     'public.validate_accountability_obligation_scope()',
     'private.apply_super_admin_masjid_staff_grant_once(uuid,uuid,uuid,uuid,text,date,jsonb)',

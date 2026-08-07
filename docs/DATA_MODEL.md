@@ -51,7 +51,13 @@ Server-side helper functions expose narrow caller-relative views used by the app
 - `teacher_assignment_contexts()`: returns only the signed-in teacher's assignment labels. It returns a roster count only
   while the exact group/week passes operational authorization; upcoming and historical labels carry no roster data.
 - `teacher_group_roster_context(group_id, week_start)`: returns only active students effective in the caller's exact assigned group/week, with student ID/name and capped daily-check-in and partner-recitation aggregates. It never returns contact details, notes, or raw records.
-- `can_teacher_read_weekly_plan_path(path)`: authorizes a weekly-plan Storage path only when its metadata, student membership, and the caller's exact group/week assignment agree.
+- `can_teacher_read_weekly_plan_path(path)`: authorizes a weekly-plan Storage path only when its metadata and the student's exact current published session snapshot agree with an authorized cohort/week teacher session.
+- `teacher_session_authorized_scopes(week_start)`: returns active teacher/admin-teacher capability for each authorized cohort/week, the current publication identity/time when present, and assigned group IDs only as responsibility highlights.
+- `get_teacher_session_dashboard(cohort_id, week_start)`: returns the stable dashboard contract: authorized scope, publication/version/time, every published group, primary-teacher identity, roster/plan counts, and grade progress.
+- `get_teacher_session_group_roster(version_id, group_id, week_start)`: returns one exact current published group snapshot with student identity, plan availability, and the current session-grade projection.
+- `get_teacher_session_student_context(student_id, week_start)`: returns the exact current published student/group/version context used by server-side plan and grade actions.
+- `get_teacher_session_checklist_details(version_id, group_id, student_id, week_start, checklist_date)`: returns only privacy-safe checklist details with stored item labels/weights, completion, earned points, stored totals/score, and `missing | in_progress | complete | partial` state.
+- `save_teacher_session_halaqa_grade(version_id, group_id, student_id, week_start, attended, recitation_points, notes)`: saves one individual grade against the exact current published snapshot and records the historical grader identity.
 - `student_cohort_leaderboard_for_week(week_start)`: returns the minimum documented same-cohort leaderboard projection without peer UUIDs or contact details.
 - `student_leaderboard_available_weeks()`: returns weeks with activity in the signed-in student's effective cohort.
 - `admin_students_for_week(week_start)`: returns active students only in masajid the signed-in admin currently serves.
@@ -160,8 +166,9 @@ students, source changes, an unreviewed current state, no session groups with at
 missing primary responsibility are blockers. A group-count imbalance is a warning only. Primary
 teachers must be active, authorized cohort teachers with Saturday staff coverage and exact positive
 teacher availability; responsibility is a highlight/ownership marker, not an exclusivity rule for future
-teacher viewing or grading. Cohort-wide teacher access is intentionally deferred to the next backend
-slice.
+teacher viewing or grading. The published-session teacher APIs authorize an active teacher or
+admin-teacher with an exact active assignment somewhere in the cohort/week to view and grade every group
+in that published cohort snapshot. They never authorize a draft or superseded version.
 
 Publishing locks the cohort/week, checks the expected draft `state_version`, rechecks source and teacher
 eligibility, inserts a new immutable version and all snapshot rows, closes the draft, records the audit
@@ -171,6 +178,35 @@ stale submissions fail with a refresh/review error rather than partially applyin
 `refresh_session_roster_draft(...)` contract is the explicit stale recovery path: it revalidates the
 canonical Sunday, normal-admin scope, draft/state/source/published tokens, and current authoritative
 inputs under the same lock; it never implicitly reviews or publishes the replacement draft.
+
+## Published-Session Teacher Authorization
+
+The teacher authorization/read layer is separate from permanent membership and from the primary-teacher
+highlight. A teacher or admin-teacher is authorized for a cohort/week only when the profile is active,
+the teacher staff membership is active for the masjid and Saturday, and at least one active group
+assignment for that teacher covers the exact cohort/week. A `super_admin` profile does not satisfy this
+capability, even if it has historical assignments. Once authorized, the read APIs expose every group in
+the current published version for that cohort/week; `assigned_group_ids` and `is_assigned_group` are
+highlight-only fields.
+
+Only the current published `session_roster_version_id` is exposed to teacher surfaces. Drafts and
+superseded versions are denied. Student roster membership comes from
+`session_roster_version_students`, not current permanent membership. Published group, student, primary
+teacher, version, Saturday, publisher, publication time, and roster identity are therefore historical
+snapshot values.
+
+`halaqa_grades` keeps nullable session snapshot columns for backward compatibility. A session-backed row
+stores the version ID/number, Saturday, masjid/cohort/group IDs and names, primary-teacher identity/name,
+and `graded_by`. The database trigger validates and canonicalizes those values. Grade writes are one
+student at a time, require the exact current published version/group/student membership, serialize on
+the cohort/week lock, and reject stale or superseded versions. Admin correction may update a historical
+session-backed grade without replacing its snapshot identity.
+
+Checklist details are a read-only projection. It uses the saved `checkin_items.task_label` and `weight`
+snapshots rather than current task definitions, returns stored daily totals/score and a derived record
+state, and omits notes, raw check-in records, submission timestamps, correction actors, and audit metadata.
+Weekly-plan metadata and five-minute signed links use the same current published-session authorization
+boundary.
 
 ## Scoped Operational Records
 
@@ -182,6 +218,12 @@ These student-owned operational tables snapshot scope with nullable `masjid_id`,
 - `halaqa_grades`
 - `accountability_obligations`
 - `badge_awards`
+
+`halaqa_grades` additionally stores nullable published-session identity columns for session-backed grades:
+`session_roster_version_id`, `session_roster_version_number`, `session_halaqa_saturday`,
+`session_group_id`, `session_group_name`, `session_primary_teacher_id`, and
+`session_primary_teacher_name`. Legacy grade rows with null session identity remain supported by the
+existing student/admin paths.
 
 `checkin_items` does not duplicate scope initially because each item belongs to a scoped `checkins` row.
 
@@ -228,5 +270,8 @@ Existing admins receive TIC admin staff memberships. Existing active students re
 - An active masjid must have gap-free admin coverage from the current Toronto civil date through every future membership boundary, ending in at least one open-ended active admin membership. Inactive masajid are exempt until reactivated.
 - Active super admins can read `super_admin_audit_events`; browser/client writes to the audit table are not exposed.
 - Normal admins close or deactivate membership/assignment rows instead of deleting foundation history. Direct signed-session deletes of student and staff membership history are denied, including for super admins.
-- Teachers are scoped by assigned group/week and can grade/view weekly plans only for students whose membership is effective in that exact assignment.
+- Teachers use the published-session contracts for cohort-wide group reads, checklist detail reads,
+  weekly-plan metadata/links, and individual grade writes. Exact version/group/student snapshot
+  membership is required; the primary/assigned group is only a highlight, and legacy assignment-only
+  projections remain narrower.
 - Access transition semantics, including selected-masjid replacement, additive previews, multi-masjid preservation, deactivation, and assignment-aware teacher removal, are documented in [`ACCESS_TRANSITION_SEMANTICS.md`](ACCESS_TRANSITION_SEMANTICS.md).

@@ -169,11 +169,11 @@ outside masajid they actively administer.
 | Own daily checklist | yes | no | correction only |
 | Own history | yes | no | scoped student detail |
 | Own grades | yes | no | scoped student detail |
-| Weekly plan upload/view | own only | assigned group/week view only | view/download scoped students |
+| Weekly plan upload/view | own only | current published cohort/week session scope; the assigned group is a highlight | view/download scoped students |
 | Partner recitation | own only | no | view in scoring context |
 | Student-facing leaderboard | own cohort only | no | scoped admin leaderboard |
-| View roster | own cohort leaderboard only | assigned groups/weeks | scoped masjid/cohort/group |
-| Enter halaqa grades | no | assigned groups/weeks | scoped students |
+| View roster | own cohort leaderboard only | every group in an authorized current published cohort/week session; assigned/primary group is highlight-only | scoped masjid/cohort/group |
+| Enter halaqa grades | no | individual grades for exact current published version/group/student snapshots in an authorized cohort/week | scoped students |
 | Correct check-ins | no | no | scoped students |
 | Add students | no | no | scoped masjid |
 | Assign teachers | no | no | scoped masjid |
@@ -275,21 +275,30 @@ RLS policy intent:
 
 - Students read/write only their own owned rows where existing behavior allows it.
 - Students may read cohort leaderboard data only through carefully scoped server-side queries or safe database views/functions.
-- Teachers read only assigned group/week students and data needed for grading.
-- Teachers write only halaqa grades for assigned group/week students.
-- Teachers read weekly-plan metadata and receive signed weekly-plan file URLs only for assigned group/week students.
+- Teachers read the current published session snapshot for every group in an authorized cohort/week and
+  receive only the documented safe projections; the assigned/primary group is a highlight, not a permission
+  boundary.
+- Teachers write only individual halaqa grades with exact current published version/group/student snapshot
+  membership.
+- Teachers read weekly-plan metadata and receive five-minute signed file URLs only through that same
+  published-session cohort scope.
 - Admins read/write only records for masajid where they have admin membership.
 - Super admins, if added, can manage masajid and masjid admin memberships, but should not bypass scoped app flows unnecessarily.
 - Service role remains limited to server-only operations already requiring it, such as Auth user creation and private Storage signed URLs.
 
-Exact teacher grading rule:
+Exact teacher grading rule for the published-session API:
 
 ```text
-A teacher may insert or update halaqa_grades only when:
-- student_group_for_week(halaqa_grades.student_id, halaqa_grades.week_start) = group_teacher_assignments.group_id
-- group_teacher_assignments.teacher_id = auth.uid()
-- group_teacher_assignments.week_start = halaqa_grades.week_start
-- the teacher profile and assignment are active/effective
+A teacher may insert or update one session-backed `halaqa_grades` row only when:
+- the actor is an active `teacher` or `admin` with active Saturday teacher staff coverage;
+- an exact active group assignment for the actor exists somewhere in the target cohort/week;
+- the supplied version is the current published version for that cohort/week; and
+- the supplied student belongs to the supplied session group in that exact published version.
+
+The primary/assigned group is not an authorization predicate. `super_admin`, draft, superseded,
+cross-masjid/cohort/week, and current-permanent-membership-only requests are denied. The legacy
+assignment-only projection remains available for older navigation until the later teacher UI consumes the
+published-session API.
 ```
 
 This prevents teachers from grading students who moved groups, students in another cohort, or students in another masjid.

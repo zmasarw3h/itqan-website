@@ -66,6 +66,7 @@ insert into expected_authenticated_definers (signature) values
   ('teacher_session_authorized_scopes(date)'),
   ('teacher_session_grade_row_visible(uuid,date,uuid,uuid)'),
   ('teacher_session_grade_scope_matches(uuid,date,uuid,uuid,uuid,uuid,uuid)'),
+  ('teacher_session_grade_snapshot_matches(uuid,date,uuid,uuid,uuid,uuid,uuid)'),
   ('teacher_session_plan_scope_matches(uuid,date)'),
   ('save_teacher_session_halaqa_grade(uuid,uuid,uuid,date,boolean,integer,text)');
 

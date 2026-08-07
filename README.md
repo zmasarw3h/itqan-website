@@ -31,6 +31,14 @@ into a new review-required draft; the old manual placement/responsibility edits 
 currently published version remains live. The later admin UI will consume the stable contracts documented
 in [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md).
 
+The teacher-session backend now authorizes an active teacher or admin-teacher for every published group
+in a cohort/week when that teacher has active Saturday capability and any exact active group assignment
+in the cohort. The primary/assigned group is a responsibility highlight only. The API exposes only the
+current published snapshot, uses the same scope for weekly-plan links, and requires exact version/group/
+student membership for individual grade writes. Drafts, superseded versions, cross-scope requests, and
+super-admin teacher surfaces remain denied. The later Terra teacher UI will consume these contracts;
+this slice does not redesign that UI.
+
 ## Stack
 
 - Next.js App Router
@@ -229,9 +237,10 @@ Teachers open `/teacher` and choose an assignment week. `week_start` remains the
 storage key, while the halaqa event date is the following Saturday. Teacher staff eligibility for the
 assignment is evaluated on that Saturday, not on the Sunday storage key. Rotation navigation uses Toronto civil
 dates; all current staff/account-access decisions use the literal Toronto civil date. The 1:00 AM
-effective date is limited to daily check-ins, partner recitation, and reset-linked scoring. A weekly-plan link appears only for a student
-whose membership is effective in that teacher's assigned group for the exact week. The download route
-rechecks the assignment server-side and creates a five-minute signed URL with the signed-in session.
+effective date is limited to daily check-ins, partner recitation, and reset-linked scoring. A weekly-plan
+link uses the current published-session cohort scope for the exact week; the download route rechecks that
+scope server-side and creates a five-minute signed URL with the signed-in session. The legacy assignment
+navigation remains narrower until the later Terra UI consumes the cohort-wide session contracts.
 
 Teacher operational access never begins before the assignment Sunday. From that Sunday through the
 Saturday halaqa event, an exact active assignment and staff coverage of that Saturday are required; a

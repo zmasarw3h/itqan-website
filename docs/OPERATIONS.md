@@ -158,8 +158,33 @@ original result; reusing a UUID with changed input is rejected.
 These contracts never modify permanent `student_group_memberships`, existing `group_teacher_assignments`,
 weekly plans, grades, or production data outside the requested session-roster rows. Browser clients have
 no direct write grants to the roster tables. The session-roster normal-admin workflow intentionally
-excludes super-admin sessions, and cohort-wide teacher view/grade authorization is deferred to the next
-backend slice.
+excludes super-admin sessions.
+
+## Teacher Published-Session Read And Grade Contracts
+
+The teacher authorization layer is available to the later teacher UI through stable TypeScript/domain
+contracts in `lib/teacher-session.ts` and the following authenticated RPCs:
+
+- `teacher_session_authorized_scopes(week_start)` returns active authorized cohort/week scope and
+  publication identity. `assigned_group_ids` is a highlight only.
+- `get_teacher_session_dashboard(cohort_id, week_start)` returns publication/version/time, every
+  published group, primary-teacher identity, roster count, weekly-plan availability, and grade progress.
+- `get_teacher_session_group_roster(version_id, group_id, week_start)` returns the exact current
+  published group snapshot and plan/grade projections.
+- `get_teacher_session_checklist_details(version_id, group_id, student_id, week_start, checklist_date)`
+  returns saved historical labels/weights, completion, earned points, stored totals/score, and record
+  state only. It excludes notes, raw records, timestamps, correction actors, and audit metadata.
+- `save_teacher_session_halaqa_grade(...)` saves one student at a time against the exact current
+  published version/group/student snapshot and records the historical grader.
+
+An active `teacher` or `admin` profile needs active teacher staff coverage for the masjid/Saturday and
+one active group assignment somewhere in that cohort/week. That assignment authorizes every group in the
+current published cohort version; the primary/assigned group never becomes a permission boundary. Drafts,
+superseded versions, cross-masjid/cohort/week inputs, unauthorized roles, and `super_admin` sessions are
+denied. Weekly-plan metadata and five-minute signed links use the same published-session scope. Current
+permanent membership is not consulted for teacher roster membership; the exact published snapshot is
+authoritative. Admin correction may preserve a historical session grade snapshot without changing its
+identity.
 
 ## Legacy Import: Validation Only
 
@@ -429,6 +454,10 @@ staff window, or assignment no longer covers that week, the server action and RL
 
 Apply `20260720191514_teacher_dashboard_scope.sql` before deploying the teacher routes. The migration is
 additive and supplies the assignment projection plus teacher-scoped weekly-plan Storage authorization.
+
+The legacy `/teacher` route may continue to use its assignment navigation while the later Terra UI is
+built. Its backend consumer should use the published-session contracts above for cohort-wide access;
+do not infer permission from `primary_teacher_id` or from the assigned-group highlight.
 
 ## Weekly Incentive Run Constraint Limitation
 
