@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useFormStatus } from "react-dom";
 import { saveTeacherHalaqaGrade } from "@/app/teacher/actions";
-import type { HalaqaGrade } from "@/lib/types";
+import type { TeacherSessionGradeProjection } from "@/lib/teacher-session";
 
 function GradeSubmitButton() {
   const { pending } = useFormStatus();
@@ -23,11 +23,13 @@ export default function TeacherGradeForm({
   grade,
   groupId,
   studentId,
+  versionId,
   weekStart
 }: {
-  grade: HalaqaGrade | null;
+  grade: TeacherSessionGradeProjection | null;
   groupId: string;
   studentId: string;
+  versionId: string;
   weekStart: string;
 }) {
   const [attended, setAttended] = useState(Boolean(grade?.attended));
@@ -37,6 +39,7 @@ export default function TeacherGradeForm({
     <form action={saveTeacherHalaqaGrade} className="mt-4 grid min-w-0 gap-4 lg:grid-cols-[1.1fr_0.8fr_1.6fr_auto] lg:items-end">
       <input name="student_id" type="hidden" value={studentId} />
       <input name="group_id" type="hidden" value={groupId} />
+      <input name="version_id" type="hidden" value={versionId} />
       <input name="week_start" type="hidden" value={weekStart} />
       <fieldset>
         <legend className="text-sm font-medium text-ink">Attended halaqa?</legend>

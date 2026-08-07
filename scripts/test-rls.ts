@@ -2699,16 +2699,23 @@ async function runAssertions(ids: SeedIds) {
   for (const [table, ownId, crossId] of [
     ["checkins", ids.checkinA, ids.checkinB],
     ["checkin_items", ids.itemA, ids.itemB],
-    ["weekly_plans", ids.planA, ids.planB],
     ["partner_recitations", ids.partnerA, ids.partnerB],
-    ["halaqa_grades", ids.gradeA, ids.gradeB],
     ["student_group_memberships", ids.studentMembershipA, ids.studentMembershipB],
     ["group_teacher_assignments", ids.assignmentA, ids.assignmentB],
     ["teacher_rotation_availability", ids.availabilityA, ids.availabilityB]
   ] as Array<[string, string, string]>) {
-    await assertVisible(teacherA, table, ownId);
+    if (table === "checkins" || table === "checkin_items") {
+      await assertHidden(teacherA, table, ownId);
+    } else {
+      await assertVisible(teacherA, table, ownId);
+    }
     await assertHidden(teacherA, table, crossId);
   }
+  // Teacher plan and grade surfaces are intentionally closed until the
+  // cohort has a published session snapshot. Assignment labels remain
+  // available for capability-aware navigation only.
+  await assertHidden(teacherA, "weekly_plans", ids.planA);
+  await assertHidden(teacherA, "halaqa_grades", ids.gradeA);
   await assertHidden(fridayOnlyTeacher, "group_teacher_assignments", ids.assignmentFridayOnly);
   const { data: fridayOnlyTeacherAssignmentContexts, error: fridayOnlyTeacherAssignmentContextsError } =
     await fridayOnlyTeacher.rpc("teacher_assignment_contexts");
@@ -2748,13 +2755,10 @@ async function runAssertions(ids: SeedIds) {
   await assertHidden(teacherA, "weekly_plans", ids.oldPlanA);
   await assertHidden(teacherA, "partner_recitations", ids.oldPartnerA);
   await assertHidden(teacherA, "halaqa_grades", ids.oldGradeA);
-  const { data: teacherGrade, error: teacherGradeError } = await teacherA
-    .from("halaqa_grades")
-    .update({ notes: "teacher scoped", graded_by: ids.users.teacherA })
-    .eq("id", ids.gradeA)
-    .select("id");
-  assert.equal(teacherGradeError, null, teacherGradeError?.message);
-  assert.equal(teacherGrade?.length, 1, "teacher should update assigned group/week grade");
+  await assertUpdateBlocked(teacherA, "halaqa_grades", ids.gradeA, {
+    notes: "teacher scoped before publication",
+    graded_by: ids.users.teacherA
+  });
   await assertUpdateBlocked(teacherA, "halaqa_grades", ids.gradeB, {
     notes: "cross-masjid",
     graded_by: ids.users.teacherA
@@ -2775,54 +2779,14 @@ async function runAssertions(ids: SeedIds) {
     "teacher assignment projection returned the wrong effective roster count"
   );
 
-  const { data: teacherRoster, error: teacherRosterError } = await teacherA.rpc(
-    "teacher_group_roster_context",
-    { input_group_id: ids.groupA, input_week_start: ids.weekStart }
-  );
-  assert.equal(teacherRosterError, null, teacherRosterError?.message);
-  assert.deepEqual(
-    (teacherRoster ?? []).map((row: { student_id: string }) => row.student_id).sort(),
-    [ids.users.setupStudent, ids.users.studentA, ids.users.studentA2].sort(),
-    "teacher roster projection returned students outside the effective assigned group"
-  );
-  const expectedTeacherRosterFields = [
-    "daily_checkin_days",
-    "daily_points",
-    "partner_points",
-    "partner_rounds",
-    "student_id",
-    "student_name"
-  ];
-  const { data: assignedWeekCheckins, error: assignedWeekCheckinsError } = await teacherA
-    .from("checkins")
-    .select("student_id,daily_score")
-    .gte("date", ids.weekStart)
-    .lte("date", addDays(ids.weekStart, 6));
-  assert.equal(assignedWeekCheckinsError, null, assignedWeekCheckinsError?.message);
-  const expectedDailyPointsByStudent = new Map<string, number>([
-    [ids.users.studentA, 0],
-    [ids.users.studentA2, 0],
-    [ids.users.setupStudent, 0]
-  ]);
-  for (const checkin of assignedWeekCheckins ?? []) {
-    expectedDailyPointsByStudent.set(
-      checkin.student_id,
-      Math.min(700, (expectedDailyPointsByStudent.get(checkin.student_id) ?? 0) + Number(checkin.daily_score ?? 0))
-    );
-  }
-  for (const row of teacherRoster ?? []) {
-    assert.deepEqual(Object.keys(row).sort(), expectedTeacherRosterFields, "teacher roster exposed unapproved fields");
-    assert.ok(!Object.values(row).includes(ids.users.studentB), "teacher roster leaked another group student");
-    const hasWeeklyActivity = row.student_id !== ids.users.setupStudent;
-    assert.equal(row.daily_checkin_days, hasWeeklyActivity ? 1 : 0, "teacher roster used the wrong check-in week");
-    assert.equal(
-      Number(row.daily_points),
-      expectedDailyPointsByStudent.get(row.student_id),
-      "teacher roster returned the wrong weekly daily score"
-    );
-    assert.equal(row.partner_rounds, hasWeeklyActivity ? 1 : 0, "teacher roster used the wrong partner-recitation week");
-    assert.equal(row.partner_points, hasWeeklyActivity ? 75 : 0, "teacher roster returned the wrong partner points");
-  }
+  // The former roster RPC is deliberately revoked. A signed teacher cannot
+  // use permanent membership to obtain a roster before publication.
+  await assertRpcDenied(teacherA, "teacher_group_roster_context", {
+    input_group_id: ids.groupA,
+    input_week_start: ids.weekStart
+  });
+  await assertHidden(teacherA, "checkins", ids.checkinA);
+  await assertHidden(teacherA, "checkin_items", ids.itemA);
   await assertRpcDenied(teacherA, "teacher_group_roster_context", {
     input_group_id: ids.groupB,
     input_week_start: ids.weekStart
@@ -3875,11 +3839,7 @@ async function runAssertions(ids: SeedIds) {
   const teacherAssignedSigned = await teacherA.storage
     .from("weekly-plans")
     .createSignedUrl(`${ids.users.studentA}/${ids.weekStart}/plan.pdf`, 60);
-  assert.equal(
-    teacherAssignedSigned.error,
-    null,
-    `assigned teacher weekly-plan signing failed: ${teacherAssignedSigned.error?.message}`
-  );
+  assert.ok(teacherAssignedSigned.error, "teacher signed a weekly plan before the cohort published a session roster");
   const teacherCrossSigned = await teacherA.storage
     .from("weekly-plans")
     .createSignedUrl(`${ids.users.studentB}/${ids.weekStart}/plan.pdf`, 60);
@@ -4856,7 +4816,7 @@ async function runAssertions(ids: SeedIds) {
     input_group_id: ids.groupAdminTeacher,
     input_week_start: ids.weekStart
   });
-  assert.equal(saturdayStartRoster.error, null, saturdayStartRoster.error?.message);
+  assert.ok(saturdayStartRoster.error, "revoked legacy roster RPC was callable by a Saturday-starting teacher");
 
   const { data: historicalTeacherName, error: historicalTeacherNameError } = await studentA.rpc(
     "student_weekly_teacher_name",
@@ -6243,11 +6203,13 @@ async function testStudentRotationAvailability(ids: SeedIds) {
 
 async function testStudentSessionRosters(ids: SeedIds) {
   const service = localClient(serviceRoleKey);
-  const [adminA, adminB, superAdmin, studentA] = await Promise.all([
+  const [adminA, adminB, superAdmin, studentA, teacherA, teacherB] = await Promise.all([
     signIn("adminA"),
     signIn("adminB"),
     signIn("superAdmin"),
-    signIn("studentA")
+    signIn("studentA"),
+    signIn("teacherA"),
+    signIn("teacherB")
   ]);
 
   // Exercise explicit absence exclusion in a separate scoped cohort so the
@@ -6299,6 +6261,26 @@ async function testStudentSessionRosters(ids: SeedIds) {
   assert.equal(initialDraft.roster.length, initialAttendingStudents.length, "attending students were not seeded into usual groups");
   assert.equal(initialDraft.readiness.unplaced_count, 0);
   assert.ok(initialDraft.readiness.blocker_codes.includes("missing_primary_teacher_responsibility"));
+
+  const prepublicationDashboard = await teacherA.rpc("get_teacher_session_dashboard", {
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(prepublicationDashboard.error, null, prepublicationDashboard.error?.message);
+  assert.equal(
+    (prepublicationDashboard.data as { publication: unknown; groups: unknown[] }).publication,
+    null,
+    "teacher dashboard exposed an unpublished roster"
+  );
+  assert.deepEqual(
+    (prepublicationDashboard.data as { groups: unknown[] }).groups,
+    [],
+    "teacher dashboard exposed draft groups before publication"
+  );
+  await assertRpcDenied(teacherA, "teacher_group_roster_context", {
+    input_group_id: ids.groupA,
+    input_week_start: ids.weekStart
+  });
 
   await assertVisible(adminA, "session_roster_drafts", draftId);
   await assertHidden(adminB, "session_roster_drafts", draftId);
@@ -6577,6 +6559,16 @@ async function testStudentSessionRosters(ids: SeedIds) {
   assert.equal(revisionData.draft.base_published_version_id, publishedData.version!.id);
   assert.equal(revisionData.roster.length, publishedData.roster.length);
   const revisionDraftId = revisionData.draft.id;
+  const revisionMove = await service.rpc("move_session_roster_student", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: revisionDraftId,
+    input_student_id: ids.users.studentA,
+    input_session_group_id: ids.groupAdminTeacher,
+    input_expected_state_version: revisionData.draft.state_version
+  });
+  assert.equal(revisionMove.error, null, revisionMove.error?.message);
+  let revisionStateVersion = (revisionMove.data as SessionRosterDraftResponse).draft.state_version;
   const versionsBeforeFailedRevisionPublish = await requireData<Array<{ id: string }>>(
     "read versions before failed revision publish",
     service
@@ -6589,7 +6581,7 @@ async function testStudentSessionRosters(ids: SeedIds) {
     input_request_id: randomUUID(),
     input_actor_id: ids.users.adminA,
     input_draft_id: revisionDraftId,
-    input_expected_state_version: revisionData.draft.state_version
+    input_expected_state_version: revisionStateVersion
   });
   assert.ok(failedRevisionPublish.error, "unreviewed revision publish unexpectedly succeeded");
   const versionsAfterFailedRevisionPublish = await requireData<Array<{ id: string }>>(
@@ -6620,7 +6612,7 @@ async function testStudentSessionRosters(ids: SeedIds) {
     input_draft_id: revisionDraftId,
     input_student_id: ids.users.studentA2,
     input_session_group_id: ids.groupFridayOnly,
-    input_expected_state_version: revisionData.draft.state_version
+    input_expected_state_version: revisionStateVersion
   });
   assert.equal(manualPlacement.error, null, manualPlacement.error?.message);
   const manualPlacementData = manualPlacement.data as SessionRosterDraftResponse;
@@ -6635,7 +6627,7 @@ async function testStudentSessionRosters(ids: SeedIds) {
   });
   assert.equal(manualResponsibility.error, null, manualResponsibility.error?.message);
   const manualResponsibilityData = manualResponsibility.data as SessionRosterDraftResponse;
-  const revisionStateVersion = manualResponsibilityData.draft.state_version;
+  revisionStateVersion = manualResponsibilityData.draft.state_version;
 
   const currentBeforeRefresh = await service.rpc("get_current_session_roster", {
     input_actor_id: ids.users.adminA,
@@ -6653,7 +6645,7 @@ async function testStudentSessionRosters(ids: SeedIds) {
     input_actor_id: ids.users.adminA,
     input_cohort_id: ids.cohortA,
     input_week_start: ids.weekStart,
-    input_absences: [{ student_id: ids.users.studentA, reason: "Changed after revision load" }]
+    input_absences: [{ student_id: ids.users.studentA2, reason: "Changed after revision load" }]
   });
   assert.equal(revisionSourceChange.error, null, revisionSourceChange.error?.message);
   const sourceStale = await service.rpc("move_session_roster_student", {
@@ -6856,18 +6848,23 @@ drop function if exists public.test_reject_session_roster_refresh_audit();
   assert.equal(refreshedData.refresh.published_version_unchanged, true);
   assert.equal(refreshedData.refresh.published_version_id, publishedData.version!.id);
   assert.equal(
-    refreshedData.students.find((student) => student.student_id === ids.users.studentA)?.attendance_status,
+    refreshedData.students.find((student) => student.student_id === ids.users.studentA2)?.attendance_status,
     "unavailable"
   );
   assert.equal(
-    refreshedData.roster.some((student) => student.student_id === ids.users.studentA),
+    refreshedData.roster.some((student) => student.student_id === ids.users.studentA2),
     false,
     "refreshed roster retained an unavailable student"
   );
   assert.equal(
     refreshedData.students.find((student) => student.student_id === ids.users.studentA2)?.session_group_id,
-    publishedData.roster.find((student) => student.student_id === ids.users.studentA2)?.session_group_id,
-    "refresh retained the old manual placement"
+    null,
+    "refresh retained an unavailable student's session placement"
+  );
+  assert.equal(
+    refreshedData.students.find((student) => student.student_id === ids.users.studentA)?.session_group_id,
+    publishedData.roster.find((student) => student.student_id === ids.users.studentA)?.session_group_id,
+    "refresh retained the old manual placement for an available student"
   );
   assert.equal(
     refreshedData.groups.find((group) => group.group_id === ids.groupA)?.primary_teacher_id,
@@ -6988,7 +6985,25 @@ drop function if exists public.test_reject_session_roster_refresh_audit();
     input_expected_state_version: (restoredTeacherAssignment.data as SessionRosterDraftResponse).draft.state_version
   });
   assert.equal(restoredFridayTeacher.error, null, restoredFridayTeacher.error?.message);
-  const refreshedStateVersion = (restoredFridayTeacher.data as SessionRosterDraftResponse).draft.state_version;
+  const restoredStudentPlacement = await service.rpc("move_session_roster_student", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: refreshedDraftId,
+    input_student_id: ids.users.studentA,
+    input_session_group_id: ids.groupAdminTeacher,
+    input_expected_state_version: (restoredFridayTeacher.data as SessionRosterDraftResponse).draft.state_version
+  });
+  assert.equal(restoredStudentPlacement.error, null, restoredStudentPlacement.error?.message);
+  const restoredAdminTeacherResponsibility = await service.rpc("assign_session_roster_primary_teacher", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: refreshedDraftId,
+    input_group_id: ids.groupAdminTeacher,
+    input_primary_teacher_id: ids.users.adminA,
+    input_expected_state_version: (restoredStudentPlacement.data as SessionRosterDraftResponse).draft.state_version
+  });
+  assert.equal(restoredAdminTeacherResponsibility.error, null, restoredAdminTeacherResponsibility.error?.message);
+  const refreshedStateVersion = (restoredAdminTeacherResponsibility.data as SessionRosterDraftResponse).draft.state_version;
 
   const unreviewedRefreshPublish = await service.rpc("publish_session_roster_draft", {
     input_request_id: randomUUID(),
@@ -7006,6 +7021,7 @@ drop function if exists public.test_reject_session_roster_refresh_audit();
   });
   assert.equal(revisionReviewed.error, null, revisionReviewed.error?.message);
   const revisionReviewedData = revisionReviewed.data as SessionRosterDraftResponse;
+  revisionStateVersion = revisionReviewedData.draft.state_version;
   const revisionPublished = await service.rpc("publish_session_roster_draft", {
     input_request_id: randomUUID(),
     input_actor_id: ids.users.adminA,
@@ -7015,7 +7031,7 @@ drop function if exists public.test_reject_session_roster_refresh_audit();
   assert.equal(revisionPublished.error, null, revisionPublished.error?.message);
   const revisionPublishedData = revisionPublished.data as SessionRosterPublishedResponse;
   assert.equal(revisionPublishedData.version?.version_number, 2);
-  assert.equal(revisionPublishedData.roster.some((student) => student.student_id === ids.users.studentA), false);
+  assert.equal(revisionPublishedData.roster.some((student) => student.student_id === ids.users.studentA), true);
   const currentPublished = await service.rpc("get_current_session_roster", {
     input_actor_id: ids.users.adminA,
     input_cohort_id: ids.cohortA,
@@ -7023,6 +7039,357 @@ drop function if exists public.test_reject_session_roster_refresh_audit();
   });
   assert.equal(currentPublished.error, null, currentPublished.error?.message);
   assert.equal((currentPublished.data as SessionRosterPublishedResponse).version?.version_number, 2);
+
+  const currentVersionId = revisionPublishedData.version!.id;
+  const previousVersionId = publishedData.version!.id;
+  // Revocation is independent of version state: the legacy endpoint cannot
+  // expose permanent-membership rosters for the superseded version either.
+  await assertRpcDenied(teacherA, "teacher_group_roster_context", {
+    input_group_id: ids.groupA,
+    input_week_start: ids.weekStart
+  });
+  const { data: authorizedScopes, error: authorizedScopesError } = await teacherA.rpc(
+    "teacher_session_authorized_scopes",
+    { input_week_start: ids.weekStart }
+  );
+  assert.equal(authorizedScopesError, null, authorizedScopesError?.message);
+  const cohortScope = (authorizedScopes ?? []).find(
+    (scope: { cohort_id: string }) => scope.cohort_id === ids.cohortA
+  ) as { publication_version_id: string; publication_version_number: number; assigned_group_ids: string[] } | undefined;
+  assert.ok(cohortScope, "authorized teacher cohort scope was not returned");
+  assert.equal(cohortScope.publication_version_id, currentVersionId);
+  assert.equal(cohortScope.publication_version_number, 2);
+  assert.deepEqual(cohortScope.assigned_group_ids, [ids.groupA]);
+  assert.equal(
+    (authorizedScopes ?? []).some((scope: { cohort_id: string }) => scope.cohort_id === ids.cohortB),
+    false,
+    "teacher received an authorized scope for another masjid"
+  );
+
+  const dashboardResult = await teacherA.rpc("get_teacher_session_dashboard", {
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(dashboardResult.error, null, dashboardResult.error?.message);
+  const dashboard = dashboardResult.data as {
+    contract_version: number;
+    publication: {
+      version_id: string;
+      version_number: number;
+      source_draft_revision: number;
+      week_start: string;
+      halaqa_saturday: string;
+      published_by: string;
+      published_at: string;
+    };
+    scope: { assigned_group_ids: string[] };
+    groups: Array<{
+      group_id: string;
+      is_assigned_group: boolean;
+      roster_count: number;
+      weekly_plan_count: number;
+      grade_progress: { graded_count: number; complete: boolean };
+    }>;
+  };
+  assert.equal(dashboard.contract_version, 1);
+  assert.deepEqual(dashboard.scope.assigned_group_ids, [ids.groupA]);
+  assert.equal(dashboard.publication.version_id, currentVersionId);
+  assert.equal(dashboard.publication.version_number, 2);
+  assert.equal(dashboard.publication.source_draft_revision, revisionPublishedData.version!.source_draft_revision);
+  assert.equal(dashboard.publication.week_start, ids.weekStart);
+  assert.equal(dashboard.publication.halaqa_saturday, addDays(ids.weekStart, 6));
+  assert.equal(dashboard.publication.published_by, ids.users.adminA);
+  assert.equal(typeof dashboard.publication.published_at, "string");
+  const movedGroupDashboard = dashboard.groups.find((group) => group.group_id === ids.groupAdminTeacher)!;
+  assert.ok(movedGroupDashboard, "published moved group was omitted from teacher dashboard");
+  assert.equal(movedGroupDashboard.is_assigned_group, false, "primary assignment became a permission filter");
+  assert.equal(movedGroupDashboard.roster_count, 1);
+  assert.equal(movedGroupDashboard.weekly_plan_count, 1);
+  assert.equal(movedGroupDashboard.grade_progress.graded_count, 0, "legacy grade counted as current session grade");
+  assert.equal(movedGroupDashboard.grade_progress.complete, false);
+
+  const { data: assignedGroupRoster, error: assignedGroupRosterError } = await teacherA.rpc(
+    "get_teacher_session_group_roster",
+    {
+      input_version_id: currentVersionId,
+      input_group_id: ids.groupAdminTeacher,
+      input_week_start: ids.weekStart
+    }
+  );
+  assert.equal(assignedGroupRosterError, null, assignedGroupRosterError?.message);
+  const movedRoster = assignedGroupRoster as {
+    group: { group_id: string; primary_teacher_id: string };
+    roster: Array<{
+      student_id: string;
+      weekly_plan_available: boolean;
+      grade_is_current: boolean;
+      grade: { session_roster_version_id: string | null } | null;
+    }>;
+  };
+  assert.equal(movedRoster.group.group_id, ids.groupAdminTeacher);
+  assert.equal(movedRoster.group.primary_teacher_id, ids.users.adminA);
+  assert.deepEqual(movedRoster.roster.map((student) => student.student_id), [ids.users.studentA]);
+  assert.equal(movedRoster.roster[0].weekly_plan_available, true);
+  assert.equal(movedRoster.roster[0].grade_is_current, false);
+  assert.equal(movedRoster.roster[0].grade?.session_roster_version_id, null);
+
+  const adminTeacherRoster = await adminA.rpc("get_teacher_session_group_roster", {
+    input_version_id: currentVersionId,
+    input_group_id: ids.groupAdminTeacher,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(adminTeacherRoster.error, null, adminTeacherRoster.error?.message);
+  // Teacher checklist access is available only through the sanitized RPC;
+  // direct Data API reads of either raw table remain hidden after publication.
+  await assertHidden(teacherA, "checkins", ids.checkinA);
+  await assertHidden(teacherA, "checkin_items", ids.itemA);
+  await assertVisible(adminA, "checkins", ids.checkinA);
+  await assertVisible(adminA, "checkin_items", ids.itemA);
+  await assertRpcDenied(adminB, "get_teacher_session_dashboard", {
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  await assertRpcDenied(teacherB, "get_teacher_session_dashboard", {
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  await assertRpcDenied(studentA, "get_teacher_session_dashboard", {
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  await assertRpcDenied(superAdmin, "get_teacher_session_dashboard", {
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart
+  });
+  await assertRpcDenied(teacherA, "get_teacher_session_dashboard", {
+    input_cohort_id: ids.cohortB,
+    input_week_start: ids.weekStart
+  });
+  await assertRpcDenied(superAdmin, "get_teacher_session_group_roster", {
+    input_version_id: currentVersionId,
+    input_group_id: ids.groupAdminTeacher,
+    input_week_start: ids.weekStart
+  });
+  await assertRpcDenied(superAdmin, "get_teacher_session_checklist_details", {
+    input_version_id: currentVersionId,
+    input_group_id: ids.groupAdminTeacher,
+    input_student_id: ids.users.studentA,
+    input_week_start: ids.weekStart,
+    input_checklist_date: ids.today
+  });
+  await assertRpcDenied(teacherA, "get_teacher_session_group_roster", {
+    input_version_id: previousVersionId,
+    input_group_id: ids.groupA,
+    input_week_start: ids.weekStart
+  });
+
+  const currentPlanPath = `${ids.users.studentA}/${ids.weekStart}/plan.pdf`;
+  const crossPlanPath = `${ids.users.studentB}/${ids.weekStart}/plan.pdf`;
+  const { data: currentPlanAllowed, error: currentPlanAllowedError } = await teacherA.rpc(
+    "can_teacher_read_weekly_plan_path",
+    { input_file_path: currentPlanPath }
+  );
+  assert.equal(currentPlanAllowedError, null, currentPlanAllowedError?.message);
+  assert.equal(currentPlanAllowed, true);
+  const { data: superPlanAllowed, error: superPlanAllowedError } = await superAdmin.rpc(
+    "can_teacher_read_weekly_plan_path",
+    { input_file_path: currentPlanPath }
+  );
+  assert.equal(superPlanAllowedError, null, superPlanAllowedError?.message);
+  assert.equal(superPlanAllowed, false, "super-admin received a teacher-surface weekly-plan scope");
+  const { data: crossPlanAllowed, error: crossPlanAllowedError } = await teacherA.rpc(
+    "can_teacher_read_weekly_plan_path",
+    { input_file_path: crossPlanPath }
+  );
+  assert.equal(crossPlanAllowedError, null, crossPlanAllowedError?.message);
+  assert.equal(crossPlanAllowed, false, "teacher received another masjid's weekly-plan link scope");
+  const { data: oldPlanAllowed } = await teacherA.rpc("can_teacher_read_weekly_plan_path", {
+    input_file_path: `${ids.users.studentA}/${addDays(ids.weekStart, -14)}/plan.pdf`
+  });
+  assert.equal(oldPlanAllowed, false, "teacher received a plan scope without a published session");
+  const { data: teacherPlanRows, error: teacherPlanRowsError } = await teacherA
+    .from("weekly_plans")
+    .select("id")
+    .eq("id", ids.planA);
+  assert.equal(teacherPlanRowsError, null, teacherPlanRowsError?.message);
+  assert.equal(teacherPlanRows?.length, 1, "published session plan metadata was hidden from its teacher");
+  await assertHidden(teacherA, "weekly_plans", ids.planB);
+  await assertHidden(teacherA, "session_roster_drafts", draftId);
+
+  const storedChecklistItem = await requireData<{ task_label: string; weight: number }>(
+    "read stored checklist item for privacy contract assertion",
+    service.from("checkin_items").select("task_label,weight").eq("id", ids.itemA).single()
+  );
+  const checklistResult = await teacherA.rpc("get_teacher_session_checklist_details", {
+    input_version_id: currentVersionId,
+    input_group_id: ids.groupAdminTeacher,
+    input_student_id: ids.users.studentA,
+    input_week_start: ids.weekStart,
+    input_checklist_date: ids.today
+  });
+  assert.equal(checklistResult.error, null, checklistResult.error?.message);
+  const checklist = checklistResult.data as {
+    contract_version: number;
+    checklist_date: string;
+    tracker_week_start: string;
+    record_state: string;
+    stored_daily_totals: Record<string, unknown> | null;
+    items: Array<{ saved_item_label: string; completed: boolean; weight: number; earned_points: number }>;
+  };
+  assert.equal(checklist.contract_version, 1);
+  assert.equal(checklist.checklist_date, ids.today);
+  assert.equal(checklist.tracker_week_start, ids.weekStart);
+  assert.equal(checklist.record_state, "partial");
+  assert.deepEqual(Object.keys(checklist).sort(), [
+    "checklist_date",
+    "contract_version",
+    "items",
+    "record_state",
+    "stored_daily_totals",
+    "tracker_week_start"
+  ]);
+  assert.ok(checklist.items.some((item) =>
+    item.saved_item_label === storedChecklistItem.task_label
+    && item.weight === storedChecklistItem.weight
+  ));
+  assert.deepEqual(Object.keys(checklist.items[0]).sort(), [
+    "completed",
+    "earned_points",
+    "saved_item_label",
+    "weight"
+  ]);
+  assert.equal("notes" in checklist, false);
+  assert.equal("submitted_at" in checklist, false);
+  assert.equal("audit_metadata" in checklist, false);
+  await assertRpcDenied(teacherA, "get_teacher_session_checklist_details", {
+    input_version_id: currentVersionId,
+    input_group_id: ids.groupAdminTeacher,
+    input_student_id: ids.users.studentB,
+    input_week_start: ids.weekStart,
+    input_checklist_date: ids.today
+  });
+  await assertRpcDenied(teacherA, "get_teacher_session_checklist_details", {
+    input_version_id: currentVersionId,
+    input_group_id: ids.groupAdminTeacher,
+    input_student_id: ids.users.studentA,
+    input_week_start: ids.weekStart,
+    input_checklist_date: addDays(ids.weekStart, 7)
+  });
+
+  const firstGradeSave = await teacherA.rpc("save_teacher_session_halaqa_grade", {
+    input_version_id: currentVersionId,
+    input_group_id: ids.groupAdminTeacher,
+    input_student_id: ids.users.studentA,
+    input_week_start: ids.weekStart,
+    input_attended: true,
+    input_recitation_points: 42,
+    input_notes: "saved from published session"
+  });
+  assert.equal(firstGradeSave.error, null, firstGradeSave.error?.message);
+  const concurrentGradeSaves = await Promise.all([
+    teacherA.rpc("save_teacher_session_halaqa_grade", {
+      input_version_id: currentVersionId,
+      input_group_id: ids.groupAdminTeacher,
+      input_student_id: ids.users.studentA,
+      input_week_start: ids.weekStart,
+      input_attended: true,
+      input_recitation_points: 44,
+      input_notes: "concurrent save one"
+    }),
+    teacherA.rpc("save_teacher_session_halaqa_grade", {
+      input_version_id: currentVersionId,
+      input_group_id: ids.groupAdminTeacher,
+      input_student_id: ids.users.studentA,
+      input_week_start: ids.weekStart,
+      input_attended: true,
+      input_recitation_points: 46,
+      input_notes: "concurrent save two"
+    })
+  ]);
+  assert.ok(concurrentGradeSaves.every((result) => result.error === null), "concurrent grade saves were not serialized safely");
+  const savedSessionGrade = await requireData<{
+    student_id: string;
+    recitation_points: number;
+    graded_by: string;
+    session_roster_version_id: string;
+    session_group_id: string;
+    session_group_name: string;
+    session_primary_teacher_id: string;
+  }>(
+    "read saved session grade snapshot",
+    service.from("halaqa_grades")
+      .select("student_id,recitation_points,graded_by,session_roster_version_id,session_group_id,session_group_name,session_primary_teacher_id")
+      .eq("student_id", ids.users.studentA)
+      .eq("week_start", ids.weekStart)
+      .single()
+  );
+  assert.equal(savedSessionGrade.student_id, ids.users.studentA);
+  assert.ok([44, 46].includes(savedSessionGrade.recitation_points));
+  assert.equal(savedSessionGrade.graded_by, ids.users.teacherA);
+  assert.equal(savedSessionGrade.session_roster_version_id, currentVersionId);
+  assert.equal(savedSessionGrade.session_group_id, ids.groupAdminTeacher);
+  assert.equal(savedSessionGrade.session_group_name, "A Admin Teacher Group");
+  assert.equal(savedSessionGrade.session_primary_teacher_id, ids.users.adminA);
+  const currentRosterAfterGrade = await teacherA.rpc("get_teacher_session_group_roster", {
+    input_version_id: currentVersionId,
+    input_group_id: ids.groupAdminTeacher,
+    input_week_start: ids.weekStart
+  });
+  assert.equal(currentRosterAfterGrade.error, null, currentRosterAfterGrade.error?.message);
+  assert.equal((currentRosterAfterGrade.data as { roster: Array<{ grade_is_current: boolean }> }).roster[0].grade_is_current, true);
+  await assertRpcDenied(teacherA, "save_teacher_session_halaqa_grade", {
+    input_version_id: previousVersionId,
+    input_group_id: ids.groupA,
+    input_student_id: ids.users.studentA,
+    input_week_start: ids.weekStart,
+    input_attended: true,
+    input_recitation_points: 40,
+    input_notes: "superseded"
+  });
+  await assertRpcDenied(teacherA, "save_teacher_session_halaqa_grade", {
+    input_version_id: currentVersionId,
+    input_group_id: ids.groupAdminTeacher,
+    input_student_id: ids.users.studentB,
+    input_week_start: ids.weekStart,
+    input_attended: true,
+    input_recitation_points: 40,
+    input_notes: "cross masjid"
+  });
+  await assertRpcDenied(superAdmin, "save_teacher_session_halaqa_grade", {
+    input_version_id: currentVersionId,
+    input_group_id: ids.groupAdminTeacher,
+    input_student_id: ids.users.studentA,
+    input_week_start: ids.weekStart,
+    input_attended: true,
+    input_recitation_points: 40,
+    input_notes: "super admin teacher surface"
+  });
+
+  const adminCorrection = await adminA
+    .from("halaqa_grades")
+    .update({ notes: "admin correction retained session snapshot", graded_by: ids.users.adminA })
+    .eq("student_id", ids.users.studentA)
+    .eq("week_start", ids.weekStart)
+    .select("id,session_roster_version_id,session_group_id");
+  assert.equal(adminCorrection.error, null, adminCorrection.error?.message);
+  assert.equal(adminCorrection.data?.length, 1, "admin correction could not preserve a moved student's session grade");
+  assert.equal(adminCorrection.data?.[0]?.session_roster_version_id, currentVersionId);
+  assert.equal(adminCorrection.data?.[0]?.session_group_id, ids.groupAdminTeacher);
+
+  const unpublishedRevision = await service.rpc("create_session_roster_revision", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: ids.weekStart,
+    input_expected_published_version_id: currentVersionId
+  });
+  assert.equal(unpublishedRevision.error, null, unpublishedRevision.error?.message);
+  const unpublishedRevisionData = unpublishedRevision.data as SessionRosterDraftResponse;
+  await assertRpcDenied(teacherA, "get_teacher_session_group_roster", {
+    input_version_id: unpublishedRevisionData.draft.id,
+    input_group_id: ids.groupAdminTeacher,
+    input_week_start: ids.weekStart
+  });
 
   const staleRevision = await service.rpc("create_session_roster_revision", {
     input_request_id: randomUUID(),

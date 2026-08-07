@@ -9,21 +9,22 @@ scope remain mandatory. Staff transitions follow
 are additive, while Guided Change replacement is confined to the selected
 masjid.
 
-This matrix records the Phase 1 authorization boundary enforced by the hardening migration. The database,
-server guards, and local RLS integration suite must agree with it.
+This matrix records the current authorization boundary enforced by the database, server guards, and local
+RLS integration suite. Teacher operational reads now use only the current published-session contracts;
+the legacy permanent-membership roster endpoint is revoked.
 
 | Surface | Student | Teacher / admin-teacher | Scoped admin | Super admin |
 | --- | --- | --- | --- | --- |
-| Profiles | Own active profile only | Own profile plus active students in an assigned group/week whose teacher eligibility reaches that week’s Saturday | Active people with student or staff history in a currently administered masjid | Global read; writes only through guarded service-role workflows |
-| Check-ins and items | Own rows; writes require an effective matching group snapshot, canonical tasks, and database-derived scores | Read only rows in an effective assigned group for that row's tracker week | Read only through RLS; corrections use one internally scoped transactional RPC | Global operational access |
-| Weekly plans | Own metadata and own storage path only | Read only assigned group/week metadata; signed links require the same server-side scope check | Read only metadata and signed links for students in a currently administered masjid | Global operational access |
+| Profiles | Own active profile only | Own profile; student identity is returned only through documented published-session roster projections, never by direct student-profile reads | Active people with student or staff history in a currently administered masjid | Global read; writes only through guarded service-role workflows |
+| Check-ins and items | Own rows; writes require an effective matching group snapshot, canonical tasks, and database-derived scores | No direct raw-table reads; current published students' checklist details are available only through the sanitized version/group/student/date RPC | Read only through RLS; corrections use one internally scoped transactional RPC | Global operational access |
+| Weekly plans | Own metadata and own storage path only | Read only metadata for students in the current published session snapshot of an authorized cohort/week; signed links use the same published-session check | Read only metadata and signed links for students in a currently administered masjid | Global operational access |
 | Partner recitation | Own rows; current round writes require an effective, matching group snapshot | Read only assigned group/week rows | Scoped read/write for administered masajid | Global operational access |
-| Halaqa grades | Own read only | Read/write only the exact assigned group/week | Scoped read/write for administered masajid | Global operational access |
+| Halaqa grades | Own read only | Read and grade any group in the current published session snapshot of an authorized cohort/week; exact published version/group/student membership is required for each grade write, and assigned/primary groups are highlight-only | Scoped read/write for administered masajid; historical session-backed grades retain their snapshot identity | Global operational access |
 | Incentives/accountability | Own eligible post-`score_starts_on` obligations and badges; only the existing self-attestation update is allowed | No direct access | Scoped rows; guarded scoring-boundary activation/forward moves require authority over all affected history | Global operational access; guarded scoring-boundary changes may also move backward |
 | Masajid/cohorts/groups | Active hierarchy connected to a current Toronto-civil-date membership | Active hierarchy connected to a current Toronto-civil-week assignment with Saturday teacher eligibility | Active currently administered masajid and active descendants | Global setup access, including inactive entities |
 | Student memberships | Own history | Rows whose membership window overlaps an effective assignment week | Scoped insert and deliberate open-row closure; identity/history rewrites and deletion are denied | Global read; signed direct insert/update/delete denied |
 | Staff memberships | Own history | Own history | Scoped teacher insert and deliberate deactivation/closure; identity/history rewrites, reactivation, admin grants, and deletion are denied | Global read; writes only through guarded service-role workflows |
-| Teacher assignments/rotation | None | Assignment navigation may show own upcoming/history; roster, plan, signed-file, and grade access start on Sunday, require exact active assignment plus Saturday coverage, and after Saturday also require current Toronto-civil-date teacher staff access | Scoped assignment insert/deactivation and rotation inputs; rotation runs are read only and generation uses the guarded service-role RPC | Global access |
+| Teacher assignments/rotation | None | Assignment navigation may show own upcoming/history. For a selected Sunday week, active teacher/admin-teacher staff capability plus any exact active group assignment in the cohort authorizes the published-session dashboard, every published group roster, plan metadata/link, and individual grade writes; assigned/primary groups are highlight-only. Legacy assignment-only projections retain their narrower contract. | Scoped assignment insert/deactivation and rotation inputs; rotation runs are read only and generation uses the guarded service-role RPC | Global access, but no teacher-surface access through the super-admin role |
 | Super-admin audit | None | None | None | Read only through signed sessions; guarded service-role workflows may insert but cannot update, delete, or truncate |
 | Guided Change review intents | None | None | None | No direct signed-session access; short-lived rows are created and read only by guarded server actions using the service role |
 | Cohort leaderboard | Sanitized projection only: name, rank, score summary, change/status, and own-row marker | None | Separate admin scoring surface | Global operational access |
@@ -59,11 +60,11 @@ policy was already super-admin-only and remains unchanged):
 | Relation | Policies after Phase 1 |
 | --- | --- |
 | `profiles` | `Users can read own active profile`; `Admins can read all profiles` (scoped read); assigned teachers cannot read student profile rows and use the safe roster RPC instead; `Admins can insert profiles` and `Admins can update profiles` (super-admin-only) |
-| `checkins` | Student own select/current-day insert/constrained update; database trigger protects date, scope, attribution, and derived totals; scoped admin or assigned-teacher select; direct signed-admin insert/update/delete denied, with corrections routed through the scoped transactional RPC |
-| `checkin_items` | Student own parent-consistent select/canonical insert/completion-only update; database trigger validates task definitions and recalculates the parent score; parent-inherited scoped admin or teacher select; direct signed-admin insert/update/delete denied, with replacement included in the correction transaction |
-| `weekly_plans` | Student own select and path/snapshot-checked insert/update; scoped admin or assigned-teacher select |
+| `checkins` | Student own select/current-day insert/constrained update; database trigger protects date, scope, attribution, and derived totals; scoped-admin/super-admin select only; teachers have no direct raw SELECT, and checklist reads use the sanitized published-session RPC; direct signed-admin insert/update/delete denied, with corrections routed through the scoped transactional RPC |
+| `checkin_items` | Student own parent-consistent select/canonical insert/completion-only update; database trigger validates task definitions and recalculates the parent score; parent-inherited scoped-admin/super-admin select only; teachers have no direct raw SELECT, and checklist reads use the sanitized published-session RPC; direct signed-admin insert/update/delete denied, with replacement included in the correction transaction |
+| `weekly_plans` | Student own select and path/snapshot-checked insert/update; scoped admin or current published-session cohort-authorized teacher select |
 | `partner_recitations` | Student own select and current-round insert; scoped admin or assigned-teacher select; scoped admin insert/update/delete |
-| `halaqa_grades` | Student own select; scoped admin or assigned-teacher select; scoped admin or exact assigned-teacher insert/update |
+| `halaqa_grades` | Student own select; scoped admin or current published-session cohort-authorized teacher select; scoped admin or exact current published-session version/group/student teacher insert/update. Historical session snapshots remain available to the scoped admin correction path. |
 | `weekly_incentive_runs` | Masjid-scoped admin/super-admin select/insert/update |
 | `accountability_obligations` | Student own select and constrained attestation; masjid-scoped admin/super-admin select/insert/update; pending rows require a valid week-specific masjid/cohort/group scope |
 | `badge_awards` | Student own select; masjid-scoped admin/super-admin select/insert/update |
@@ -111,11 +112,23 @@ The `authenticated` role can execute only these caller-relative definer function
   `is_rotation_teacher_for_masjid_week(uuid,uuid,date)`, plus the path-only
   `can_admin_read_weekly_plan_path(text)` and `can_teacher_read_weekly_plan_path(text)` used by Storage RLS and the history-safe
   `can_admin_manage_group_history(uuid)` closure helper.
+- Teacher session API: `teacher_session_authorized_scopes(date)`,
+  `get_teacher_session_dashboard(uuid,date)`, `get_teacher_session_group_roster(uuid,uuid,date)`,
+  `get_teacher_session_student_context(uuid,date)`,
+  `get_teacher_session_checklist_details(uuid,uuid,uuid,date,date)`, and
+  `save_teacher_session_halaqa_grade(uuid,uuid,uuid,date,boolean,integer,text)`. These APIs use
+  published session snapshots and cohort authorization; they never authorize from the primary teacher
+  marker alone and never expose super-admin access through teacher surfaces.
 - Application RPCs: `student_weekly_teacher_name(date)`,
   `student_cohort_leaderboard_for_week(date)`, `student_leaderboard_available_weeks()`,
-  `teacher_assignment_contexts()`, `teacher_group_roster_context(uuid,date)`, and
+  `teacher_assignment_contexts()`, and
   `admin_students_for_week(date)`, plus the atomic, actor-scoped
   `apply_admin_checkin_correction(uuid,date,text,text,text[])` mutation.
+
+`teacher_group_roster_context(uuid,date)` remains in the catalog inventory for migration-drift checks,
+but its `PUBLIC`, `anon`, `authenticated`, and `service_role` execute privileges are revoked. It cannot
+be used as a permanent-membership teacher roster endpoint before publication, for a draft, or for a
+superseded version.
 
 `prepare_teacher_rotation_publication(...)` and `apply_teacher_rotation_publication(...)` are
 service-role-only. They independently validate a current Toronto-civil-date admin/super-admin actor,
@@ -136,6 +149,21 @@ Refresh is also service-only and requires an explicit discard-confirmation input
 the exact stale draft token supplied by the scoped normal admin; it cannot be used by a super-admin
 through this normal-admin path, cannot mutate permanent memberships or existing teacher assignments,
 and cannot change the live published version.
+
+The teacher session contracts are authenticated, caller-checked projections over the current published
+version only: `teacher_session_authorized_scopes(date)`,
+`get_teacher_session_dashboard(uuid,date)`, `get_teacher_session_group_roster(uuid,uuid,date)`,
+`get_teacher_session_student_context(uuid,date)`, and
+`get_teacher_session_checklist_details(uuid,uuid,uuid,date,date)` are read-only; the individual
+`save_teacher_session_halaqa_grade(uuid,uuid,uuid,date,boolean,integer,text)` RPC is the only teacher
+grade write. They require an active `teacher` or `admin` profile, active teacher staff membership for
+the masjid, an exact active assignment somewhere in the cohort/week, the current published version,
+and exact snapshot membership. `super_admin` is explicitly denied. The assigned/primary group is returned
+only as a highlight. Checklist details return stored labels/weights, completion, earned points, stored
+daily totals/score, and a privacy-safe record state; notes, raw records, timestamps, correction actors,
+and audit metadata are excluded. Weekly-plan metadata and five-minute signed links use the same current
+published-session scope.
+
 The Phase 1A functions `apply_scoped_user_setup(...)`,
 `get_scoped_user_setup_request_result(...)`, `get_scoped_user_setup_auth_recovery(...)`,
 `get_person_access_state(uuid,uuid)`, `apply_super_admin_access_change(...)`,

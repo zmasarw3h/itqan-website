@@ -3,18 +3,17 @@ import { notFound } from "next/navigation";
 import AppNav from "@/app/nav";
 import TeacherGradeForm from "@/app/teacher/groups/[groupId]/teacher-grade-form";
 import TeacherWeekSelector from "@/app/teacher/week-selector";
+import { formatWeekRange, torontoCivilDateString, weekStartForDate } from "@/lib/dates";
 import {
-  formatDateTimeInAppTimeZone,
-  formatWeekRange,
-  torontoCivilDateString,
-  weekStartForDate
-} from "@/lib/dates";
-import { isTrackerWeekStart, resolveTeacherWeekStart } from "@/lib/teacher-dashboard";
+  assignmentWeekStarts,
+  isTrackerWeekStart,
+  resolveTeacherWeekStart
+} from "@/lib/teacher-dashboard";
 import {
-  loadTeacherGroupRoster,
+  loadTeacherSessionDashboards,
+  loadTeacherSessionGroupRoster,
   requireTeacherExperience
 } from "@/lib/teacher-scope";
-import type { HalaqaGrade, WeeklyPlan } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -42,51 +41,67 @@ export default async function TeacherGroupPage({
 
   const selectedWeekStart = resolveTeacherWeekStart(requestedWeek, currentWeekStart);
   const { supabase, profile, assignments } = await requireTeacherExperience(selectedWeekStart);
-  const assignment = assignments.find(
-    (candidate) => candidate.group_id === groupId && candidate.week_start === selectedWeekStart
+  const groupWeekStarts = assignmentWeekStarts(assignments, currentWeekStart);
+  const dashboards = await loadTeacherSessionDashboards(supabase, selectedWeekStart);
+  const dashboard = dashboards.find(
+    (candidate) =>
+      candidate.publication !== null &&
+      candidate.groups.some((candidateGroup) => candidateGroup.group_id === groupId)
+  );
+  const hasAuthorizedUnpublishedGroup = dashboards.some(
+    (candidate) =>
+      candidate.publication === null && candidate.scope.assigned_group_ids.includes(groupId)
   );
 
-  if (!assignment) {
+  if (!dashboard) {
+    if (!hasAuthorizedUnpublishedGroup) {
+      notFound();
+    }
+
+    return (
+      <>
+        <AppNav name={profile.name} role={profile.role} />
+        <main className="mx-auto max-w-4xl px-4 py-8">
+          <div className="flex flex-col justify-between gap-5 border-b border-stone-200 pb-6 sm:flex-row sm:items-end">
+            <div>
+              <Link className="text-sm font-medium text-moss hover:text-ink" href={`/teacher?week=${selectedWeekStart}`}>
+                Back to published teaching groups
+              </Link>
+              <h1 className="mt-2 text-3xl font-semibold text-ink">Group unavailable</h1>
+              <p className="mt-2 text-stone-600">{formatWeekRange(selectedWeekStart)}</p>
+            </div>
+            <TeacherWeekSelector
+              path={`/teacher/groups/${groupId}`}
+              selectedWeekStart={selectedWeekStart}
+              weekStarts={groupWeekStarts}
+            />
+          </div>
+          <section className="mt-8 rounded-lg border border-amber-200 bg-amber-50 px-5 py-12 text-center">
+            <h2 className="text-xl font-semibold text-ink">No published session roster</h2>
+            <p className="mx-auto mt-2 max-w-xl text-stone-700">
+              This authorized group has no current published Saturday roster. Students, weekly plans, and grade forms
+              remain unavailable until publication.
+            </p>
+          </section>
+        </main>
+      </>
+    );
+  }
+
+  const publication = dashboard.publication;
+  if (!publication) {
     notFound();
   }
-
-  const roster = await loadTeacherGroupRoster(supabase, groupId, selectedWeekStart);
-  const studentIds = roster.map((student) => student.id);
-  const [planResult, gradeResult] = studentIds.length
-    ? await Promise.all([
-        supabase
-          .from("weekly_plans")
-          .select("id,student_id,week_start,file_path,file_name,file_type,file_size,uploaded_at,masjid_id,cohort_id,halaqa_group_id")
-          .in("student_id", studentIds)
-          .eq("week_start", selectedWeekStart)
-          .eq("halaqa_group_id", groupId)
-          .returns<WeeklyPlan[]>(),
-        supabase
-          .from("halaqa_grades")
-          .select("id,student_id,week_start,attended,attendance_points,recitation_points,notes,graded_by,graded_at,updated_at,masjid_id,cohort_id,halaqa_group_id")
-          .in("student_id", studentIds)
-          .eq("week_start", selectedWeekStart)
-          .eq("halaqa_group_id", groupId)
-          .returns<HalaqaGrade[]>()
-      ])
-    : [{ data: [], error: null }, { data: [], error: null }];
-
-  if (planResult.error || gradeResult.error) {
-    throw new Error("Unable to load weekly halaqa records.");
-  }
-
-  const planByStudentId = new Map((planResult.data ?? []).map((plan) => [plan.student_id, plan]));
-  const gradeByStudentId = new Map((gradeResult.data ?? []).map((grade) => [grade.student_id, grade]));
+  const rosterResponse = await loadTeacherSessionGroupRoster(
+    supabase,
+    publication.version_id,
+    groupId,
+    selectedWeekStart
+  );
   const status = Array.isArray(resolvedSearchParams.status)
     ? resolvedSearchParams.status[0]
     : resolvedSearchParams.status;
-  const groupWeekStarts = [
-    ...new Set(
-      assignments
-        .filter((candidate) => candidate.group_id === groupId)
-        .map((candidate) => candidate.week_start)
-    )
-  ].sort((a, b) => b.localeCompare(a));
+  const groupSummary = dashboard.groups.find((candidate) => candidate.group_id === groupId);
 
   return (
     <>
@@ -95,11 +110,16 @@ export default async function TeacherGroupPage({
         <div className="flex flex-col justify-between gap-5 border-b border-stone-200 pb-6 sm:flex-row sm:items-end">
           <div>
             <Link className="text-sm font-medium text-moss hover:text-ink" href={`/teacher?week=${selectedWeekStart}`}>
-              Back to assigned groups
+              Back to published teaching groups
             </Link>
-            <h1 className="mt-2 text-3xl font-semibold text-ink">{assignment.group_name}</h1>
+            <h1 className="mt-2 text-3xl font-semibold text-ink">{rosterResponse.group.group_name}</h1>
             <p className="mt-2 text-stone-600">
-              {assignment.masjid_name} · {assignment.cohort_name} · {formatWeekRange(selectedWeekStart)}
+              {dashboard.scope.masjid_name} · {dashboard.scope.cohort_name} · {formatWeekRange(selectedWeekStart)} ·
+              Published version {publication.version_number}
+            </p>
+            <p className="mt-1 text-sm text-stone-500">
+              Primary teacher: {rosterResponse.group.primary_teacher_name}
+              {groupSummary?.is_assigned_group ? " · Assigned responsibility highlight" : " · Cohort-wide teacher access"}
             </p>
           </div>
           <TeacherWeekSelector
@@ -114,38 +134,49 @@ export default async function TeacherGroupPage({
             Halaqa grade saved.
           </p>
         ) : null}
-        {status === "grade-invalid" || status === "grade-error" ? (
+        {status === "grade-invalid" ? (
           <p aria-live="polite" className="mt-5 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="status">
-            Unable to save the grade. Present students need a whole-number recitation score from 10 to 50.
+            The grade is invalid. Present students need a whole-number recitation score from 10 to 50.
+          </p>
+        ) : null}
+        {status === "grade-stale" ? (
+          <p aria-live="polite" className="mt-5 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900" role="status">
+            The published roster changed while saving. Reload the current group before grading again.
           </p>
         ) : null}
         {status === "grade-denied" ? (
           <p aria-live="polite" className="mt-5 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="status">
-            The assignment or student roster changed. Reload before grading.
+            You are not authorized to grade this published student context.
           </p>
         ) : null}
-        {status === "plan-error" || status === "plan-missing" ? (
+        {status === "grade-error" ? (
           <p aria-live="polite" className="mt-5 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="status">
-            The weekly plan is unavailable or no longer belongs to this assigned roster.
+            The grade could not be saved because of an unexpected server error. Try again or contact an administrator.
+          </p>
+        ) : null}
+        {status === "plan-stale" || status === "plan-error" || status === "plan-missing" ? (
+          <p aria-live="polite" className="mt-5 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="status">
+            The weekly plan is unavailable or no longer belongs to this published roster.
           </p>
         ) : null}
 
         <section className="mt-6 overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm">
           <div className="border-b border-stone-200 px-5 py-4">
-            <h2 className="text-lg font-semibold text-ink">Roster</h2>
-            <p className="mt-1 text-sm text-stone-600">{roster.length} students effective for this tracker week</p>
+            <h2 className="text-lg font-semibold text-ink">Published roster</h2>
+            <p className="mt-1 text-sm text-stone-600">
+              {rosterResponse.roster.length} students from publication version {publication.version_number}
+            </p>
           </div>
-          {roster.length ? (
+          {rosterResponse.roster.length ? (
             <div className="divide-y divide-stone-200">
-              {roster.map((student) => {
-                const plan = planByStudentId.get(student.id) ?? null;
-                const grade = gradeByStudentId.get(student.id) ?? null;
+              {rosterResponse.roster.map((student) => {
+                const grade = student.grade;
 
                 return (
-                  <article className="p-5" key={student.id}>
+                  <article className="p-5" key={student.student_id}>
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <h3 className="font-semibold text-ink">{student.name}</h3>
+                        <h3 className="font-semibold text-ink">{student.student_name}</h3>
                         <p className="mt-1 text-sm text-stone-600">
                           {grade
                             ? `${grade.attended ? "Present" : "Absent"} · ${grade.attendance_points + grade.recitation_points} / 150`
@@ -153,28 +184,17 @@ export default async function TeacherGroupPage({
                         </p>
                         {grade ? (
                           <p className="mt-1 text-xs text-stone-500">
-                            Last saved {formatDateTimeInAppTimeZone(grade.updated_at ?? grade.graded_at)}
+                            Last saved {new Date(grade.updated_at ?? grade.graded_at).toLocaleString("en-CA", { timeZone: "America/Toronto" })}
                           </p>
                         ) : null}
-                        <dl className="mt-3 grid grid-cols-2 gap-x-5 gap-y-2 text-sm sm:flex sm:flex-wrap sm:gap-x-8">
-                          <div>
-                            <dt className="text-xs text-stone-500">Daily check-ins</dt>
-                            <dd className="font-medium text-ink">
-                              {student.dailyCheckinDays}/7 · {student.dailyPoints}/700
-                            </dd>
-                          </div>
-                          <div>
-                            <dt className="text-xs text-stone-500">Partner recitation</dt>
-                            <dd className="font-medium text-ink">
-                              {student.partnerRounds}/2 · {student.partnerPoints}/150
-                            </dd>
-                          </div>
-                        </dl>
+                        <p className="mt-3 text-sm text-stone-600">
+                          Published placement: {student.usual_group_name} → {rosterResponse.group.group_name}
+                        </p>
                       </div>
-                      {plan ? (
+                      {student.weekly_plan_available ? (
                         <a
                           className="rounded-md border border-stone-300 px-3 py-2 text-sm font-medium text-ink hover:bg-stone-50"
-                          href={`/teacher/plans/${student.id}?week=${selectedWeekStart}`}
+                          href={`/teacher/plans/${student.student_id}?week=${selectedWeekStart}&version=${encodeURIComponent(publication.version_id)}`}
                         >
                           View weekly plan
                         </a>
@@ -184,9 +204,10 @@ export default async function TeacherGroupPage({
                     </div>
                     <TeacherGradeForm
                       grade={grade}
-                      groupId={groupId}
-                      key={`${student.id}-${selectedWeekStart}-${grade?.updated_at ?? grade?.graded_at ?? "new"}`}
-                      studentId={student.id}
+                      groupId={rosterResponse.group.group_id}
+                      key={`${student.student_id}-${selectedWeekStart}-${grade?.updated_at ?? grade?.graded_at ?? "new"}`}
+                      studentId={student.student_id}
+                      versionId={publication.version_id}
                       weekStart={selectedWeekStart}
                     />
                   </article>
@@ -194,7 +215,7 @@ export default async function TeacherGroupPage({
               })}
             </div>
           ) : (
-            <p className="px-5 py-12 text-center text-stone-600">No active students are in this group for the selected week.</p>
+            <p className="px-5 py-12 text-center text-stone-600">No students are in this published group.</p>
           )}
         </section>
       </main>

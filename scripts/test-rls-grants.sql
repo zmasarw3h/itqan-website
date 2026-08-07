@@ -32,6 +32,10 @@ insert into expected_authenticated_definers (signature) values
   ('current_effective_date()'),
   ('current_partner_recitation_round()'),
   ('current_toronto_civil_date()'),
+  ('get_teacher_session_checklist_details(uuid,uuid,uuid,date,date)'),
+  ('get_teacher_session_dashboard(uuid,date)'),
+  ('get_teacher_session_group_roster(uuid,uuid,date)'),
+  ('get_teacher_session_student_context(uuid,date)'),
   ('group_masjid_id(uuid)'),
   ('historical_reporting_available_weeks()'),
   ('historical_reporting_activity_for_weeks(date[])'),
@@ -58,7 +62,12 @@ insert into expected_authenticated_definers (signature) values
   ('teacher_assignment_contexts()'),
   ('teacher_can_read_membership(uuid,date,date)'),
   ('teacher_grade_scope_snapshot_matches(uuid,date,uuid,uuid,uuid)'),
-  ('teacher_group_roster_context(uuid,date)');
+  ('teacher_session_authorized_scopes(date)'),
+  ('teacher_session_grade_row_visible(uuid,date,uuid,uuid)'),
+  ('teacher_session_grade_scope_matches(uuid,date,uuid,uuid,uuid,uuid,uuid)'),
+  ('teacher_session_grade_snapshot_matches(uuid,date,uuid,uuid,uuid,uuid,uuid)'),
+  ('teacher_session_plan_scope_matches(uuid,date)'),
+  ('save_teacher_session_halaqa_grade(uuid,uuid,uuid,date,boolean,integer,text)');
 
 -- The shared rotation trigger is deliberately attached only to tables whose
 -- row shape it handles in an explicit branch. Keep this catalog assertion

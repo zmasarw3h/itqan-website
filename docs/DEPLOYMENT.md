@@ -110,27 +110,45 @@ Apply migrations with the Supabase CLI or the Supabase SQL editor in filename or
 
 ### Attendance-aware Saturday session-roster backend
 
-The session-roster migration is additive and depends on the canonical availability foundation:
+The session-roster and teacher-session migrations are additive and depend on the canonical availability foundation:
 
 1. Apply `20260806144640_student_rotation_availability.sql` (from the availability foundation branch)
    before `20260806170351_session_roster_backend_foundation.sql`. Do not copy or rewrite the availability
    migration; the session-roster migration only adds its own tables, locks, triggers, contracts, grants,
    and audit/version metadata.
-2. Apply `20260806190708_session_roster_refresh_recovery.sql` after the session-roster foundation. This
+2. Apply `20260806185342_teacher_session_authorization_read_api.sql` after the session-roster foundation.
+   It adds the published-session teacher capability/read contracts, exact session grade snapshots, and
+   the same-scope weekly-plan/checklist protections. It does not grant teacher access to drafts,
+   superseded versions, permanent memberships, or super-admin sessions.
+3. Apply `20260806190708_session_roster_refresh_recovery.sql` after the teacher-session migration. This
    additive function/constraint replacement adds only the stale-draft recovery state and service RPC;
-   it does not drop tables/columns or mutate production/source rows.
-3. Before staging, run `npm run test:rls`, `npx supabase db lint --local --schema public --level warning
+   it does not drop tables/columns or mutate production/source rows. It replaces the explicit security
+   definer inventory, so the next reconciliation migration is required.
+4. Apply `20260807001300_teacher_session_authorization_refresh_reconciliation.sql` before the final
+   privacy/legacy-roster amendment. It restores the
+   complete teacher-session security-definer inventory after the refresh migration's copied replacement;
+   it does not change the authorization predicates or data model.
+5. Apply `20260807032835_teacher_session_privacy_and_legacy_roster_reconciliation.sql` last. It narrows
+   only the raw checklist SELECT policies to scoped admin/super-admin access, revokes the permanent-
+   membership `teacher_group_roster_context` endpoint for every role, and leaves
+   `can_read_operational_student_row(...)` and the published-session RPCs unchanged.
+6. Before staging, run `npm run test:rls`, `npx supabase db lint --local --schema public --level warning
    --fail-on error`, and `npx supabase db advisors --local --type all --level warn --fail-on error` against
    a disposable local stack. The advisor command may report existing warnings on legacy tables and the
    public `btree_gist` extension; treat new findings from this migration as release blockers.
-4. Apply all three migrations to staging, verify the normal-admin draft/review/publish flow and the
+7. Apply all six migrations to staging, verify the normal-admin draft/review/publish flow and the
    explicit stale-draft refresh/review flow for an explicitly selected cohort, and verify that signed
-   browser clients cannot write roster tables or execute the mutation RPCs. Confirm that the existing
-   availability and teacher-rotation flows remain unchanged.
-5. Back up production, apply the same migration order manually, run the catalog/RLS smoke checks, and
+   browser clients cannot write roster tables or execute the mutation RPCs. Also verify direct teacher
+   reads of raw checkins/checkin_items are denied, the sanitized checklist RPC succeeds, the legacy roster
+   RPC is denied before/during/after publication, and the teacher page shows no-publication until a
+   current version exists. Confirm that the existing availability and teacher-rotation flows remain
+   unchanged.
+8. Back up production, apply the same migration order manually, run the catalog/RLS smoke checks, and
    deploy application code only after the schema is ready. This backend slice does not backfill drafts,
    versions, memberships, grades, plans, or teacher assignments; production remains unchanged until an
-   admin explicitly uses the later application workflow.
+   admin explicitly uses the existing application workflow. Deploy matching server actions/routes only
+   after all six migrations are applied and the catalog assertion confirms the teacher-session grants and
+   legacy/raw-checklist restrictions.
 
 The migration keeps published versions immutable and has no destructive down migration. If the new flow
 has a problem, pause session-roster calls, leave the availability and existing teacher-rotation paths in

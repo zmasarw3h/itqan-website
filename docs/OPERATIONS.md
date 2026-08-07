@@ -158,8 +158,33 @@ original result; reusing a UUID with changed input is rejected.
 These contracts never modify permanent `student_group_memberships`, existing `group_teacher_assignments`,
 weekly plans, grades, or production data outside the requested session-roster rows. Browser clients have
 no direct write grants to the roster tables. The session-roster normal-admin workflow intentionally
-excludes super-admin sessions, and cohort-wide teacher view/grade authorization is deferred to the next
-backend slice.
+excludes super-admin sessions.
+
+## Teacher Published-Session Read And Grade Contracts
+
+The teacher authorization layer is available to the later teacher UI through stable TypeScript/domain
+contracts in `lib/teacher-session.ts` and the following authenticated RPCs:
+
+- `teacher_session_authorized_scopes(week_start)` returns active authorized cohort/week scope and
+  publication identity. `assigned_group_ids` is a highlight only.
+- `get_teacher_session_dashboard(cohort_id, week_start)` returns publication/version/time, every
+  published group, primary-teacher identity, roster count, weekly-plan availability, and grade progress.
+- `get_teacher_session_group_roster(version_id, group_id, week_start)` returns the exact current
+  published group snapshot and plan/grade projections.
+- `get_teacher_session_checklist_details(version_id, group_id, student_id, week_start, checklist_date)`
+  returns saved historical labels/weights, completion, earned points, stored totals/score, and record
+  state only. It excludes notes, raw records, timestamps, correction actors, and audit metadata.
+- `save_teacher_session_halaqa_grade(...)` saves one student at a time against the exact current
+  published version/group/student snapshot and records the historical grader.
+
+An active `teacher` or `admin` profile needs active teacher staff coverage for the masjid/Saturday and
+one active group assignment somewhere in that cohort/week. That assignment authorizes every group in the
+current published cohort version; the primary/assigned group never becomes a permission boundary. Drafts,
+superseded versions, cross-masjid/cohort/week inputs, unauthorized roles, and `super_admin` sessions are
+denied. Weekly-plan metadata and five-minute signed links use the same published-session scope. Current
+permanent membership is not consulted for teacher roster membership; the exact published snapshot is
+authoritative. Admin correction may preserve a historical session grade snapshot without changing its
+identity.
 
 ## Legacy Import: Validation Only
 
@@ -420,15 +445,26 @@ Active teacher profiles land on `/teacher`. Admin-teachers continue to land on `
 teacher staff membership is effective for that assignment week. This does not grant unrelated weeks.
 
 The dashboard defaults to the current tracker week and also lists weeks with effective assignments. A
-valid Sunday that is neither current nor assigned is canonicalized back to the current week. Opening a
-group shows the roster effective for that exact week, including compact capped daily-check-in and
-partner-recitation progress. Teachers cannot query student profile rows; the roster projection returns
-only ID, name, and those aggregates. Teachers can download a student's plan through a five-minute signed
-link and save the student's halaqa grade. If a profile is no longer an active student or a membership,
-staff window, or assignment no longer covers that week, the server action and RLS both deny the operation.
+valid Sunday that is neither current nor assigned is canonicalized back to the current week. The current
+route renders only `get_teacher_session_dashboard(...)` results: every group in each authorized cohort's
+current published version is reachable, while `assigned_group_ids` and `is_assigned_group` are display-only
+responsibility highlights. If no current version is published, the dashboard and group route show a clear
+unavailable state and expose no students, plans, or grade forms. Teachers cannot query student profile rows
+or raw `checkins`/`checkin_items`; checklist details use only the sanitized published-session RPC. Group
+pages use the versioned roster contract for plan availability and grade projections. Plan links recheck the
+same student/group/version context and create five-minute signed URLs. Grade actions map stale-version
+conflicts to reload, authorization failures to denied, validation failures to invalid, and unexpected
+database failures to an error state.
 
-Apply `20260720191514_teacher_dashboard_scope.sql` before deploying the teacher routes. The migration is
-additive and supplies the assignment projection plus teacher-scoped weekly-plan Storage authorization.
+Apply the teacher/session migrations in filename order before deploying the matching app code, including
+`20260806185342_teacher_session_authorization_read_api.sql`,
+`20260806190708_session_roster_refresh_recovery.sql`,
+`20260807001300_teacher_session_authorization_refresh_reconciliation.sql`, and
+`20260807032835_teacher_session_privacy_and_legacy_roster_reconciliation.sql`. The final additive
+migration narrows only the `checkins` and `checkin_items` SELECT policies to scoped admins/super-admins,
+revokes the legacy `teacher_group_roster_context(uuid,date)` endpoint for every role, and leaves
+`can_read_operational_student_row(...)` unchanged for preserved non-checklist surfaces. Deploy the
+database migrations first, verify a published and an unpublished cohort state, then deploy the app code.
 
 ## Weekly Incentive Run Constraint Limitation
 

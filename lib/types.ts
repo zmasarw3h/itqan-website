@@ -195,6 +195,13 @@ export type HalaqaGrade = ScopedStudentRecord & {
   graded_by: string | null;
   graded_at: string;
   updated_at: string | null;
+  session_roster_version_id?: string | null;
+  session_roster_version_number?: number | null;
+  session_halaqa_saturday?: string | null;
+  session_group_id?: string | null;
+  session_group_name?: string | null;
+  session_primary_teacher_id?: string | null;
+  session_primary_teacher_name?: string | null;
 };
 
 export type WeeklyIncentiveRun = {

@@ -8,7 +8,7 @@ Lightweight masjid operations system that started as an emergency Canvas replace
 - Students upload one weekly plan image/PDF for the current Sunday-Saturday tracker week before using daily check-in.
 - Admins sign in, add students/teachers/admins, view all active students, review weekly/date submission scores, filter by student/date/status, correct check-ins, enter Saturday halaqa grades, and export CSV.
 - Admins can view/download a student's uploaded weekly plan from that student's admin screen.
-- Teachers can open their week-specific assigned groups, view the effective roster, download assigned students' weekly plans, and save halaqa grades. Admin-teachers can switch between admin and teaching views.
+- Teachers can open the current published session dashboard for their authorized cohort/week, view every published group, download published-roster students' weekly plans, and save individual halaqa grades. Admin-teachers can switch between admin and teaching views.
 - The app now includes scoped masjid/cohort foundations and weekly teacher rotation operations. It still excludes plan approval, comments, plan parsing/OCR, announcements, payments, booking, parent accounts, and Quran selection.
 
 Teacher rotation publication is authoritative in PostgreSQL. Sunday `week_start` is the tracker identity;
@@ -30,6 +30,14 @@ changes permanent memberships or current teacher assignments. A stale draft can 
 into a new review-required draft; the old manual placement/responsibility edits are discarded and the
 currently published version remains live. The later admin UI will consume the stable contracts documented
 in [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md).
+
+The teacher-session backend now authorizes an active teacher or admin-teacher for every published group
+in a cohort/week when that teacher has active Saturday capability and any exact active group assignment
+in the cohort. The primary/assigned group is a responsibility highlight only. The API exposes only the
+current published snapshot, uses the same scope for weekly-plan links, and requires exact version/group/
+student membership for individual grade writes. Drafts, superseded versions, cross-scope requests, and
+super-admin teacher surfaces remain denied. The later Terra teacher UI will consume these contracts;
+this slice does not redesign that UI.
 
 ## Stack
 
@@ -157,7 +165,7 @@ E2E_TEST_SUPER_ADMIN_PASSWORD=
 ```
 
 Each role fixture is independently optional. Teacher coverage verifies available-week canonicalization,
-assigned groups, roster scoring context, plan downloads when present, and desktop/mobile overflow.
+published-session group access, roster grade/plan context, no-publication handling, and desktop/mobile overflow.
 Admin-teacher and pure-admin fixtures verify capability-aware routing and navigation. The super-admin
 fixture verifies the guarded `/super-admin` redirect and console entry. To exercise grade
 submission against disposable local or staging data, also set `E2E_TEST_DATA_MUTATIONS_ENABLED=true`;
@@ -225,13 +233,17 @@ Admins open `/admin/students/[id]` from the student list to view the student's c
 
 Historical leaderboards, incentives, rewards, streaks, and their CSV output use each tracker week's effective student membership rather than today's roster. Current viewer authorization and contact privacy remain separate from historical population. See [Historical reporting populations](docs/historical-reporting.md) for the exact population, scoring, privacy, lifetime badge, and naming rules.
 
-Teachers open `/teacher` and choose an assignment week. `week_start` remains the Sunday tracker-week
-storage key, while the halaqa event date is the following Saturday. Teacher staff eligibility for the
-assignment is evaluated on that Saturday, not on the Sunday storage key. Rotation navigation uses Toronto civil
-dates; all current staff/account-access decisions use the literal Toronto civil date. The 1:00 AM
-effective date is limited to daily check-ins, partner recitation, and reset-linked scoring. A weekly-plan link appears only for a student
-whose membership is effective in that teacher's assigned group for the exact week. The download route
-rechecks the assignment server-side and creates a five-minute signed URL with the signed-in session.
+Teachers open `/teacher` and choose an authorized tracker week. `week_start` remains the Sunday
+tracker-week storage key, while the halaqa event date is the following Saturday. Teacher staff eligibility
+for the assignment is evaluated on that Saturday, not on the Sunday storage key. Rotation navigation uses
+Toronto civil dates; all current staff/account-access decisions use the literal Toronto civil date. The
+1:00 AM effective date is limited to daily check-ins, partner recitation, and reset-linked scoring. The
+current teacher pages render only published session dashboards and versioned group rosters. Before
+publication they show an unavailable/no-publication state and expose no students. A weekly-plan link uses
+the same current published-session cohort scope and version as the displayed roster; the download route
+rechecks that scope server-side and creates a five-minute signed URL with the signed-in session. The
+legacy permanent-membership roster RPC is revoked. The later Terra task may redesign the teacher UI while
+consuming these contracts.
 
 Teacher operational access never begins before the assignment Sunday. From that Sunday through the
 Saturday halaqa event, an exact active assignment and staff coverage of that Saturday are required; a
