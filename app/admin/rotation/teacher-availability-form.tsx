@@ -3,20 +3,26 @@
 import { saveTeacherAvailability } from "@/app/admin/rotation/actions";
 import { useRotationAvailability } from "@/app/admin/rotation/availability-state";
 import type { RotationTeacherRow } from "@/app/admin/rotation/data";
+import { useRouter } from "next/navigation";
 
 type TeacherAvailabilityFormProps = {
   cohortId: string;
   masjidId: string;
   teachers: RotationTeacherRow[];
   weekStart: string;
+  backHref?: string;
+  continueHref?: string;
 };
 
 export default function TeacherAvailabilityForm({
   cohortId,
   masjidId,
   teachers,
-  weekStart
+  weekStart,
+  backHref,
+  continueHref
 }: TeacherAvailabilityFormProps) {
+  const router = useRouter();
   const { availableTeacherIds, isDirty, setAvailableTeacherIds } = useRotationAvailability();
 
   function setTeacherAvailable(teacherId: string, available: boolean) {
@@ -38,6 +44,7 @@ export default function TeacherAvailabilityForm({
       <input name="masjid_id" type="hidden" value={masjidId} />
       <input name="cohort_id" type="hidden" value={cohortId} />
       <input name="week_start" type="hidden" value={weekStart} />
+      <input name="step" type="hidden" value="teachers" />
 
       {teachers.length > 0 ? (
         <>
@@ -88,12 +95,13 @@ export default function TeacherAvailabilityForm({
             </p>
           ) : null}
 
-          <button
-            className="mt-4 rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={!isDirty}
-          >
-            Save availability
-          </button>
+          <div className="mt-4 flex flex-col-reverse gap-3 border-t border-stone-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            {backHref ? <button className="min-h-11 rounded-md border border-stone-300 bg-white px-4 text-sm font-medium text-ink" onClick={() => router.push(backHref)} type="button">Back to students</button> : <span />}
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <button className="min-h-11 rounded-md border border-moss bg-white px-4 text-sm font-medium text-moss disabled:opacity-50" disabled={!isDirty}>Save availability</button>
+              {continueHref ? <button className="min-h-11 rounded-md bg-moss px-4 text-sm font-medium text-white disabled:opacity-50" disabled={isDirty || availableTeacherIds.size === 0} onClick={() => router.push(continueHref)} type="button">Continue to session groups</button> : null}
+            </div>
+          </div>
         </>
       ) : (
         <p className="rounded-md bg-stone-50 px-3 py-3 text-sm text-stone-600">No active teachers found.</p>

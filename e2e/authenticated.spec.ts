@@ -228,38 +228,23 @@ test.describe("authenticated pure-admin flow", () => {
     await expect(page).toHaveURL(/\/admin(?:\/|\?|$)/);
 
     await page.goto("/admin/rotation");
-    await expect(page.getByRole("heading", { name: "Weekly Rotation" })).toBeVisible();
-    await expect(page.getByText(/^Saturday, /).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Weekly rotation" })).toBeVisible();
+    await expect(page).toHaveURL((url) => url.searchParams.get("step") === "students");
     await expect(page.getByLabel("Masjid")).toHaveCount(0);
     await expect(page.getByLabel("Cohort")).toBeVisible();
-    await expect(page.getByRole("navigation", { name: "Halaqa week" })).toBeVisible();
-    await expect(page.getByRole("region", { name: "Rotation readiness" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Group setup" })).toBeVisible();
+    await expect(page.getByLabel("Week")).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Rotation progress" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Student availability" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Teacher availability" })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Continue to teacher availability" }).click();
+    await expect(page).toHaveURL((url) => url.searchParams.get("step") === "teachers");
     await expect(page.getByRole("heading", { name: "Teacher availability" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Assignment preview" })).toBeVisible();
-
-    const availabilityCheckboxes = page.getByRole("checkbox", {
-      name: /@itqan\.local/
-    });
-    if ((await availabilityCheckboxes.count()) > 0) {
-      const firstAvailability = availabilityCheckboxes.first();
-      const initiallyChecked = await firstAvailability.isChecked();
-      const publishAssignments = page.getByRole("button", { name: "Publish assignments" });
-
-      await firstAvailability.setChecked(!initiallyChecked);
-      await expect(
-        page.getByText("Unsaved availability changes. Save to refresh the assignment preview.")
-      ).toBeVisible();
-      await expect(
-        page.getByText(/Assignment preview paused\. Save teacher availability/)
-      ).toBeVisible();
-      await expect(publishAssignments).toBeDisabled();
-
-      await firstAvailability.setChecked(initiallyChecked);
-      await expect(
-        page.getByText("Unsaved availability changes. Save to refresh the assignment preview.")
-      ).toHaveCount(0);
-    }
+    await expect(page.getByRole("heading", { name: "Student availability" })).toHaveCount(0);
+    await page.goBack();
+    await expect(page).toHaveURL((url) => url.searchParams.get("step") === "students");
+    await page.goForward();
+    await expect(page).toHaveURL((url) => url.searchParams.get("step") === "teachers");
 
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });

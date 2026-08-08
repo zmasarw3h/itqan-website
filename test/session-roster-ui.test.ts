@@ -55,6 +55,19 @@ describe("session roster UI action states", () => {
     expect(sessionRosterReadinessSummary(readiness({ can_publish: false, reviewed_current: false, blocker_codes: ["review_required"] }))).toBe("Review this draft before publishing.");
   });
 
+  it("keeps group-count and permanent-anchor confirmations distinct", () => {
+    expect(sessionRosterReadinessSummary(readiness({
+      can_publish: false,
+      group_count_mismatch_confirmation_required: true,
+      blocker_codes: ["group_count_mismatch_confirmation_required"]
+    }))).toContain("smaller group count");
+    expect(sessionRosterReadinessSummary(readiness({
+      can_publish: false,
+      permanent_anchor_mismatch_confirmation_required: true,
+      blocker_codes: ["teacher_group_mismatch_confirmation_required"]
+    }))).toContain("primary-teacher responsibility exception");
+  });
+
   it("turns stale and replay/concurrent responses into a safe reload path", () => {
     expect(sessionRosterActionError("session_roster_stale_draft")).toBe("stale");
     expect(sessionRosterActionError("session_roster_source_stale")).toBe("stale");
