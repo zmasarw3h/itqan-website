@@ -23,7 +23,9 @@ import type {
   RefreshSessionRosterDraftResponse,
   SessionRosterDraftResponse,
   SessionRosterHistoryResponse,
-  SessionRosterPublishedResponse
+  SessionRosterPublishedResponse,
+  SessionRosterWizardDraftResponse,
+  SessionRosterWizardPublishedResponse
 } from "@/lib/session-roster";
 import { sessionRosterActionError, type SessionRosterActionError } from "@/lib/session-roster-ui";
 
@@ -143,19 +145,11 @@ export async function saveTeacherAvailability(formData: FormData) {
   const availableTeacherIds = new Set(
     formData.getAll("available_teacher_id").filter((value): value is string => typeof value === "string")
   );
-  const now = new Date().toISOString();
-  const rows = teachers.map((teacher) => ({
-    teacher_id: teacher.id,
-    masjid_id: context.masjid.id,
-    cohort_id: context.cohort.id,
-    week_start: weekStart,
-    available: availableTeacherIds.has(teacher.id),
-    created_by: profile.id,
-    updated_by: profile.id,
-    updated_at: now
-  }));
-  const { error } = await adminSupabase.from("teacher_rotation_availability").upsert(rows, {
-    onConflict: "teacher_id,cohort_id,week_start"
+  const { error } = await adminSupabase.rpc("apply_teacher_rotation_availability", {
+    input_actor_id: profile.id,
+    input_cohort_id: context.cohort.id,
+    input_week_start: weekStart,
+    input_available_teacher_ids: [...availableTeacherIds]
   });
 
   if (error) {
@@ -501,6 +495,114 @@ export async function refreshSessionRosterDraft(input: SessionRosterActionScope 
       input_expected_source_state_digest: input.expectedSourceStateDigest,
       input_expected_published_version_id: input.expectedPublishedVersionId,
       input_confirm_discard_changes: input.confirmDiscardChanges
+    })
+  );
+}
+
+export async function loadOrCreateSessionRosterWizardDraft(input: SessionRosterActionScope) {
+  return runSessionRosterAction<SessionRosterWizardDraftResponse>(input, ({ adminSupabase, profile, cohort, weekStart }) =>
+    adminSupabase.rpc("load_or_create_session_roster_wizard_draft", {
+      input_request_id: crypto.randomUUID(),
+      input_actor_id: profile.id,
+      input_cohort_id: cohort.id,
+      input_week_start: weekStart
+    })
+  );
+}
+
+export async function generateSessionRosterWizardGroups(input: SessionRosterActionScope & {
+  draftId: string;
+  expectedStateVersion: number;
+  confirmDiscardChanges: boolean;
+}) {
+  return runSessionRosterAction<SessionRosterWizardDraftResponse>(input, ({ adminSupabase, profile }) =>
+    adminSupabase.rpc("generate_session_roster_wizard_groups", {
+      input_request_id: crypto.randomUUID(),
+      input_actor_id: profile.id,
+      input_draft_id: input.draftId,
+      input_expected_state_version: input.expectedStateVersion,
+      input_confirm_discard_changes: input.confirmDiscardChanges
+    })
+  );
+}
+
+export async function moveSessionRosterWizardStudent(input: SessionRosterActionScope & {
+  draftId: string;
+  studentId: string;
+  sessionGroupSlotId: string | null;
+  expectedStateVersion: number;
+}) {
+  return runSessionRosterAction<SessionRosterWizardDraftResponse>(input, ({ adminSupabase, profile }) =>
+    adminSupabase.rpc("move_session_roster_wizard_student", {
+      input_request_id: crypto.randomUUID(),
+      input_actor_id: profile.id,
+      input_draft_id: input.draftId,
+      input_student_id: input.studentId,
+      input_session_group_slot_id: input.sessionGroupSlotId,
+      input_expected_state_version: input.expectedStateVersion
+    })
+  );
+}
+
+export async function assignSessionRosterWizardPrimaryTeacher(input: SessionRosterActionScope & {
+  draftId: string;
+  sessionGroupSlotId: string;
+  primaryTeacherId: string | null;
+  expectedStateVersion: number;
+  confirmMismatch: boolean;
+}) {
+  return runSessionRosterAction<SessionRosterWizardDraftResponse>(input, ({ adminSupabase, profile }) =>
+    adminSupabase.rpc("assign_session_roster_wizard_primary_teacher", {
+      input_request_id: crypto.randomUUID(),
+      input_actor_id: profile.id,
+      input_draft_id: input.draftId,
+      input_session_group_slot_id: input.sessionGroupSlotId,
+      input_primary_teacher_id: input.primaryTeacherId,
+      input_expected_state_version: input.expectedStateVersion,
+      input_confirm_mismatch: input.confirmMismatch
+    })
+  );
+}
+
+export async function reviewSessionRosterWizardDraft(input: SessionRosterActionScope & {
+  draftId: string;
+  expectedStateVersion: number;
+}) {
+  return runSessionRosterAction<SessionRosterWizardDraftResponse>(input, ({ adminSupabase, profile }) =>
+    adminSupabase.rpc("review_session_roster_wizard_draft", {
+      input_request_id: crypto.randomUUID(),
+      input_actor_id: profile.id,
+      input_draft_id: input.draftId,
+      input_expected_state_version: input.expectedStateVersion
+    })
+  );
+}
+
+export async function publishSessionRosterWizardDraft(input: SessionRosterActionScope & {
+  draftId: string;
+  expectedStateVersion: number;
+}) {
+  return runSessionRosterAction<SessionRosterWizardPublishedResponse>(input, ({ adminSupabase, profile }) =>
+    adminSupabase.rpc("publish_session_roster_wizard_draft", {
+      input_request_id: crypto.randomUUID(),
+      input_actor_id: profile.id,
+      input_draft_id: input.draftId,
+      input_expected_state_version: input.expectedStateVersion,
+      input_confirm_publish: true
+    })
+  );
+}
+
+export async function createSessionRosterWizardRevision(input: SessionRosterActionScope & {
+  expectedPublishedVersionId: string;
+}) {
+  return runSessionRosterAction<SessionRosterWizardDraftResponse>(input, ({ adminSupabase, profile, cohort, weekStart }) =>
+    adminSupabase.rpc("create_session_roster_wizard_revision", {
+      input_request_id: crypto.randomUUID(),
+      input_actor_id: profile.id,
+      input_cohort_id: cohort.id,
+      input_week_start: weekStart,
+      input_expected_published_version_id: input.expectedPublishedVersionId
     })
   );
 }

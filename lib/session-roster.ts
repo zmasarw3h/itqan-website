@@ -1,12 +1,17 @@
 import { halaqaSaturdayForWeek, weekStartForDate } from "@/lib/dates";
 
 export const SESSION_ROSTER_CONTRACT_VERSION = 1 as const;
+export const SESSION_ROSTER_WIZARD_CONTRACT_VERSION = 2 as const;
 
 export type SessionRosterAttendanceStatus = "attending" | "unavailable";
 
 export type SessionRosterBlockerCode =
   | "unplaced_attending_students"
   | "missing_primary_teacher_responsibility"
+  | "no_available_teachers"
+  | "session_group_count_mismatch"
+  | "duplicate_primary_teacher"
+  | "teacher_group_mismatch_confirmation_required"
   | "source_changed"
   | "review_required"
   | "no_session_groups";
@@ -15,10 +20,14 @@ export type SessionRosterWarningCode = "group_imbalance";
 
 export type SessionRosterGroup = {
   group_id: string;
+  session_group_slot_id?: string | null;
+  anchor_group_id?: string | null;
   group_name: string;
   group_sort_order: number;
   primary_teacher_id: string | null;
   primary_teacher_name: string | null;
+  mismatch_confirmed?: boolean;
+  mismatch_reason?: string | null;
 };
 
 export type SessionRosterDraftStudent = {
@@ -29,6 +38,7 @@ export type SessionRosterDraftStudent = {
   usual_group_id: string;
   usual_group_name: string;
   session_group_id: string | null;
+  session_group_slot_id?: string | null;
   placed_by: string | null;
   placed_at: string | null;
 };
@@ -56,6 +66,26 @@ export type SessionRosterReadiness = {
   source_stale: boolean;
   reviewed_current: boolean;
   current_source_digest: string | null;
+  available_teacher_count?: number;
+  teacher_count?: number;
+  derived_group_count?: number;
+  dependency_revision?: number;
+  dependency_digest?: string | null;
+  mismatch_confirmation_required?: boolean;
+  mismatch_confirmed?: boolean;
+  mismatch_groups?: Array<{
+    group_id: string;
+    group_name: string;
+    anchor_group_id: string | null;
+    primary_teacher_id: string | null;
+    primary_teacher_name: string | null;
+    reason: string | null;
+    confirmed: boolean;
+  }>;
+  imbalance_warning?: boolean;
+  primary_responsibilities?: Array<Record<string, unknown>>;
+  prerequisite_state?: Record<string, unknown>;
+  recovery_guidance?: string | null;
 };
 
 export type SessionRosterDraftMetadata = {
@@ -79,6 +109,18 @@ export type SessionRosterDraftMetadata = {
   updated_by: string;
   created_at: string;
   updated_at: string;
+  wizard_mode?: "legacy" | "teacher_driven";
+  dependency_revision?: number;
+  dependency_digest?: string | null;
+  available_teacher_count?: number;
+  derived_group_count?: number;
+  wizard_prerequisite_state?: Record<string, unknown>;
+  mismatch_confirmation_required?: boolean;
+  mismatch_confirmed?: boolean;
+  unplaced_count?: number;
+  imbalance_warning?: boolean;
+  primary_responsibilities?: Array<Record<string, unknown>>;
+  recovery_guidance?: string | null;
 };
 
 export type SessionRosterDraftResponse = {
@@ -88,6 +130,55 @@ export type SessionRosterDraftResponse = {
   students: SessionRosterDraftStudent[];
   roster: SessionRosterDraftRosterStudent[];
   readiness: SessionRosterReadiness;
+};
+
+export type SessionRosterWizardTeacher = {
+  teacher_id: string;
+  teacher_name: string;
+  teacher_email: string | null;
+  available: boolean;
+};
+
+export type SessionRosterWizardReadiness = SessionRosterReadiness & {
+  available_teacher_count: number;
+  teacher_count: number;
+  derived_group_count: number;
+  dependency_revision: number;
+  dependency_digest: string | null;
+  mismatch_confirmation_required: boolean;
+  mismatch_confirmed: boolean;
+  imbalance_warning: boolean;
+  primary_responsibilities: Array<Record<string, unknown>>;
+  prerequisite_state: Record<string, unknown>;
+  recovery_guidance: string | null;
+};
+
+export type SessionRosterWizardDraftResponse = {
+  contract_version: typeof SESSION_ROSTER_WIZARD_CONTRACT_VERSION;
+  draft: SessionRosterDraftMetadata & {
+    wizard_mode: "teacher_driven";
+    dependency_revision: number;
+    dependency_digest: string | null;
+    available_teacher_count: number;
+    derived_group_count: number;
+    wizard_prerequisite_state: Record<string, unknown>;
+    mismatch_confirmation_required: boolean;
+    mismatch_confirmed: boolean;
+    unplaced_count: number;
+    imbalance_warning: boolean;
+    primary_responsibilities: Array<Record<string, unknown>>;
+    recovery_guidance: string | null;
+  };
+  teachers: SessionRosterWizardTeacher[];
+  groups: Array<SessionRosterGroup & {
+    session_group_slot_id: string;
+    anchor_group_id: string | null;
+    mismatch_confirmed: boolean;
+    mismatch_reason: string | null;
+  }>;
+  students: Array<SessionRosterDraftStudent & { session_group_slot_id: string | null }>;
+  roster: Array<SessionRosterDraftRosterStudent & { session_group_slot_id: string }>;
+  readiness: SessionRosterWizardReadiness;
 };
 
 export type SessionRosterManualEditKind =
@@ -144,6 +235,7 @@ export type SessionRosterPublishedStudent = {
   usual_group_id: string;
   usual_group_name: string;
   session_group_id: string;
+  session_group_slot_id?: string | null;
   placement_order: number;
 };
 
@@ -152,6 +244,18 @@ export type SessionRosterPublishedResponse = {
   version: SessionRosterPublishedVersion | null;
   groups: SessionRosterGroup[];
   roster: SessionRosterPublishedStudent[];
+};
+
+export type SessionRosterWizardPublishedResponse = {
+  contract_version: typeof SESSION_ROSTER_WIZARD_CONTRACT_VERSION;
+  version: SessionRosterPublishedVersion;
+  groups: Array<SessionRosterGroup & {
+    session_group_slot_id: string;
+    anchor_group_id: string | null;
+    mismatch_confirmed: boolean;
+    mismatch_reason: string | null;
+  }>;
+  roster: Array<SessionRosterPublishedStudent & { session_group_slot_id: string }>;
 };
 
 export type SessionRosterHistoryEvent = {
@@ -165,7 +269,8 @@ export type SessionRosterHistoryEvent = {
     | "draft_reviewed"
     | "version_published"
     | "revision_created"
-    | "draft_refreshed";
+    | "draft_refreshed"
+    | "source_dependency_changed";
   draft_id: string | null;
   version_id: string | null;
   request_id: string;
@@ -202,10 +307,18 @@ export type SessionRosterRpcName =
   | "review_session_roster_draft"
   | "publish_session_roster_draft"
   | "create_session_roster_revision"
+  | "load_or_create_session_roster_wizard_draft"
+  | "generate_session_roster_wizard_groups"
+  | "move_session_roster_wizard_student"
+  | "assign_session_roster_wizard_primary_teacher"
+  | "review_session_roster_wizard_draft"
+  | "publish_session_roster_wizard_draft"
+  | "create_session_roster_wizard_revision"
   | "get_current_session_roster"
   | "get_session_roster_history";
 
 export type SessionRosterRpcErrorCode =
+  | "PT409"
   | "PT412"
   | "PT422"
   | "42501"

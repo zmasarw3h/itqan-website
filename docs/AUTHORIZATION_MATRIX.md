@@ -117,8 +117,9 @@ The `authenticated` role can execute only these caller-relative definer function
   `get_teacher_session_student_context(uuid,date)`,
   `get_teacher_session_checklist_details(uuid,uuid,uuid,date,date)`, and
   `save_teacher_session_halaqa_grade(uuid,uuid,uuid,date,boolean,integer,text)`. These APIs use
-  published session snapshots and cohort authorization; they never authorize from the primary teacher
-  marker alone and never expose super-admin access through teacher surfaces.
+  published session snapshots and cohort authorization; the primary teacher marker is accepted only
+  together with active teacher/admin profile and Saturday staff checks, and never exposes super-admin
+  access through teacher surfaces.
 - Application RPCs: `student_weekly_teacher_name(date)`,
   `student_cohort_leaderboard_for_week(date)`, `student_leaderboard_available_weeks()`,
   `teacher_assignment_contexts()`, and
@@ -135,7 +136,7 @@ service-role-only. They independently validate a current Toronto-civil-date admi
 enforce Saturday eligibility plus an exact `available = true` row, and compare canonical prepared state
 under a cohort/week advisory lock. Browser roles cannot execute either RPC. The legacy generation RPC is
 also service-role-only and guarded, but temporarily has no request-ID stale-state protection.
-The session-roster contracts (`load_or_create_session_roster_draft(...)`,
+The legacy session-roster contracts (`load_or_create_session_roster_draft(...)`,
 `refresh_session_roster_draft(...)`,
 `get_session_roster_draft(...)`, `move_session_roster_student(...)`,
 `assign_session_roster_primary_teacher(...)`, `compute_session_roster_readiness(...)`,
@@ -150,6 +151,16 @@ the exact stale draft token supplied by the scoped normal admin; it cannot be us
 through this normal-admin path, cannot mutate permanent memberships or existing teacher assignments,
 and cannot change the live published version.
 
+The additive teacher-driven wizard contracts are also service-role-only:
+`load_or_create_session_roster_wizard_draft(...)`, `generate_session_roster_wizard_groups(...)`,
+`move_session_roster_wizard_student(...)`, `assign_session_roster_wizard_primary_teacher(...)`,
+`review_session_roster_wizard_draft(...)`, `publish_session_roster_wizard_draft(...)`, and
+`create_session_roster_wizard_revision(...)`. They derive the default slot count from available eligible
+teachers, treat missing student availability as attending, keep Saturday slots separate from permanent
+groups, require explicit discard confirmation after source/manual changes, and record mismatch overrides
+and publication atomically. The wizard loader does not silently convert an existing legacy draft; rollout
+must finish or explicitly handle that legacy draft before using the wizard for the same cohort/week.
+
 The teacher session contracts are authenticated, caller-checked projections over the current published
 version only: `teacher_session_authorized_scopes(date)`,
 `get_teacher_session_dashboard(uuid,date)`, `get_teacher_session_group_roster(uuid,uuid,date)`,
@@ -157,8 +168,9 @@ version only: `teacher_session_authorized_scopes(date)`,
 `get_teacher_session_checklist_details(uuid,uuid,uuid,date,date)` are read-only; the individual
 `save_teacher_session_halaqa_grade(uuid,uuid,uuid,date,boolean,integer,text)` RPC is the only teacher
 grade write. They require an active `teacher` or `admin` profile, active teacher staff membership for
-the masjid, an exact active assignment somewhere in the cohort/week, the current published version,
-and exact snapshot membership. `super_admin` is explicitly denied. The assigned/primary group is returned
+the masjid, either an exact active assignment somewhere in the cohort/week or primary responsibility in
+the current published session, the current published version, and exact snapshot membership.
+`super_admin` is explicitly denied. The assigned/primary group is returned
 only as a highlight. Checklist details return stored labels/weights, completion, earned points, stored
 daily totals/score, and a privacy-safe record state; notes, raw records, timestamps, correction actors,
 and audit metadata are excluded. Weekly-plan metadata and five-minute signed links use the same current

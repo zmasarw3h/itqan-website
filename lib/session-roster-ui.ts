@@ -37,7 +37,8 @@ export function sessionRosterAuditLabel(action: SessionRosterHistoryEvent["actio
     draft_reviewed: "Review prepared",
     version_published: "Saturday roster published",
     revision_created: "Revision started",
-    draft_refreshed: "Stale draft refreshed"
+    draft_refreshed: "Stale draft refreshed",
+    source_dependency_changed: "Source availability changed"
   }[action];
 }
 

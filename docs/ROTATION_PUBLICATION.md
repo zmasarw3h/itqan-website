@@ -8,26 +8,43 @@ no row means attending. `apply_student_rotation_availability(...)` verifies a cu
 masjid/cohort scope and the effective student membership, then replaces that session's absence rows atomically.
 It never changes `student_group_memberships`, group balancing, teacher authorization, or assignments.
 
-The additive attendance-aware session-roster backend now consumes this ledger through a separate contract.
-`load_or_create_session_roster_draft(...)` snapshots active groups and effective students for the selected
-cohort/week. Missing student availability is attending and initially seeds the usual active group; explicit
-absences are retained in the draft for review but never enter the roster. `move_session_roster_student(...)`
-changes only the Saturday draft placement, and `assign_session_roster_primary_teacher(...)` records the
-primary responsibility for each session group after checking active Saturday staff coverage and exact
-positive teacher availability. `compute_session_roster_readiness(...)` reports unplaced students and
-missing responsibility as blockers; imbalance is warning-only. `review_session_roster_draft(...)` is
-required before `publish_session_roster_draft(...)`.
+The additive attendance-aware session-roster backend retains the original permanent-group contract and adds
+a teacher-driven wizard contract. The legacy `load_or_create_session_roster_draft(...)` path remains
+available for existing history and rollout compatibility. New wizard callers use
+`load_or_create_session_roster_wizard_draft(...)`, `generate_session_roster_wizard_groups(...)`,
+`move_session_roster_wizard_student(...)`, `assign_session_roster_wizard_primary_teacher(...)`,
+`review_session_roster_wizard_draft(...)`, `publish_session_roster_wizard_draft(...)`, and
+`create_session_roster_wizard_revision(...)`.
+
+The wizard derives its default Saturday session-group count from the number of available eligible teachers;
+zero available teachers blocks generation, review, and publication. Generation creates exactly N independent
+slot rows for N teachers, optionally anchors a slot to a permanent group when a current-week assignment
+exists, assigns one unique primary teacher per slot by default, and distributes attending students
+deterministically with a size difference of at most one. Missing student-availability rows mean attending;
+explicit absences remain visible in the draft but never enter a published roster. Student movement changes
+only draft slot placement and never changes `student_group_memberships`.
+
+Changing the student or teacher availability source, or Saturday teacher staff/profile eligibility, advances
+a narrow cohort/week dependency revision and stales the draft, including after manual redistribution.
+Regeneration after manual edits or source changes requires an explicit discard confirmation. Assigning a
+teacher to a different anchored permanent group is
+shown as a mismatch, requires explicit confirmation, records the reason and confirmation in the atomic audit
+event, and remains bounded by readiness checks (including unique-primary and missing-primary blockers).
+`review_session_roster_wizard_draft(...)` and `publish_session_roster_wizard_draft(...)` use the derived
+readiness contract; imbalance is warning-only, while zero teachers, count mismatch, unplaced students,
+unconfirmed mismatch, source staleness, and missing/duplicate primary responsibilities block publication.
 
 The session roster is not a teacher-assignment publication and does not mutate permanent memberships,
-current `group_teacher_assignments`, or the student availability ledger. A publish creates an immutable
-Saturday snapshot with actor/time/version/audit metadata. `create_session_roster_revision(...)` creates a
-new draft from the current published snapshot while leaving that version live. All session-roster writes
-are service-only, normal-admin scoped, request-replay-safe, and protected by a cohort/week advisory lock
-plus an expected draft state version. Signed super-admin access is intentionally not accepted by this
-workflow. The published-session teacher API is a separate read/grade boundary: an active authorized
-teacher or admin-teacher with any exact assignment in the cohort/week can read and grade every group in
-the current published version. The primary teacher remains a responsibility highlight only. Drafts,
-superseded versions, cross-scope requests, and super-admin teacher surfaces remain denied.
+current `group_teacher_assignments`, or the student availability ledger. A publish creates an immutable,
+versioned Saturday snapshot with actor/time/audit metadata. `create_session_roster_wizard_revision(...)`
+creates a new draft from the current published slot/student snapshot while leaving that version live. All
+wizard writes are service-only, normal-admin scoped, request-replay-safe, and protected by a cohort/week
+advisory lock plus an expected draft state version. Signed super-admin access is intentionally not accepted
+by this workflow. The published-session teacher API is a separate read/grade boundary: an active teacher or
+admin-teacher with either an exact active assignment somewhere in the cohort/week or primary responsibility
+in the current published session can read and grade every group in that current version. Primary/assigned
+groups remain highlight-only. Drafts, missing publications, superseded versions, cross-scope requests, and
+super-admin teacher surfaces remain denied.
 
 When source state makes a draft stale, `refresh_session_roster_draft(...)` is the only recovery path. It
 requires the expected draft state/source digest, expected current published version identity, and an
