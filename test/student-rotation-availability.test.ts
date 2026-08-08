@@ -54,11 +54,23 @@ describe("rotation wizard routing", () => {
   });
 
   it("locks future steps and clamps deep links to the latest valid prerequisite", () => {
-    const locked = rotationWizardUnlockedSteps({ studentsSaved: true, availableTeacherCount: 0, groupsGenerated: false, groupsValid: false });
+    const locked = rotationWizardUnlockedSteps({ studentsReady: true, teachersReady: false, groupsReady: false, reviewReady: false });
     expect(locked).toEqual({ students: true, teachers: true, groups: false, review: false });
     expect(clampRotationWizardStep("review", locked)).toBe("teachers");
-    const groupsReady = rotationWizardUnlockedSteps({ studentsSaved: true, availableTeacherCount: 3, groupsGenerated: true, groupsValid: true });
+    const groupsReady = rotationWizardUnlockedSteps({ studentsReady: true, teachersReady: true, groupsReady: true, reviewReady: true });
     expect(clampRotationWizardStep("review", groupsReady)).toBe("review");
+  });
+
+  it("does not unlock defaults and clamps each deep link to the latest authoritative step", () => {
+    const studentsOnly = rotationWizardUnlockedSteps({ studentsReady: false, teachersReady: false, groupsReady: false, reviewReady: false });
+    expect(clampRotationWizardStep("teachers", studentsOnly)).toBe("students");
+    expect(clampRotationWizardStep("review", studentsOnly)).toBe("students");
+
+    const teachersConfirmedZero = rotationWizardUnlockedSteps({ studentsReady: true, teachersReady: false, groupsReady: false, reviewReady: false });
+    expect(clampRotationWizardStep("groups", teachersConfirmedZero)).toBe("teachers");
+
+    const staleGroups = rotationWizardUnlockedSteps({ studentsReady: true, teachersReady: true, groupsReady: false, reviewReady: false });
+    expect(clampRotationWizardStep("review", staleGroups)).toBe("groups");
   });
 
   it("preserves canonical scope, Sunday week, and selected step in links", () => {

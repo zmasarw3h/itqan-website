@@ -16,18 +16,18 @@ export function parseRotationWizardStep(value: string | undefined): RotationWiza
 }
 
 export type RotationWizardPrerequisites = {
-  studentsSaved: boolean;
-  availableTeacherCount: number;
-  groupsGenerated: boolean;
-  groupsValid: boolean;
+  studentsReady: boolean;
+  teachersReady: boolean;
+  groupsReady: boolean;
+  reviewReady: boolean;
 };
 
 export function rotationWizardUnlockedSteps(input: RotationWizardPrerequisites) {
   return {
     students: true,
-    teachers: input.studentsSaved,
-    groups: input.studentsSaved && input.availableTeacherCount > 0,
-    review: input.studentsSaved && input.availableTeacherCount > 0 && input.groupsGenerated && input.groupsValid
+    teachers: input.studentsReady,
+    groups: input.studentsReady && input.teachersReady,
+    review: input.studentsReady && input.teachersReady && input.groupsReady && input.reviewReady
   } satisfies Record<RotationWizardStep, boolean>;
 }
 

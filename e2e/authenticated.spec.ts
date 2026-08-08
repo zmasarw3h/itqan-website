@@ -38,7 +38,7 @@ function authFixture(names: readonly string[], label: string) {
 async function signIn(page: Page, phone: string, password: string) {
   await page.goto("/login");
   await page.getByLabel(/phone number/i).fill(phone);
-  await page.getByLabel(/password/i).fill(password);
+  await page.getByRole("textbox", { name: "Password" }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
 }
 
@@ -237,18 +237,120 @@ test.describe("authenticated pure-admin flow", () => {
     await expect(page.getByRole("heading", { name: "Student availability" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Teacher availability" })).toHaveCount(0);
 
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+
+  test("admin completes the authoritative four-step rotation journey through publish readiness", async ({ page }, testInfo) => {
+    test.setTimeout(60_000);
+    const mutationsEnabled =
+      process.env.E2E_TEST_DATA_MUTATIONS_ENABLED === "true" &&
+      ["local", "test", "staging"].includes(targetEnvironment) &&
+      testInfo.project.name === "chromium";
+    test.skip(!mutationsEnabled, "Rotation journey writes only to explicitly enabled disposable data.");
+
+    await signIn(page, process.env.E2E_TEST_PURE_ADMIN_PHONE ?? "", process.env.E2E_TEST_PURE_ADMIN_PASSWORD ?? "");
+    await expect(page).toHaveURL(/\/admin(?:\/|\?|$)/);
+    const week = process.env.E2E_TEST_ROTATION_WEEK;
+    await page.goto(week ? `/admin/rotation?week=${week}&step=students` : "/admin/rotation?step=students");
+    await expect(page.getByRole("heading", { name: "Student availability" })).toBeVisible();
+
+    await page.getByRole("button", { name: /Confirm availability|Re-confirm availability|Save availability/ }).click();
+    await expect(page.getByText("Student availability saved.")).toBeVisible();
+    const staleReviewUrl = new URL(page.url());
+    staleReviewUrl.searchParams.set("step", "review");
+    staleReviewUrl.searchParams.delete("status");
+    await page.goto(staleReviewUrl.toString());
+    await expect(page).toHaveURL((url) => url.searchParams.get("step") === "groups");
+    await expect(page.getByText(/This draft is stale/)).toBeVisible();
+    const studentsStepUrl = new URL(page.url());
+    studentsStepUrl.searchParams.set("step", "students");
+    await page.goto(studentsStepUrl.toString());
     await page.getByRole("button", { name: "Continue to teacher availability" }).click();
     await expect(page).toHaveURL((url) => url.searchParams.get("step") === "teachers");
-    await expect(page.getByRole("heading", { name: "Teacher availability" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Student availability" })).toHaveCount(0);
-    await page.goBack();
-    await expect(page).toHaveURL((url) => url.searchParams.get("step") === "students");
-    await page.goForward();
+    await expect(page.getByPlaceholder("Search teachers…")).toBeVisible();
+    await page.getByRole("button", { name: "Clear all" }).click();
+    await page.getByRole("button", { name: /Confirm availability|Re-confirm availability|Save availability/ }).click();
+    await expect(page.getByText("Teacher availability saved.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Continue to session groups" })).toBeDisabled();
+    const groupsUrl = new URL(page.url());
+    groupsUrl.searchParams.set("step", "groups");
+    groupsUrl.searchParams.delete("status");
+    await page.goto(groupsUrl.toString());
     await expect(page).toHaveURL((url) => url.searchParams.get("step") === "teachers");
+    await expect(page.getByRole("heading", { name: "Teacher availability" })).toBeVisible();
+    const teacherAvailabilityGroups = page.getByRole("group", { name: /Availability for/ });
+    expect(await teacherAvailabilityGroups.count()).toBeGreaterThan(1);
+    const anchoredTeacherGroups = [
+      page.getByRole("group", { name: "Availability for Hassan Youssef" }),
+      page.getByRole("group", { name: "Availability for teacherA" })
+    ];
+    const useAnchoredFixture = await anchoredTeacherGroups[0].count() > 0 && await anchoredTeacherGroups[1].count() > 0;
+    await (useAnchoredFixture ? anchoredTeacherGroups[0] : teacherAvailabilityGroups.nth(0)).getByText("Available", { exact: true }).click();
+    await (useAnchoredFixture ? anchoredTeacherGroups[1] : teacherAvailabilityGroups.nth(1)).getByText("Available", { exact: true }).click();
+    await page.getByRole("button", { name: /Confirm availability|Re-confirm availability|Save availability/ }).click();
+    await expect(page.getByText("Teacher availability saved.")).toBeVisible();
+    await page.getByRole("button", { name: "Continue to session groups" }).click();
+    await expect(page.getByRole("heading", { name: "Session groups" })).toBeVisible();
 
+    await generateOrRegenerateGroups(page);
+    await page.getByRole("button", { name: "Continue to review" }).click();
+    await expect(page).toHaveURL((url) => url.searchParams.get("step") === "review");
+    await expect(page.getByRole("link", { name: "Edit students" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Edit teachers" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Edit groups" })).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByRole("heading", { name: /Review & publish|Review revision/ })).toBeVisible();
+    await page.getByRole("link", { name: "Edit teachers" }).click();
+    await expect(page).toHaveURL((url) => url.searchParams.get("step") === "teachers");
+    const studentsUrl = new URL(page.url());
+    studentsUrl.searchParams.set("step", "students");
+    await page.goto(studentsUrl.toString());
+    await page.goBack();
+    await expect(page).toHaveURL((url) => url.searchParams.get("step") === "teachers");
+    await page.goForward();
+    await expect(page).toHaveURL((url) => url.searchParams.get("step") === "students");
+    const teachersUrl = new URL(page.url());
+    teachersUrl.searchParams.set("step", "teachers");
+    await page.goto(teachersUrl.toString());
+
+    await page.getByRole("button", { name: "Re-confirm availability" }).click();
+    const reviewUrl = new URL(page.url());
+    reviewUrl.searchParams.set("step", "review");
+    reviewUrl.searchParams.delete("status");
+    await page.goto(reviewUrl.toString());
+    await expect(page).toHaveURL((url) => url.searchParams.get("step") === "groups");
+    await expect(page.getByText(/This draft is stale/)).toBeVisible();
+    await generateOrRegenerateGroups(page);
+
+    await page.getByRole("button", { name: "Open detailed placement controls" }).click();
+    const placementSelects = page.getByRole("combobox", { name: /Session group for/ });
+    await expect(placementSelects.first()).toBeVisible();
+    const options = await placementSelects.first().locator("option").evaluateAll((nodes) => nodes.map((node) => (node as HTMLOptionElement).value).filter(Boolean));
+    expect(options.length).toBeGreaterThan(1);
+    const currentSlot = await placementSelects.first().inputValue();
+    await placementSelects.first().selectOption(options.find((option) => option !== currentSlot)!);
+    await expect(page.getByText("Moved for Saturday").first()).toBeVisible();
+    await page.getByRole("button", { name: "Continue to review" }).click();
+    await expect(page.getByText(/1 moved/).first()).toBeVisible();
+
+    const prepareReview = page.getByRole("button", { name: /Prepare review|Review again/ });
+    await prepareReview.click();
+    await page.getByLabel("I reviewed availability, teacher responsibilities, and all Saturday placements.").check();
+    await expect(page.getByRole("button", { name: "Publish Saturday roster" })).toBeEnabled();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 });
+
+async function generateOrRegenerateGroups(page: Page) {
+  const generate = page.getByRole("button", { name: /Generate groups|Regenerate groups/ });
+  const label = await generate.textContent();
+  await generate.click();
+  if (label?.includes("Regenerate")) {
+    await page.getByRole("button", { name: "Confirm regeneration" }).click();
+  }
+  await expect(page.getByRole("status")).toContainText(/Session groups (generated|regenerated)/);
+}
 
 test.describe("authenticated super-admin flow", () => {
   test.skip(!superAdminFixture.enabled, superAdminFixture.reason);
