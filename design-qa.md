@@ -100,3 +100,59 @@
 - P3: very long production names can create different line breaks than the canvas sample. Current wrapping remains readable and does not hide data or actions.
 
 final result: passed
+
+---
+
+# Admin rotation wizard design QA
+
+## Comparison target
+
+- Source visual truth:
+  - `docs/design-handoff/rotation-teacher-redesign-2026-08-08/canvases/04-admin-student-availability.png`
+  - `docs/design-handoff/rotation-teacher-redesign-2026-08-08/canvases/05-admin-teacher-availability.png`
+  - `docs/design-handoff/rotation-teacher-redesign-2026-08-08/canvases/06-admin-session-groups.png`
+  - `docs/design-handoff/rotation-teacher-redesign-2026-08-08/canvases/07-admin-review-publish.png`
+- Source dimensions: 1487 × 1058 px each, opened at original resolution.
+- Required implementation captures: 390 × 844, 768 px, and 1440 × 1024 authenticated `/admin/rotation` screens.
+- Implementation screenshot paths: unavailable; no valid browser-rendered rotation screenshot was captured.
+- Side-by-side comparison evidence: unavailable because the implementation capture failed before the rotation route rendered.
+- Density normalization: not applicable without implementation screenshots.
+
+## Browser verification attempted
+
+- Started the full disposable local Supabase stack and applied every migration through `20260808154200_rotation_teacher_wizard_review_amendment.sql`.
+- Created local-only representative admin, teacher, student, permanent-group, teacher-availability, and student-absence records.
+- Authenticated successfully as the disposable scoped admin and reached the live local admin dashboard.
+- Switched the in-app browser to the required 390 × 844 viewport before opening the rotation route.
+- The host volume reached zero free space while Next.js compiled `/admin/rotation`. That crashed the disposable Postgres container and left Docker's local metadata returning input/output errors. Regenerable `.next` and npm cache data were removed, but Docker could not restart or remove the dead database container.
+- No production or remote staging environment was accessed or mutated.
+
+## Findings
+
+- [P0] Visual comparison evidence is missing.
+  - Location: all four `/admin/rotation` steps at mobile, tablet, and desktop viewports.
+  - Evidence: source canvases are available, but there is no authenticated browser-rendered implementation image to place beside them.
+  - Impact: hierarchy, density, clipping, overflow, action reachability, and keyboard behavior cannot receive the required visual acceptance.
+  - Fix: free host disk space or restart Docker Desktop, restart the disposable Supabase stack, reseed local QA records, then capture and compare all four steps and material states.
+
+## Static and automated evidence
+
+- The production route renders exactly one selected step.
+- Mobile student rows switch from the desktop table to compact labelled rows; group and review surfaces use responsive grids and stacked labelled rows without primary-workflow horizontal scrolling.
+- Step parsing, canonical URL scope/week/step preservation, prerequisite locking, readiness mapping, and separate mismatch messages have focused unit coverage.
+- Loading, denied/no-context, stale, validation-blocked, mismatch confirmation, regeneration discard, legacy recovery, retryable error, revision draft, and already-published presentations are implemented.
+- `npm run check` passes with 47 test files and 376 tests.
+
+## Open questions
+
+- None about intended behavior. The remaining blocker is local visual infrastructure only.
+
+## Implementation checklist
+
+- Restore a healthy disposable local database.
+- Capture students, teachers, groups, and review at 390 × 844 and 1440 × 1024, plus the 768 px breakpoint.
+- Exercise Back/Forward, search/filter, absence editing, zero-teacher blocking, smaller group-count confirmation, regeneration confirmation, student movement, primary responsibility assignment, review, and explicit publish confirmation.
+- Check keyboard focus, console errors, full-page horizontal overflow, and action reachability.
+- Build side-by-side comparisons and resolve every P0/P1/P2 visual finding.
+
+final result: blocked
