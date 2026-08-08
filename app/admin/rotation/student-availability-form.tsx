@@ -2,6 +2,7 @@
 
 import { CheckCircle, MagnifyingGlass, ShieldCheck } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { saveStudentAvailability } from "@/app/admin/rotation/actions";
 import type { RotationStudentRow } from "@/app/admin/rotation/data";
 import {
@@ -10,7 +11,6 @@ import {
   type StudentRotationAvailabilityDraft
 } from "@/lib/student-rotation-availability";
 import { formatDateTimeInAppTimeZone } from "@/lib/dates";
-import { focusRotationSection } from "@/lib/rotation-workflow";
 
 type StudentAvailabilityFormProps = {
   cohortId: string;
@@ -18,6 +18,7 @@ type StudentAvailabilityFormProps = {
   saturdayLabel: string;
   students: RotationStudentRow[];
   weekStart: string;
+  continueHref: string;
 };
 
 function initialDrafts(students: RotationStudentRow[]) {
@@ -42,8 +43,10 @@ export default function StudentAvailabilityForm({
   masjidId,
   saturdayLabel,
   students,
-  weekStart
+  weekStart,
+  continueHref
 }: StudentAvailabilityFormProps) {
+  const router = useRouter();
   const initial = useMemo(() => initialDrafts(students), [students]);
   const [drafts, setDrafts] = useState(() => initialDrafts(students));
   const [query, setQuery] = useState("");
@@ -70,15 +73,12 @@ export default function StudentAvailabilityForm({
     setDrafts((current) => current.map((draft) => ({ ...draft, available: true, reason: "" })));
   }
 
-  function continueToSessionGroupSetup() {
-    focusRotationSection(document, "session-group-setup");
-  }
-
   return (
     <form action={saveStudentAvailability} className="mt-5">
       <input name="masjid_id" type="hidden" value={masjidId} />
       <input name="cohort_id" type="hidden" value={cohortId} />
       <input name="week_start" type="hidden" value={weekStart} />
+      <input name="step" type="hidden" value="students" />
       <input name="absences" type="hidden" value={JSON.stringify(absencePayloadFromDrafts(drafts))} />
 
       <div className="border border-green-100 bg-green-50/60 px-3 py-3 text-sm text-moss sm:flex sm:items-center sm:justify-between sm:gap-4">
@@ -98,7 +98,7 @@ export default function StudentAvailabilityForm({
           <span className="sr-only">Search students</span>
           <MagnifyingGlass aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-stone-500" />
           <input
-            className="w-full rounded-md border border-stone-300 bg-white py-2 pl-9 pr-3 text-sm text-ink placeholder:text-stone-400"
+            className="min-h-11 w-full rounded-md border border-stone-300 bg-white py-2 pl-9 pr-3 text-sm text-ink placeholder:text-stone-400"
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search students…"
             type="search"
@@ -125,8 +125,8 @@ export default function StudentAvailabilityForm({
         </div>
       </div>
 
-      <div className="mt-4 overflow-x-auto border-y border-stone-200">
-        <table className="min-w-[860px] w-full divide-y divide-stone-200 text-sm">
+      <div className="mt-4 border-y border-stone-200">
+        <table className="hidden w-full divide-y divide-stone-200 text-sm md:table">
           <thead className="bg-stone-50 text-left text-xs font-semibold uppercase tracking-wide text-stone-600">
             <tr>
               <th className="px-4 py-3">Student</th>
@@ -203,6 +203,24 @@ export default function StudentAvailabilityForm({
             ) : null}
           </tbody>
         </table>
+        <div className="divide-y divide-stone-200 md:hidden">
+          {filteredStudents.map((student) => {
+            const draft = draftsByStudentId.get(student.id)!;
+            const inputId = `mobile-availability-${student.id}`;
+            return <div className={`py-3 ${draft.available ? "bg-white" : "bg-red-50/60"}`} key={student.id}>
+              <div className="flex items-start justify-between gap-3 px-1">
+                <div className="min-w-0"><p className="truncate text-sm font-semibold text-ink">{student.name}</p><p className="mt-0.5 truncate text-xs text-stone-500">Usual group: {student.group_name}</p></div>
+                <fieldset className="grid shrink-0 grid-cols-2 overflow-hidden rounded-md border border-stone-300">
+                  <legend className="sr-only">Availability for {student.name}</legend>
+                  <label className={`grid min-h-11 cursor-pointer place-items-center px-3 text-xs font-medium ${draft.available ? "bg-moss text-white" : "bg-white text-ink"}`}><input checked={draft.available} className="sr-only" name={inputId} onChange={() => updateStudent(student.id, { available: true, reason: "" })} type="radio" />Attending</label>
+                  <label className={`grid min-h-11 cursor-pointer place-items-center px-3 text-xs font-medium ${!draft.available ? "bg-red-700 text-white" : "bg-white text-ink"}`}><input checked={!draft.available} className="sr-only" name={inputId} onChange={() => updateStudent(student.id, { available: false })} type="radio" />Absent</label>
+                </fieldset>
+              </div>
+              {!draft.available ? <label className="mt-2 block px-1"><span className="sr-only">Absence reason for {student.name}</span><input className="min-h-11 w-full rounded-md border border-stone-300 bg-white px-3 text-sm" maxLength={240} onChange={(event) => updateStudent(student.id, { reason: event.target.value })} placeholder="Optional absence reason" value={draft.reason} /></label> : null}
+            </div>;
+          })}
+          {filteredStudents.length === 0 ? <p className="py-5 text-sm text-stone-600">No students match these filters.</p> : null}
+        </div>
       </div>
 
       <div className="mt-4 flex flex-col gap-3 border-t border-stone-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
@@ -221,11 +239,12 @@ export default function StudentAvailabilityForm({
             Save availability
           </button>
           <button
-            className="rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink"
-            onClick={continueToSessionGroupSetup}
+            className="min-h-11 rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink disabled:opacity-50"
+            disabled={isDirty}
+            onClick={() => router.push(continueHref)}
             type="button"
           >
-            Continue to session group setup
+            Continue to teacher availability
           </button>
         </div>
       </div>

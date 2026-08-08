@@ -2,12 +2,14 @@
 
 import { useMemo, useState } from "react";
 import type { RotationContext } from "@/lib/rotation-scope";
+import type { RotationWizardStep } from "@/lib/rotation-workflow";
 
 type RotationScopeSelectorProps = {
   contexts: RotationContext[];
   selectedMasjidId?: string;
   selectedCohortId?: string;
   selectedWeekStart: string;
+  selectedStep: RotationWizardStep;
 };
 
 function cohortKindLabel(kind: RotationContext["cohort"]["kind"]) {
@@ -18,7 +20,8 @@ export default function RotationScopeSelector({
   contexts,
   selectedMasjidId,
   selectedCohortId,
-  selectedWeekStart
+  selectedWeekStart,
+  selectedStep
 }: RotationScopeSelectorProps) {
   const masjids = useMemo(
     () => [
@@ -93,6 +96,7 @@ export default function RotationScopeSelector({
         </select>
       </label>
       <input name="week" type="hidden" value={selectedWeekStart} />
+      <input name="step" type="hidden" value={selectedStep} />
       <button className="h-10 rounded-md bg-ink px-4 text-sm font-medium text-white hover:bg-moss">
         Apply
       </button>

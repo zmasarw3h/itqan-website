@@ -14,6 +14,7 @@ import {
   type RotationContext
 } from "@/lib/rotation-scope";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { parseRotationWizardStep } from "@/lib/rotation-workflow";
 import {
   buildCohortGroupRebalancePreview,
   buildTeacherRotationPersistencePlan,
@@ -35,6 +36,7 @@ export type RotationSearchParams = {
   cohort?: string;
   week?: string;
   status?: string;
+  step?: string;
 };
 
 export type { RotationContext } from "@/lib/rotation-scope";
@@ -564,7 +566,8 @@ export async function loadRotationPageData(input: {
           masjidId: context.masjid.id,
           cohortId: context.cohort.id,
           weekStart: selectedWeekStart,
-          status: input.searchParams.status
+          status: input.searchParams.status,
+          step: parseRotationWizardStep(input.searchParams.step)
         })
       : null;
   const [settings, groups, teachers] = await Promise.all([

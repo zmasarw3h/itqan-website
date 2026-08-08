@@ -141,7 +141,7 @@ export async function saveTeacherAvailability(formData: FormData) {
   const teachers = await loadActiveRotationTeachers({ adminSupabase, context, weekStart });
 
   if (teachers.length === 0) {
-    redirect(rotationRedirectPath(context, weekStart, "setup-incomplete"));
+    redirect(rotationPath({ masjidId: context.masjid.id, cohortId: context.cohort.id, weekStart, status: "setup-incomplete", step: "teachers" }));
   }
 
   const availableTeacherIds = new Set(
@@ -155,11 +155,11 @@ export async function saveTeacherAvailability(formData: FormData) {
   });
 
   if (error) {
-    redirect(rotationRedirectPath(context, weekStart, "save-error"));
+    redirect(rotationPath({ masjidId: context.masjid.id, cohortId: context.cohort.id, weekStart, status: "save-error", step: "teachers" }));
   }
 
   revalidatePath("/admin/rotation");
-  redirect(rotationRedirectPath(context, weekStart, "availability-saved"));
+  redirect(rotationPath({ masjidId: context.masjid.id, cohortId: context.cohort.id, weekStart, status: "availability-saved", step: "teachers" }));
 }
 
 export async function saveStudentAvailability(formData: FormData) {
@@ -170,7 +170,7 @@ export async function saveStudentAvailability(formData: FormData) {
   try {
     absences = parseStudentRotationAbsences(formData.get("absences"));
   } catch {
-    redirect(rotationRedirectPath(context, weekStart, "student-availability-invalid"));
+    redirect(rotationPath({ masjidId: context.masjid.id, cohortId: context.cohort.id, weekStart, status: "student-availability-invalid", step: "students" }));
   }
 
   const adminSupabase = createSupabaseAdminClient();
@@ -182,11 +182,11 @@ export async function saveStudentAvailability(formData: FormData) {
   });
 
   if (error) {
-    redirect(rotationRedirectPath(context, weekStart, "student-availability-error"));
+    redirect(rotationPath({ masjidId: context.masjid.id, cohortId: context.cohort.id, weekStart, status: "student-availability-error", step: "students" }));
   }
 
   revalidatePath("/admin/rotation");
-  redirect(rotationRedirectPath(context, weekStart, "student-availability-saved"));
+  redirect(rotationPath({ masjidId: context.masjid.id, cohortId: context.cohort.id, weekStart, status: "student-availability-saved", step: "students" }));
 }
 
 export async function rebalanceStudentGroups(formData: FormData) {
