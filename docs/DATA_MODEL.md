@@ -142,19 +142,33 @@ The public tables are:
 
 - `session_roster_drafts`: one current mutable draft per cohort/week, with a monotonic revision number,
   source-state digest, optimistic `state_version`, review metadata, and links to its base/current
-  published version. A stale draft refresh marks the old row `superseded` (readable but not editable)
-  and creates a new `draft` row; the old manual placement/responsibility edits are retained only as
-  historical evidence and are explicitly discarded by the refresh response.
-- `session_roster_draft_groups`: active group snapshots plus nullable primary responsible-teacher
-  identity/name. These are session responsibilities, not weekly assignment replacements.
+  published version. Legacy drafts keep `wizard_mode = 'legacy'`; teacher-driven drafts add only the
+  wizard readiness/dependency fields (`default_group_count`, `requested_group_count`, actual/derived group
+  count, available teacher count, prerequisite state, count-vs-anchor mismatch/confirmation state, unplaced
+  count, imbalance warning, primary responsibilities, and recovery guidance). A stale legacy refresh follows
+  the existing contract; a wizard source change requires the explicit discard-confirmation regeneration path.
+  A current legacy draft is never silently rewritten by the wizard loader; it must finish through the legacy
+  contract or use the explicit audited transition before the wizard is used for that cohort/week.
+- `session_roster_draft_groups`: legacy permanent-group snapshots plus nullable primary responsible-teacher
+  identity/name. These remain for the existing contract and are not weekly assignment replacements.
+- `session_roster_draft_slots`: additive Saturday-only session slots. Each slot has an immutable-in-draft
+  identity, deterministic order/name, optional `anchor_group_id`, primary teacher snapshot, and explicit
+  mismatch confirmation/reason. Slots are independent of permanent `halaqa_groups` and are the source for
+  teacher-driven wizard publication.
 - `session_roster_draft_students`: one row per effective active student in the usual group for the
   selected week. Missing availability is `attending`; an explicit absence is `unavailable` and cannot
-  have a session group. Attending students are initially placed in their usual group and can be moved
-  only within the draft's active session groups.
-- `session_roster_versions`, `session_roster_version_groups`, and `session_roster_version_students`:
-  immutable published snapshots. Published student rows contain attending, placed students only, so an
-  unavailable student never appears in a published roster. Snapshot names, group identity, week/Saturday,
-  primary-teacher identity/name, version, and publishing actor/time are retained for history.
+  have a session group. Legacy drafts initially use the usual group; teacher-driven drafts use the
+  additive `session_group_slot_id` and can redistribute only inside the draft. Published student rows
+  contain attending, placed students only, so an unavailable student never appears in a published roster.
+- `session_roster_versions`, `session_roster_version_groups`, `session_roster_version_slots`, and
+  `session_roster_version_students`: immutable published snapshots. Legacy rows keep their permanent-group
+  session identity; wizard rows use the additive slot identity and leave the legacy `session_group_id` null.
+  Snapshot names, optional permanent anchor, week/Saturday, primary-teacher identity/name, version, and
+  publishing actor/time are retained for history.
+- `session_roster_version_teachers`: immutable published participant snapshots. It records every available
+  eligible teacher captured by a teacher-driven publish, whether that teacher has a unique primary slot or
+  participates as a cohort co-teacher without a primary responsibility. This snapshot is the authorization
+  source for current-version cohort-wide teacher surfaces and preserves participant identity historically.
 - `session_roster_audit_events`: append-only draft movement, responsibility, review, publish, revision,
   and `draft_refreshed` history. A refresh event records the superseded and replacement draft/version
   identities, source digest, actor, request, and discard scope in its before/after/metadata payloads.
@@ -163,21 +177,27 @@ The public tables are:
 
 Readiness is database-derived. Every attending student must be placed exactly once; unplaced attending
 students, source changes, an unreviewed current state, no session groups with attending students, and
-missing primary responsibility are blockers. A group-count imbalance is a warning only. Primary
-teachers must be active, authorized cohort teachers with Saturday staff coverage and exact positive
-teacher availability; responsibility is a highlight/ownership marker, not an exclusivity rule for future
-teacher viewing or grading. The published-session teacher APIs authorize an active teacher or
-admin-teacher with an exact active assignment somewhere in the cohort/week to view and grade every group
-in that published cohort snapshot. They never authorize a draft or superseded version.
+missing primary responsibility are blockers. In the wizard, zero teachers, targets above the available
+teacher count, and unconfirmed smaller counts are blockers; a confirmed smaller count is allowed. Duplicate
+primary responsibilities and unconfirmed teacher/anchor mismatches are explicit blockers. A group-count
+imbalance is a warning only. Primary teachers must be active, authorized cohort
+teachers with Saturday staff coverage and exact positive teacher availability; responsibility is a
+highlight/ownership marker, not an exclusivity rule for future teacher viewing or grading. The
+published-session teacher APIs authorize an active teacher or admin-teacher with an exact active assignment
+somewhere in the cohort/week or primary responsibility in the current published session to view and grade
+every group in that published cohort snapshot. They never authorize a draft or superseded version.
+
+The wizard dependency revision advances for student availability, teacher availability, and affected
+Saturday teacher staff/profile eligibility edits. The source digest is also recomputed at every stateful
+operation, so a changed or reverted source cannot silently authorize a stale placement.
 
 Publishing locks the cohort/week, checks the expected draft `state_version`, rechecks source and teacher
 eligibility, inserts a new immutable version and all snapshot rows, closes the draft, records the audit
-event, and stores the replay result in one transaction. A revision creates a new draft from the current
-published placement/responsibility snapshot while the published version remains live. Concurrent or
-stale submissions fail with a refresh/review error rather than partially applying. The
-`refresh_session_roster_draft(...)` contract is the explicit stale recovery path: it revalidates the
-canonical Sunday, normal-admin scope, draft/state/source/published tokens, and current authoritative
-inputs under the same lock; it never implicitly reviews or publishes the replacement draft.
+event, and stores the replay result in one transaction. A wizard revision creates a new draft from the
+current published slot/student snapshot while the published version remains live. Concurrent or stale
+submissions fail with a refresh/review error rather than partially applying. Legacy
+`refresh_session_roster_draft(...)` remains the old contract; wizard regeneration requires explicit discard
+confirmation and never implicitly reviews or publishes the replacement draft.
 
 ## Published-Session Teacher Authorization
 
@@ -227,9 +247,10 @@ These student-owned operational tables snapshot scope with nullable `masjid_id`,
 
 `halaqa_grades` additionally stores nullable published-session identity columns for session-backed grades:
 `session_roster_version_id`, `session_roster_version_number`, `session_halaqa_saturday`,
-`session_group_id`, `session_group_name`, `session_primary_teacher_id`, and
-`session_primary_teacher_name`. Legacy grade rows with null session identity remain supported by the
-existing student/admin paths.
+`session_group_id`, `session_group_slot_id`, `session_group_name`, `session_primary_teacher_id`, and
+`session_primary_teacher_name`. A legacy session grade uses `session_group_id`; a wizard slot grade uses
+`session_group_slot_id` and optionally snapshots its permanent anchor in `halaqa_group_id`. Legacy grade
+rows with null session identity remain supported by the existing student/admin paths.
 
 `checkin_items` does not duplicate scope initially because each item belongs to a scoped `checkins` row.
 
@@ -264,8 +285,9 @@ Existing admins receive TIC admin staff memberships. Existing active students re
 - One explicit absence row per student, cohort, and tracker week; a missing row means attending.
 - One active rotation settings row per cohort.
 - One current session-roster draft per cohort/week, one row per scoped student in that draft, and one
-  immutable published version number per cohort/week. Published rosters contain each attending student
-  exactly once and no unavailable students.
+  immutable published version number per cohort/week. Wizard drafts have exactly one slot per available
+  teacher after generation; published rosters contain each attending student exactly once and no
+  unavailable students.
 - Session roster drafts and publish/revision audit events are mutated only by atomic service contracts;
   browser clients have no direct write grants, and signed reads are normal-admin masjid/cohort scoped.
 - Students can only view and submit their own records. Student leaderboard rows are limited to the student's cohort for the selected week.

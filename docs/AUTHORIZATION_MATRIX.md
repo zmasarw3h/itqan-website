@@ -65,6 +65,7 @@ policy was already super-admin-only and remains unchanged):
 | `weekly_plans` | Student own select and path/snapshot-checked insert/update; scoped admin or current published-session cohort-authorized teacher select |
 | `partner_recitations` | Student own select and current-round insert; scoped admin or assigned-teacher select; scoped admin insert/update/delete |
 | `halaqa_grades` | Student own select; scoped admin or current published-session cohort-authorized teacher select; scoped admin or exact current published-session version/group/student teacher insert/update. Historical session snapshots remain available to the scoped admin correction path. |
+| `session_roster_version_teachers` | No student access; scoped normal-admin and current captured participant reads for the current published version only; immutable history, with writes limited to the guarded publication trigger/service path |
 | `weekly_incentive_runs` | Masjid-scoped admin/super-admin select/insert/update |
 | `accountability_obligations` | Student own select and constrained attestation; masjid-scoped admin/super-admin select/insert/update; pending rows require a valid week-specific masjid/cohort/group scope |
 | `badge_awards` | Student own select; masjid-scoped admin/super-admin select/insert/update |
@@ -117,8 +118,9 @@ The `authenticated` role can execute only these caller-relative definer function
   `get_teacher_session_student_context(uuid,date)`,
   `get_teacher_session_checklist_details(uuid,uuid,uuid,date,date)`, and
   `save_teacher_session_halaqa_grade(uuid,uuid,uuid,date,boolean,integer,text)`. These APIs use
-  published session snapshots and cohort authorization; they never authorize from the primary teacher
-  marker alone and never expose super-admin access through teacher surfaces.
+  published session snapshots and cohort authorization; the primary teacher marker is accepted only
+  together with active teacher/admin profile and Saturday staff checks, and never exposes super-admin
+  access through teacher surfaces.
 - Application RPCs: `student_weekly_teacher_name(date)`,
   `student_cohort_leaderboard_for_week(date)`, `student_leaderboard_available_weeks()`,
   `teacher_assignment_contexts()`, and
@@ -135,7 +137,7 @@ service-role-only. They independently validate a current Toronto-civil-date admi
 enforce Saturday eligibility plus an exact `available = true` row, and compare canonical prepared state
 under a cohort/week advisory lock. Browser roles cannot execute either RPC. The legacy generation RPC is
 also service-role-only and guarded, but temporarily has no request-ID stale-state protection.
-The session-roster contracts (`load_or_create_session_roster_draft(...)`,
+The legacy session-roster contracts (`load_or_create_session_roster_draft(...)`,
 `refresh_session_roster_draft(...)`,
 `get_session_roster_draft(...)`, `move_session_roster_student(...)`,
 `assign_session_roster_primary_teacher(...)`, `compute_session_roster_readiness(...)`,
@@ -150,15 +152,33 @@ the exact stale draft token supplied by the scoped normal admin; it cannot be us
 through this normal-admin path, cannot mutate permanent memberships or existing teacher assignments,
 and cannot change the live published version.
 
+The additive teacher-driven wizard contracts are also service-role-only:
+`load_or_create_session_roster_wizard_draft(...)`, `generate_session_roster_wizard_groups(...)`,
+`move_session_roster_wizard_student(...)`, `assign_session_roster_wizard_primary_teacher(...)`,
+`review_session_roster_wizard_draft(...)`, `publish_session_roster_wizard_draft(...)`, and
+`create_session_roster_wizard_revision(...)` remain stable contracts. The additive v2 generation and
+publication calls add `generate_session_roster_wizard_groups_v2(...)` and
+`publish_session_roster_wizard_draft_v2(...)`: the default count is exactly the available eligible-teacher
+count; only a confirmed smaller positive count is allowed, and extra available teachers are preserved in
+the immutable participant snapshot without a primary highlight. Expected state/dependency markers,
+request IDs, and explicit discard confirmation protect replay and regeneration. The wizard loader does not
+silently convert an existing legacy draft. `preview_session_roster_wizard_legacy_transition(...)` returns
+the blocking draft/source/live-version recovery state, while
+`transition_session_roster_wizard_legacy_draft(...)` is the normal-admin-scoped, service-only,
+explicit-discard, replay-safe supersede-and-create transition.
+
 The teacher session contracts are authenticated, caller-checked projections over the current published
-version only: `teacher_session_authorized_scopes(date)`,
+version only. Authorization also accepts an active eligible teacher captured in the current
+`session_roster_version_teachers` participant snapshot, while the legacy exact-assignment path remains
+available: `teacher_session_authorized_scopes(date)`,
 `get_teacher_session_dashboard(uuid,date)`, `get_teacher_session_group_roster(uuid,uuid,date)`,
 `get_teacher_session_student_context(uuid,date)`, and
 `get_teacher_session_checklist_details(uuid,uuid,uuid,date,date)` are read-only; the individual
 `save_teacher_session_halaqa_grade(uuid,uuid,uuid,date,boolean,integer,text)` RPC is the only teacher
 grade write. They require an active `teacher` or `admin` profile, active teacher staff membership for
-the masjid, an exact active assignment somewhere in the cohort/week, the current published version,
-and exact snapshot membership. `super_admin` is explicitly denied. The assigned/primary group is returned
+the masjid, either an exact active assignment somewhere in the cohort/week or primary responsibility in
+the current published session, the current published version, and exact snapshot membership.
+`super_admin` is explicitly denied. The assigned/primary group is returned
 only as a highlight. Checklist details return stored labels/weights, completion, earned points, stored
 daily totals/score, and a privacy-safe record state; notes, raw records, timestamps, correction actors,
 and audit metadata are excluded. Weekly-plan metadata and five-minute signed links use the same current

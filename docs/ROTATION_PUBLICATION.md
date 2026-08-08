@@ -8,30 +8,66 @@ no row means attending. `apply_student_rotation_availability(...)` verifies a cu
 masjid/cohort scope and the effective student membership, then replaces that session's absence rows atomically.
 It never changes `student_group_memberships`, group balancing, teacher authorization, or assignments.
 
-The additive attendance-aware session-roster backend now consumes this ledger through a separate contract.
-`load_or_create_session_roster_draft(...)` snapshots active groups and effective students for the selected
-cohort/week. Missing student availability is attending and initially seeds the usual active group; explicit
-absences are retained in the draft for review but never enter the roster. `move_session_roster_student(...)`
-changes only the Saturday draft placement, and `assign_session_roster_primary_teacher(...)` records the
-primary responsibility for each session group after checking active Saturday staff coverage and exact
-positive teacher availability. `compute_session_roster_readiness(...)` reports unplaced students and
-missing responsibility as blockers; imbalance is warning-only. `review_session_roster_draft(...)` is
-required before `publish_session_roster_draft(...)`.
+The additive attendance-aware session-roster backend retains the original permanent-group contract and adds
+a teacher-driven wizard contract. The legacy `load_or_create_session_roster_draft(...)` path remains
+available for existing history and rollout compatibility. New wizard callers use
+`load_or_create_session_roster_wizard_draft(...)`, `generate_session_roster_wizard_groups(...)`,
+`move_session_roster_wizard_student(...)`, `assign_session_roster_wizard_primary_teacher(...)`,
+`review_session_roster_wizard_draft(...)`, `publish_session_roster_wizard_draft(...)`, and
+`create_session_roster_wizard_revision(...)`.
+
+If the wizard loader finds an unpublished legacy draft, it returns actionable recovery data and does not
+convert that draft. A normal admin can first call `preview_session_roster_wizard_legacy_transition(...)`,
+then call the service-only `transition_session_roster_wizard_legacy_draft(...)` with the expected legacy
+draft/state/source markers, expected current published version, request ID, and
+`confirm_discard_legacy_draft = true`. Under the cohort/week lock the transition marks the old draft
+`superseded`, preserves every old row and audit event, creates a fresh teacher-driven draft from current
+canonical availability/eligibility, leaves the live publication and permanent data unchanged, and records
+one linked atomic audit event. Exact request replay returns the original result; changed, stale,
+cross-scope, super-admin, concurrent, and no-legacy attempts fail safely.
+
+The wizard derives its default Saturday session-group count from the number of available eligible teachers;
+zero available teachers blocks generation, review, and publication. The default path creates exactly N
+independent slot rows for N teachers, assigns one unique primary teacher per slot, and distributes attending
+students deterministically with a size difference of at most one. `generate_session_roster_wizard_groups_v2(...)`
+also accepts a deliberate smaller positive target count, but only with explicit count-mismatch confirmation;
+the remaining available teachers are captured as participating cohort co-teachers without a primary slot.
+More groups than available teachers is always rejected. Missing student-availability rows mean attending;
+explicit absences remain visible in the draft but never enter a published roster. Student movement changes
+only draft slot placement and never changes `student_group_memberships`.
+
+Changing the student or teacher availability source, or Saturday teacher staff/profile eligibility, advances
+a narrow cohort/week dependency revision and stales the draft, including after manual redistribution.
+Regeneration after manual edits or source changes requires an explicit discard confirmation. Assigning a
+teacher to a different anchored permanent group is
+shown as a mismatch, requires explicit confirmation, records the reason and confirmation in the atomic audit
+event, and remains bounded by readiness checks (including unique-primary and missing-primary blockers).
+`review_session_roster_wizard_draft(...)` and `publish_session_roster_wizard_draft_v2(...)` use the derived
+readiness contract. Readiness distinguishes default/requested/actual group counts and count confirmation
+from permanent-anchor mismatch confirmation; imbalance is warning-only. Zero teachers, an over-teacher
+target, unconfirmed smaller count, unplaced students, source staleness, and missing/duplicate primary
+responsibilities block publication. A confirmed smaller count is publishable once the ordinary student,
+primary-responsibility, source, and review prerequisites are valid. The immutable
+`session_roster_version_teachers` snapshot records every available participant, including co-teachers
+without a primary group, and publication audit metadata records the same snapshot without creating a
+second audit row for the request.
 
 The session roster is not a teacher-assignment publication and does not mutate permanent memberships,
-current `group_teacher_assignments`, or the student availability ledger. A publish creates an immutable
-Saturday snapshot with actor/time/version/audit metadata. `create_session_roster_revision(...)` creates a
-new draft from the current published snapshot while leaving that version live. All session-roster writes
-are service-only, normal-admin scoped, request-replay-safe, and protected by a cohort/week advisory lock
-plus an expected draft state version. Signed super-admin access is intentionally not accepted by this
-workflow. The published-session teacher API is a separate read/grade boundary: an active authorized
-teacher or admin-teacher with any exact assignment in the cohort/week can read and grade every group in
-the current published version. The primary teacher remains a responsibility highlight only. Drafts,
-superseded versions, cross-scope requests, and super-admin teacher surfaces remain denied.
+current `group_teacher_assignments`, or the student availability ledger. A publish creates an immutable,
+versioned Saturday snapshot with actor/time/audit metadata. `create_session_roster_wizard_revision(...)`
+creates a new draft from the current published slot/student snapshot while leaving that version live. All
+wizard writes are service-only, normal-admin scoped, request-replay-safe, and protected by a cohort/week
+advisory lock plus an expected draft state version. Signed super-admin access is intentionally not accepted
+by this workflow. The published-session teacher API is a separate read/grade boundary: an active teacher or
+admin-teacher with either an exact active assignment somewhere in the cohort/week or primary responsibility
+in the current published session can read and grade every group in that current version. Primary/assigned
+groups remain highlight-only. Drafts, missing publications, superseded versions, cross-scope requests, and
+super-admin teacher surfaces remain denied.
 
-When source state makes a draft stale, `refresh_session_roster_draft(...)` is the only recovery path. It
-requires the expected draft state/source digest, expected current published version identity, and an
-explicit `confirm_discard_changes = true`. Under the same lock it marks the old draft `superseded`,
+When source state makes a legacy draft stale, `refresh_session_roster_draft(...)` remains the legacy recovery
+path. It requires the expected draft state/source digest, expected current published version identity, and
+an explicit `confirm_discard_changes = true`. Wizard regeneration uses its v2 target-count/dependency
+contract and the same explicit discard rule. Under the same lock it marks the old draft `superseded`,
 rebuilds a new draft from current attendance/usual memberships/active groups, and carries forward only
 currently eligible responsibility inputs from the live published snapshot. The response explicitly says
 that manual placement and primary-responsibility edits were discarded and requires a fresh review. Exact

@@ -38,11 +38,14 @@ export type TeacherSessionDashboardScope = Pick<
 
 export type TeacherSessionDashboardGroup = {
   group_id: string;
+  session_group_slot_id?: string | null;
+  anchor_group_id?: string | null;
   group_name: string;
   group_sort_order: number;
   primary_teacher_id: string;
   primary_teacher_name: string;
   is_assigned_group: boolean;
+  is_primary_group?: boolean;
   roster_count: number;
   weekly_plan_count: number;
   grade_progress: {
@@ -64,6 +67,7 @@ export type TeacherSessionGradeProjection = {
   updated_at: string | null;
   session_roster_version_id: string | null;
   session_group_id: string | null;
+  session_group_slot_id?: string | null;
 };
 
 export type TeacherSessionDashboardResponse = {
@@ -94,6 +98,7 @@ export type TeacherSessionGrade = {
   session_group_name: string | null;
   session_primary_teacher_id: string | null;
   session_primary_teacher_name: string | null;
+  session_group_slot_id?: string | null;
 };
 
 export type TeacherSessionGroupRosterStudent = {
@@ -102,6 +107,7 @@ export type TeacherSessionGroupRosterStudent = {
   usual_group_id: string;
   usual_group_name: string;
   session_group_id: string;
+  session_group_slot_id?: string | null;
   placement_order: number;
   weekly_plan_available: boolean;
   grade_is_current: boolean;
@@ -113,6 +119,8 @@ export type TeacherSessionGroupRosterResponse = {
   publication: TeacherSessionPublication;
   group: {
     group_id: string;
+    session_group_slot_id?: string | null;
+    anchor_group_id?: string | null;
     group_name: string;
     group_sort_order: number;
     primary_teacher_id: string;
@@ -129,6 +137,7 @@ export type TeacherSessionStudentContextResponse = {
     usual_group_id: string;
     usual_group_name: string;
     session_group_id: string;
+    session_group_slot_id?: string | null;
     placement_order: number;
   };
   group: TeacherSessionGroupRosterResponse["group"];

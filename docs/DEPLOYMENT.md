@@ -132,23 +132,30 @@ The session-roster and teacher-session migrations are additive and depend on the
    only the raw checklist SELECT policies to scoped admin/super-admin access, revokes the permanent-
    membership `teacher_group_roster_context` endpoint for every role, and leaves
    `can_read_operational_student_row(...)` and the published-session RPCs unchanged.
-6. Before staging, run `npm run test:rls`, `npx supabase db lint --local --schema public --level warning
+6. Apply `20260808130925_rotation_teacher_wizard_amendment.sql`, then
+   `20260808154200_rotation_teacher_wizard_review_amendment.sql`. The first is the focused wizard
+   amendment; the second adds the bounded smaller-count v2 contract, immutable participant snapshot,
+   legacy-draft preview/transition, and the corresponding authorization/grant reconciliation. Both are
+   additive and must be applied in filename order. Before any staging or production apply, run the read-only
+   `scripts/report-rotation-legacy-drafts.sql` report and explicitly review each affected cohort/week.
+7. Before staging, run `npm run test:rls`, `npx supabase db lint --local --schema public --level warning
    --fail-on error`, and `npx supabase db advisors --local --type all --level warn --fail-on error` against
    a disposable local stack. The advisor command may report existing warnings on legacy tables and the
    public `btree_gist` extension; treat new findings from this migration as release blockers.
-7. Apply all six migrations to staging, verify the normal-admin draft/review/publish flow and the
+8. Apply all eight migrations to staging, verify the normal-admin draft/review/publish flow and the
    explicit stale-draft refresh/review flow for an explicitly selected cohort, and verify that signed
    browser clients cannot write roster tables or execute the mutation RPCs. Also verify direct teacher
    reads of raw checkins/checkin_items are denied, the sanitized checklist RPC succeeds, the legacy roster
-   RPC is denied before/during/after publication, and the teacher page shows no-publication until a
-   current version exists. Confirm that the existing availability and teacher-rotation flows remain
-   unchanged.
-8. Back up production, apply the same migration order manually, run the catalog/RLS smoke checks, and
+   RPC is denied before/during/after publication, the confirmed smaller-count path preserves cohort-wide
+   co-teacher access without a primary highlight, and the legacy-draft transition preserves the live
+   publication. Confirm that the existing availability and teacher-rotation flows remain unchanged.
+9. Back up production, apply the same migration order manually, run the catalog/RLS smoke checks, and
    deploy application code only after the schema is ready. This backend slice does not backfill drafts,
    versions, memberships, grades, plans, or teacher assignments; production remains unchanged until an
    admin explicitly uses the existing application workflow. Deploy matching server actions/routes only
-   after all six migrations are applied and the catalog assertion confirms the teacher-session grants and
-   legacy/raw-checklist restrictions.
+   after all eight migrations are applied and the catalog assertion confirms the teacher-session grants,
+   participant snapshot grants, transition grants, and legacy/raw-checklist restrictions. No migration is
+   applied to production by this PR.
 
 The migration keeps published versions immutable and has no destructive down migration. If the new flow
 has a problem, pause session-roster calls, leave the availability and existing teacher-rotation paths in

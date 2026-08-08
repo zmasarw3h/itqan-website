@@ -7432,12 +7432,1199 @@ drop function if exists public.test_reject_session_roster_refresh_audit();
   assert.equal(sourceRestore.error, null, sourceRestore.error?.message);
 }
 
+async function testTeacherDrivenRotationWizard(ids: SeedIds) {
+  type WizardGroup = {
+    group_id: string;
+    session_group_slot_id: string;
+    anchor_group_id: string | null;
+    group_name: string;
+    primary_teacher_id: string | null;
+    primary_teacher_name: string | null;
+    mismatch_confirmed: boolean;
+    mismatch_reason: string | null;
+  };
+  type WizardStudent = {
+    student_id: string;
+    attendance_status: "attending" | "unavailable";
+    session_group_slot_id: string | null;
+  };
+  type WizardRosterStudent = {
+    student_id: string;
+    session_group_slot_id: string;
+  };
+  type WizardPayload = {
+    contract_version: number;
+    draft: {
+      id: string;
+      state_version: number;
+      status: string;
+      base_published_version_id: string | null;
+    };
+    teachers: Array<{ teacher_id: string; available: boolean }>;
+    groups: WizardGroup[];
+    students: WizardStudent[];
+    roster: WizardRosterStudent[];
+    readiness: {
+      blocker_codes: string[];
+      source_stale: boolean;
+      mismatch_confirmation_required: boolean;
+      derived_group_count: number;
+      available_teacher_count: number;
+      reviewed_current: boolean;
+    };
+  };
+
+  const service = localClient(serviceRoleKey);
+  const wizardWeekStart = addDays(ids.weekStart, 7);
+  const wizardChecklistDate = addDays(wizardWeekStart, 1);
+  const [superAdmin, teacherA] = await Promise.all([
+    signIn("superAdmin"),
+    signIn("teacherA")
+  ]);
+
+  const expectFailure = (
+    label: string,
+    result: { error: { code: string; message: string } | null },
+    code: string,
+    messageFragment: string
+  ) => {
+    assert.ok(result.error, `${label} unexpectedly succeeded`);
+    assert.equal(result.error.code, code, `${label} returned an unexpected SQLSTATE`);
+    assert.match(result.error.message, new RegExp(messageFragment));
+  };
+
+  const sourceMemberships = await requireData<Array<{ id: string; student_id: string; group_id: string }>>(
+    "insert teacher-driven wizard students",
+    service
+      .from("student_group_memberships")
+      .insert({
+        student_id: ids.users.expiredMembershipStudent,
+        group_id: ids.groupWriter,
+        starts_on: ids.weekStart,
+        assigned_by: ids.users.superAdmin
+      })
+      .select("id,student_id,group_id")
+  );
+  assert.equal(sourceMemberships.length, 1);
+
+  const beforeMembershipIds = await requireData<Array<{ id: string; student_id: string; group_id: string }>>(
+    "snapshot permanent wizard memberships",
+    service
+      .from("student_group_memberships")
+      .select("id,student_id,group_id")
+      .eq("group_id", ids.groupWriter)
+      .in("student_id", [ids.users.studentWriter, ids.users.expiredMembershipStudent])
+  );
+
+  const crossScopeTeacherAvailability = await service.rpc("apply_teacher_rotation_availability", {
+    input_actor_id: ids.users.adminB,
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: wizardWeekStart,
+    input_available_teacher_ids: []
+  });
+  expectFailure("cross-masjid wizard teacher availability", crossScopeTeacherAvailability, "42501", "unauthorized_actor");
+
+  const superAdminWizardLoad = await service.rpc("load_or_create_session_roster_wizard_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.superAdmin,
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: wizardWeekStart
+  });
+  expectFailure("super-admin wizard load", superAdminWizardLoad, "42501", "session_roster_unauthorized_actor");
+
+  const studentAvailabilityReset = await service.rpc("apply_student_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: wizardWeekStart,
+    input_absences: []
+  });
+  assert.equal(studentAvailabilityReset.error, null, studentAvailabilityReset.error?.message);
+
+  const teacherAvailabilityZero = await service.rpc("apply_teacher_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: wizardWeekStart,
+    input_available_teacher_ids: []
+  });
+  assert.equal(teacherAvailabilityZero.error, null, teacherAvailabilityZero.error?.message);
+
+  const loaded = await service.rpc("load_or_create_session_roster_wizard_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: wizardWeekStart
+  });
+  assert.equal(loaded.error, null, loaded.error?.message);
+  const loadedPayload = loaded.data as WizardPayload;
+  assert.equal(loadedPayload.contract_version, 2);
+  assert.equal(loadedPayload.readiness.available_teacher_count, 0);
+  assert.ok(loadedPayload.readiness.blocker_codes.includes("no_available_teachers"));
+  assert.equal(loadedPayload.students.length, 2, "wizard did not include every effective student");
+  assert.ok(
+    loadedPayload.students.every((student) => student.attendance_status === "attending"),
+    "missing student availability rows were not treated as attending"
+  );
+
+  const zeroTeacherGeneration = await service.rpc("generate_session_roster_wizard_groups", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: loadedPayload.draft.id,
+    input_expected_state_version: loadedPayload.draft.state_version,
+    input_confirm_discard_changes: false
+  });
+  expectFailure("zero-teacher generation", zeroTeacherGeneration, "PT422", "no_available_teachers");
+
+  const zeroTeacherReview = await service.rpc("review_session_roster_wizard_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: loadedPayload.draft.id,
+    input_expected_state_version: loadedPayload.draft.state_version
+  });
+  expectFailure("zero-teacher review", zeroTeacherReview, "PT422", "session_roster_wizard_review_blocked");
+
+  const zeroTeacherPublish = await service.rpc("publish_session_roster_wizard_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: loadedPayload.draft.id,
+    input_expected_state_version: loadedPayload.draft.state_version,
+    input_confirm_publish: true
+  });
+  expectFailure("zero-teacher publish", zeroTeacherPublish, "PT422", "session_roster_wizard_publish_blocked");
+
+  const teacherAvailabilityTwo = await service.rpc("apply_teacher_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: wizardWeekStart,
+    input_available_teacher_ids: [ids.users.teacherA, ids.users.adminA]
+  });
+  assert.equal(teacherAvailabilityTwo.error, null, teacherAvailabilityTwo.error?.message);
+
+  const wizardAnchorAssignment = await service
+    .from("group_teacher_assignments")
+    .upsert(
+      {
+        group_id: ids.groupWriter,
+        teacher_id: ids.users.teacherA,
+        week_start: wizardWeekStart,
+        active: true,
+        assigned_by: ids.users.adminA
+      },
+      { onConflict: "group_id,week_start" }
+    )
+    .select("id")
+    .single();
+  assert.equal(wizardAnchorAssignment.error, null, wizardAnchorAssignment.error?.message);
+
+  const staleGeneration = await service.rpc("generate_session_roster_wizard_groups", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: loadedPayload.draft.id,
+    input_expected_state_version: loadedPayload.draft.state_version,
+    input_confirm_discard_changes: false
+  });
+  expectFailure("generation after teacher-source edit", staleGeneration, "PT409", "discard_confirmation_required");
+
+  const generationRequestId = randomUUID();
+  const generated = await service.rpc("generate_session_roster_wizard_groups", {
+    input_request_id: generationRequestId,
+    input_actor_id: ids.users.adminA,
+    input_draft_id: loadedPayload.draft.id,
+    input_expected_state_version: loadedPayload.draft.state_version,
+    input_confirm_discard_changes: true
+  });
+  assert.equal(generated.error, null, generated.error?.message);
+  const generatedPayload = generated.data as WizardPayload;
+  assert.equal(generatedPayload.groups.length, 2, "default slot count did not equal available teachers");
+  assert.equal(generatedPayload.readiness.available_teacher_count, 2);
+  assert.equal(generatedPayload.readiness.derived_group_count, 2);
+  assert.equal(
+    new Set(generatedPayload.groups.map((group) => group.primary_teacher_id)).size,
+    2,
+    "default primary responsibilities were not unique"
+  );
+  assert.equal(generatedPayload.roster.length, 2);
+  assert.ok(generatedPayload.roster.every((student) => student.session_group_slot_id));
+  const generatedCounts = new Map<string, number>();
+  for (const student of generatedPayload.roster) {
+    generatedCounts.set(student.session_group_slot_id, (generatedCounts.get(student.session_group_slot_id) ?? 0) + 1);
+  }
+  const counts = [...generatedCounts.values()];
+  assert.ok(Math.max(...counts) - Math.min(...counts) <= 1, "default student distribution was not balanced");
+  assert.equal(generatedPayload.readiness.source_stale, false);
+
+  const replayedGeneration = await service.rpc("generate_session_roster_wizard_groups", {
+    input_request_id: generationRequestId,
+    input_actor_id: ids.users.adminA,
+    input_draft_id: loadedPayload.draft.id,
+    input_expected_state_version: loadedPayload.draft.state_version,
+    input_confirm_discard_changes: true
+  });
+  assert.equal(replayedGeneration.error, null, replayedGeneration.error?.message);
+  assert.equal(
+    (replayedGeneration.data as WizardPayload).draft.state_version,
+    generatedPayload.draft.state_version,
+    "identical wizard request did not replay its committed result"
+  );
+
+  const concurrentGenerationStateVersion = generatedPayload.draft.state_version;
+  const concurrentGenerations = await Promise.all([
+    service.rpc("generate_session_roster_wizard_groups", {
+      input_request_id: randomUUID(),
+      input_actor_id: ids.users.adminA,
+      input_draft_id: loadedPayload.draft.id,
+      input_expected_state_version: concurrentGenerationStateVersion,
+      input_confirm_discard_changes: true
+    }),
+    service.rpc("generate_session_roster_wizard_groups", {
+      input_request_id: randomUUID(),
+      input_actor_id: ids.users.adminA,
+      input_draft_id: loadedPayload.draft.id,
+      input_expected_state_version: concurrentGenerationStateVersion,
+      input_confirm_discard_changes: true
+    })
+  ]);
+  assert.equal(concurrentGenerations.filter((result) => result.error === null).length, 1);
+  assert.equal(concurrentGenerations.filter((result) => result.error?.code === "PT412").length, 1);
+  let wizardPayload = concurrentGenerations.find((result) => result.error === null)!.data as WizardPayload;
+
+  const writerRosterRow = wizardPayload.roster.find((student) => student.student_id === ids.users.studentWriter)!;
+  const alternateSlot = wizardPayload.groups.find(
+    (group) => group.session_group_slot_id !== writerRosterRow.session_group_slot_id
+  )!;
+  const movedStudent = await service.rpc("move_session_roster_wizard_student", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: wizardPayload.draft.id,
+    input_student_id: ids.users.studentWriter,
+    input_session_group_slot_id: alternateSlot.session_group_slot_id,
+    input_expected_state_version: wizardPayload.draft.state_version
+  });
+  assert.equal(movedStudent.error, null, movedStudent.error?.message);
+  wizardPayload = movedStudent.data as WizardPayload;
+  assert.equal(wizardPayload.readiness.source_stale, false);
+
+  const anchoredSlot = wizardPayload.groups.find((group) => group.anchor_group_id === ids.groupWriter)!;
+  const unanchoredSlot = wizardPayload.groups.find((group) => group.session_group_slot_id !== anchoredSlot.session_group_slot_id)!;
+  const mismatchTeacherId = unanchoredSlot.primary_teacher_id!;
+  const mismatchAttempt = await service.rpc("assign_session_roster_wizard_primary_teacher", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: wizardPayload.draft.id,
+    input_session_group_slot_id: anchoredSlot.session_group_slot_id,
+    input_primary_teacher_id: mismatchTeacherId,
+    input_expected_state_version: wizardPayload.draft.state_version,
+    input_confirm_mismatch: false
+  });
+  expectFailure("unconfirmed teacher/group mismatch", mismatchAttempt, "PT422", "mismatch_confirmation_required");
+
+  const mismatchRequestId = randomUUID();
+  const mismatchOverride = await service.rpc("assign_session_roster_wizard_primary_teacher", {
+    input_request_id: mismatchRequestId,
+    input_actor_id: ids.users.adminA,
+    input_draft_id: wizardPayload.draft.id,
+    input_session_group_slot_id: anchoredSlot.session_group_slot_id,
+    input_primary_teacher_id: mismatchTeacherId,
+    input_expected_state_version: wizardPayload.draft.state_version,
+    input_confirm_mismatch: true
+  });
+  assert.equal(mismatchOverride.error, null, mismatchOverride.error?.message);
+  wizardPayload = mismatchOverride.data as WizardPayload;
+  const overriddenSlot = wizardPayload.groups.find(
+    (group) => group.session_group_slot_id === anchoredSlot.session_group_slot_id
+  )!;
+  assert.equal(overriddenSlot.mismatch_confirmed, true);
+  assert.ok(overriddenSlot.mismatch_reason);
+  assert.ok(wizardPayload.readiness.blocker_codes.includes("duplicate_primary_teacher"));
+  const mismatchAudit = await requireData<Array<{ after_data: Record<string, unknown>; metadata: Record<string, unknown> }>>(
+    "read mismatch override audit",
+    service
+      .from("session_roster_audit_events")
+      .select("after_data,metadata")
+      .eq("draft_id", wizardPayload.draft.id)
+      .eq("request_id", mismatchRequestId)
+      .limit(1)
+  );
+  assert.equal(mismatchAudit.length, 1);
+  assert.equal(mismatchAudit[0].after_data.mismatch_confirmed, true);
+  assert.equal(mismatchAudit[0].metadata.explicit_confirmation, true);
+
+  const restoredTeacher = await service.rpc("assign_session_roster_wizard_primary_teacher", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: wizardPayload.draft.id,
+    input_session_group_slot_id: anchoredSlot.session_group_slot_id,
+    input_primary_teacher_id: ids.users.teacherA,
+    input_expected_state_version: wizardPayload.draft.state_version,
+    input_confirm_mismatch: false
+  });
+  assert.equal(restoredTeacher.error, null, restoredTeacher.error?.message);
+  wizardPayload = restoredTeacher.data as WizardPayload;
+  assert.equal(wizardPayload.readiness.blocker_codes.includes("duplicate_primary_teacher"), false);
+
+  const teacherSourceEdit = await service.rpc("apply_teacher_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: wizardWeekStart,
+    input_available_teacher_ids: [ids.users.teacherA]
+  });
+  assert.equal(teacherSourceEdit.error, null, teacherSourceEdit.error?.message);
+  const teacherSourceRegeneration = await service.rpc("generate_session_roster_wizard_groups", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: wizardPayload.draft.id,
+    input_expected_state_version: wizardPayload.draft.state_version,
+    input_confirm_discard_changes: false
+  });
+  expectFailure("teacher availability staling a redistributed draft", teacherSourceRegeneration, "PT409", "discard_confirmation_required");
+
+  const teacherSourceRestore = await service.rpc("apply_teacher_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: wizardWeekStart,
+    input_available_teacher_ids: [ids.users.teacherA, ids.users.adminA]
+  });
+  assert.equal(teacherSourceRestore.error, null, teacherSourceRestore.error?.message);
+
+  const teacherEligibilityEdit = await service
+    .from("masjid_staff_memberships")
+    .update({ ends_on: addDays(wizardWeekStart, 5) })
+    .eq("profile_id", ids.users.adminA)
+    .eq("masjid_id", ids.masjidA)
+    .eq("staff_role", "teacher")
+    .eq("active", true)
+    .is("ends_on", null)
+    .select("id,ends_on")
+    .single<{ id: string; ends_on: string }>();
+  assert.equal(teacherEligibilityEdit.error, null, teacherEligibilityEdit.error?.message);
+  assert.equal(teacherEligibilityEdit.data?.ends_on, addDays(wizardWeekStart, 5));
+
+  const teacherEligibilityRegeneration = await service.rpc("generate_session_roster_wizard_groups", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: wizardPayload.draft.id,
+    input_expected_state_version: wizardPayload.draft.state_version,
+    input_confirm_discard_changes: false
+  });
+  expectFailure("teacher eligibility staling a redistributed draft", teacherEligibilityRegeneration, "PT409", "discard_confirmation_required");
+
+  const teacherEligibilityRestore = await service
+    .from("masjid_staff_memberships")
+    .update({ ends_on: null })
+    .eq("id", teacherEligibilityEdit.data!.id)
+    .select("id")
+    .single();
+  assert.equal(teacherEligibilityRestore.error, null, teacherEligibilityRestore.error?.message);
+
+  const teacherSourceRegenerated = await service.rpc("generate_session_roster_wizard_groups", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: wizardPayload.draft.id,
+    input_expected_state_version: wizardPayload.draft.state_version,
+    input_confirm_discard_changes: true
+  });
+  assert.equal(teacherSourceRegenerated.error, null, teacherSourceRegenerated.error?.message);
+  wizardPayload = teacherSourceRegenerated.data as WizardPayload;
+
+  const manualStudentMove = await service.rpc("move_session_roster_wizard_student", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: wizardPayload.draft.id,
+    input_student_id: ids.users.studentWriter,
+    input_session_group_slot_id: wizardPayload.groups.find(
+      (group) => group.session_group_slot_id !== wizardPayload.roster.find((student) => student.student_id === ids.users.studentWriter)!.session_group_slot_id
+    )!.session_group_slot_id,
+    input_expected_state_version: wizardPayload.draft.state_version
+  });
+  assert.equal(manualStudentMove.error, null, manualStudentMove.error?.message);
+  wizardPayload = manualStudentMove.data as WizardPayload;
+
+  const studentSourceEdit = await service.rpc("apply_student_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: wizardWeekStart,
+    input_absences: [{ student_id: ids.users.studentWriter, reason: "student source stale test" }]
+  });
+  assert.equal(studentSourceEdit.error, null, studentSourceEdit.error?.message);
+  const studentSourceRegeneration = await service.rpc("generate_session_roster_wizard_groups", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: wizardPayload.draft.id,
+    input_expected_state_version: wizardPayload.draft.state_version,
+    input_confirm_discard_changes: false
+  });
+  expectFailure("student availability staling a redistributed draft", studentSourceRegeneration, "PT409", "discard_confirmation_required");
+
+  const studentSourceRegenerated = await service.rpc("generate_session_roster_wizard_groups", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: wizardPayload.draft.id,
+    input_expected_state_version: wizardPayload.draft.state_version,
+    input_confirm_discard_changes: true
+  });
+  assert.equal(studentSourceRegenerated.error, null, studentSourceRegenerated.error?.message);
+  wizardPayload = studentSourceRegenerated.data as WizardPayload;
+  assert.equal(wizardPayload.students.find((student) => student.student_id === ids.users.studentWriter)?.attendance_status, "unavailable");
+  assert.equal(wizardPayload.roster.some((student) => student.student_id === ids.users.studentWriter), false);
+
+  const studentSourceRestore = await service.rpc("apply_student_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: wizardWeekStart,
+    input_absences: []
+  });
+  assert.equal(studentSourceRestore.error, null, studentSourceRestore.error?.message);
+  const finalGeneration = await service.rpc("generate_session_roster_wizard_groups", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: wizardPayload.draft.id,
+    input_expected_state_version: wizardPayload.draft.state_version,
+    input_confirm_discard_changes: true
+  });
+  assert.equal(finalGeneration.error, null, finalGeneration.error?.message);
+  wizardPayload = finalGeneration.data as WizardPayload;
+  assert.equal(wizardPayload.roster.length, 2);
+
+  const review = await service.rpc("review_session_roster_wizard_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: wizardPayload.draft.id,
+    input_expected_state_version: wizardPayload.draft.state_version
+  });
+  assert.equal(review.error, null, review.error?.message);
+  wizardPayload = review.data as WizardPayload;
+  assert.equal(wizardPayload.readiness.reviewed_current, true);
+
+  const publishWithoutConfirmation = await service.rpc("publish_session_roster_wizard_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: wizardPayload.draft.id,
+    input_expected_state_version: wizardPayload.draft.state_version,
+    input_confirm_publish: false
+  });
+  expectFailure("publish without explicit confirmation", publishWithoutConfirmation, "PT422", "confirmation_required");
+
+  const published = await service.rpc("publish_session_roster_wizard_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: wizardPayload.draft.id,
+    input_expected_state_version: wizardPayload.draft.state_version,
+    input_confirm_publish: true
+  });
+  assert.equal(published.error, null, published.error?.message);
+  const publishedPayload = published.data as {
+    contract_version: number;
+    version: { id: string; version_number: number };
+    groups: WizardGroup[];
+    roster: WizardRosterStudent[];
+  };
+  assert.equal(publishedPayload.contract_version, 2);
+  assert.equal(publishedPayload.groups.length, 2);
+  assert.equal(publishedPayload.roster.length, 2);
+
+  const afterMembershipIds = await requireData<Array<{ id: string; student_id: string; group_id: string }>>(
+    "verify permanent memberships stayed unchanged",
+    service
+      .from("student_group_memberships")
+      .select("id,student_id,group_id")
+      .eq("group_id", ids.groupWriter)
+      .in("student_id", [ids.users.studentWriter, ids.users.expiredMembershipStudent])
+  );
+  assert.deepEqual(afterMembershipIds, beforeMembershipIds);
+
+  const primarySlot = publishedPayload.groups.find((group) => group.primary_teacher_id === ids.users.teacherA)!;
+  const otherSlot = publishedPayload.groups.find((group) => group.session_group_slot_id !== primarySlot.session_group_slot_id)!;
+  const otherSlotStudent = publishedPayload.roster.find(
+    (student) => student.session_group_slot_id === otherSlot.session_group_slot_id
+  )!;
+
+  const planPath = `${otherSlotStudent.student_id}/${wizardWeekStart}/wizard-plan.pdf`;
+  const planInsert = await service.from("weekly_plans").insert({
+    student_id: otherSlotStudent.student_id,
+    week_start: wizardWeekStart,
+    file_path: planPath,
+    file_name: "wizard-plan.pdf",
+    file_type: "application/pdf",
+    file_size: 12
+  }).select("id").single<{ id: string }>();
+  assert.equal(planInsert.error, null, planInsert.error?.message);
+
+  const submission = calculateDailySubmission(
+    wizardChecklistDate,
+    tasksForDate(wizardChecklistDate).slice(0, 1).map((task) => task.key)
+  );
+  const checkin = await requireData<Array<{ id: string }>>(
+    "insert wizard checklist record",
+    service.from("checkins").insert({
+      student_id: otherSlotStudent.student_id,
+      date: wizardChecklistDate,
+      completed: true,
+      earned_weight: submission.earnedWeight,
+      total_weight: submission.totalWeight,
+      daily_score: submission.dailyScore
+    }).select("id")
+  );
+  await requireData(
+    "insert wizard checklist item",
+    service.from("checkin_items").insert(submission.items.map((item) => ({
+      checkin_id: checkin[0].id,
+      student_id: otherSlotStudent.student_id,
+      date: wizardChecklistDate,
+      task_key: item.key,
+      task_label: item.label,
+      weight: item.weight,
+      completed: item.completed
+    }))).select("id")
+  );
+
+  const teacherDashboard = await teacherA.rpc("get_teacher_session_dashboard", {
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: wizardWeekStart
+  });
+  assert.equal(teacherDashboard.error, null, teacherDashboard.error?.message);
+  const dashboard = teacherDashboard.data as { groups: Array<{ group_id: string; is_primary_group: boolean; roster_count: number }> };
+  assert.equal(dashboard.groups.length, 2, "primary teacher did not receive cohort-wide session groups");
+  assert.equal(dashboard.groups.filter((group) => group.is_primary_group).length, 1);
+  assert.ok(dashboard.groups.every((group) => group.roster_count > 0));
+
+  const superDashboard = await superAdmin.rpc("get_teacher_session_dashboard", {
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: wizardWeekStart
+  });
+  assert.ok(superDashboard.error, "super-admin received teacher dashboard access");
+
+  const otherRoster = await teacherA.rpc("get_teacher_session_group_roster", {
+    input_version_id: publishedPayload.version.id,
+    input_group_id: otherSlot.session_group_slot_id,
+    input_week_start: wizardWeekStart
+  });
+  assert.equal(otherRoster.error, null, otherRoster.error?.message);
+  assert.equal((otherRoster.data as { group: { session_group_slot_id: string } }).group.session_group_slot_id, otherSlot.session_group_slot_id);
+
+  const planScope = await teacherA.rpc("can_teacher_read_weekly_plan_path", { input_file_path: planPath });
+  assert.equal(planScope.error, null, planScope.error?.message);
+  assert.equal(planScope.data, true, "primary teacher could not read a cohort-wide weekly plan");
+
+  const grade = await teacherA.rpc("save_teacher_session_halaqa_grade", {
+    input_version_id: publishedPayload.version.id,
+    input_group_id: otherSlot.session_group_slot_id,
+    input_student_id: otherSlotStudent.student_id,
+    input_week_start: wizardWeekStart,
+    input_attended: true,
+    input_recitation_points: 40,
+    input_notes: "slot grade"
+  });
+  assert.equal(grade.error, null, grade.error?.message);
+  assert.equal((grade.data as { grade: { session_group_slot_id: string } }).grade.session_group_slot_id, otherSlot.session_group_slot_id);
+
+  const checklist = await teacherA.rpc("get_teacher_session_checklist_details", {
+    input_version_id: publishedPayload.version.id,
+    input_group_id: otherSlot.session_group_slot_id,
+    input_student_id: otherSlotStudent.student_id,
+    input_week_start: wizardWeekStart,
+    input_checklist_date: wizardChecklistDate
+  });
+  assert.equal(checklist.error, null, checklist.error?.message);
+  const checklistData = checklist.data as Record<string, unknown>;
+  assert.equal(checklistData.record_state, "partial");
+  assert.equal("notes" in checklistData, false);
+  assert.equal("submitted_at" in checklistData, false);
+
+  const teacherGradeRow = await teacherA
+    .from("halaqa_grades")
+    .select("session_group_slot_id,graded_by")
+    .eq("student_id", otherSlotStudent.student_id)
+    .eq("week_start", wizardWeekStart)
+    .single<{ session_group_slot_id: string; graded_by: string }>();
+  assert.equal(teacherGradeRow.error, null, teacherGradeRow.error?.message);
+  assert.equal(teacherGradeRow.data?.session_group_slot_id, otherSlot.session_group_slot_id);
+  assert.equal(teacherGradeRow.data?.graded_by, ids.users.teacherA);
+
+  const versionSlotSnapshot = await requireData<Array<{ slot_id: string; primary_teacher_id: string; anchor_group_id: string | null }>>(
+    "snapshot immutable published slots",
+    service
+      .from("session_roster_version_slots")
+      .select("slot_id,primary_teacher_id,anchor_group_id")
+      .eq("version_id", publishedPayload.version.id)
+      .order("slot_sort_order")
+  );
+  const immutableUpdate = await service
+    .from("session_roster_version_slots")
+    .update({ primary_teacher_name: "tampered" })
+    .eq("version_id", publishedPayload.version.id)
+    .eq("slot_id", versionSlotSnapshot[0].slot_id);
+  assert.ok(immutableUpdate.error, "published slot identity was mutable");
+  const immutableDelete = await service
+    .from("session_roster_version_slots")
+    .delete()
+    .eq("version_id", publishedPayload.version.id)
+    .eq("slot_id", versionSlotSnapshot[0].slot_id);
+  assert.ok(immutableDelete.error, "published slot history was deletable");
+
+  const revision = await service.rpc("create_session_roster_wizard_revision", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: wizardWeekStart,
+    input_expected_published_version_id: publishedPayload.version.id
+  });
+  assert.equal(revision.error, null, revision.error?.message);
+  const revisionPayload = revision.data as WizardPayload;
+  assert.equal(revisionPayload.draft.status, "draft");
+  assert.equal(revisionPayload.draft.base_published_version_id, publishedPayload.version.id);
+
+  const livePublication = await service.rpc("get_current_session_roster", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: wizardWeekStart
+  });
+  assert.equal(livePublication.error, null, livePublication.error?.message);
+  assert.equal((livePublication.data as { version: { id: string } }).version.id, publishedPayload.version.id);
+
+  const historicalVersion = await requireData<Array<{ id: string; published_by: string; version_number: number }>>(
+    "verify published identity history",
+    service
+      .from("session_roster_versions")
+      .select("id,published_by,version_number")
+      .eq("id", publishedPayload.version.id)
+  );
+  assert.deepEqual(historicalVersion, [{ id: publishedPayload.version.id, published_by: ids.users.adminA, version_number: 1 }]);
+}
+
+async function testTeacherDrivenGroupCountAmendment(ids: SeedIds) {
+  type WizardPayload = {
+    draft: { id: string; state_version: number; dependency_digest: string | null };
+    groups: Array<{
+      session_group_slot_id: string;
+      primary_teacher_id: string | null;
+    }>;
+    students: Array<{ student_id: string; attendance_status: string; session_group_slot_id: string | null }>;
+    roster: Array<{ student_id: string; session_group_slot_id: string }>;
+    participants: Array<{ teacher_id: string; is_primary: boolean; primary_slot_id: string | null }>;
+    readiness: {
+      available_teacher_count: number;
+      default_group_count: number;
+      requested_group_count: number | null;
+      actual_group_count: number;
+      group_count_mismatch: boolean;
+      group_count_mismatch_direction: string;
+      group_count_mismatch_confirmation_required: boolean;
+      group_count_mismatch_confirmed: boolean;
+      permanent_anchor_mismatch_confirmation_required: boolean;
+      blocker_codes: string[];
+    };
+  };
+
+  const service = localClient(serviceRoleKey);
+  const [teacherA, expiredTeacher, teacherB] = await Promise.all([
+    signIn("teacherA"),
+    signIn("expiredTeacher"),
+    signIn("teacherB")
+  ]);
+  const weekStart = addDays(ids.weekStart, 14);
+
+  const studentAvailability = await service.rpc("apply_student_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: weekStart,
+    input_absences: []
+  });
+  assert.equal(studentAvailability.error, null, studentAvailability.error?.message);
+  const teacherAvailability = await service.rpc("apply_teacher_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: weekStart,
+    input_available_teacher_ids: [ids.users.adminA, ids.users.teacherA]
+  });
+  assert.equal(teacherAvailability.error, null, teacherAvailability.error?.message);
+
+  const loaded = await service.rpc("load_or_create_session_roster_wizard_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: weekStart
+  });
+  assert.equal(loaded.error, null, loaded.error?.message);
+  let payload = loaded.data as WizardPayload;
+  assert.equal(payload.readiness.default_group_count, 2);
+  assert.equal(payload.readiness.requested_group_count, null);
+  assert.equal(payload.students.filter((student) => student.attendance_status === "attending").length, 1);
+  assert.equal(payload.roster.length, 0, "unpublished draft unexpectedly retained a placement");
+
+  const callGenerate = (overrides: Partial<{
+    target: number | null;
+    confirmCount: boolean;
+    discard: boolean;
+    requestId: string;
+  }> = {}) => service.rpc("generate_session_roster_wizard_groups_v2", {
+    input_request_id: overrides.requestId ?? randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: payload.draft.id,
+    input_expected_state_version: payload.draft.state_version,
+    input_expected_dependency_digest: payload.draft.dependency_digest,
+    input_target_group_count: overrides.target ?? 2,
+    input_confirm_group_count_mismatch: overrides.confirmCount ?? false,
+    input_confirm_discard_changes: overrides.discard ?? false
+  });
+
+  const expectFailure = (
+    label: string,
+    result: { error: { code: string; message: string } | null },
+    code: string,
+    fragment: string
+  ) => {
+    assert.ok(result.error, `${label} unexpectedly succeeded`);
+    assert.equal(result.error.code, code, `${label} returned an unexpected SQLSTATE`);
+    assert.match(result.error.message, new RegExp(fragment));
+  };
+
+  expectFailure("non-positive target group count", await callGenerate({ target: 0 }), "PT422", "target_group_count_invalid");
+  expectFailure("negative target group count", await callGenerate({ target: -1 }), "PT422", "target_group_count_invalid");
+  expectFailure("overstaffed target group count", await callGenerate({ target: 3 }), "PT422", "exceeds_available_teachers");
+  expectFailure("unconfirmed smaller group count", await callGenerate({ target: 1 }), "PT422", "group_count_mismatch_confirmation_required");
+
+  const defaultRequestId = randomUUID();
+  const defaultGeneration = await callGenerate({ target: 2, requestId: defaultRequestId });
+  assert.equal(defaultGeneration.error, null, defaultGeneration.error?.message);
+  payload = defaultGeneration.data as WizardPayload;
+  assert.equal(payload.groups.length, 2);
+  assert.equal(new Set(payload.groups.map((group) => group.primary_teacher_id)).size, 2);
+  assert.equal(payload.readiness.group_count_mismatch, false);
+  assert.equal(payload.readiness.group_count_mismatch_direction, "none");
+  assert.equal(payload.participants.length, 2);
+  assert.equal(payload.participants.filter((teacher) => teacher.is_primary).length, 2);
+
+  const replayedDefault = await service.rpc("generate_session_roster_wizard_groups_v2", {
+    input_request_id: defaultRequestId,
+    input_actor_id: ids.users.adminA,
+    input_draft_id: payload.draft.id,
+    input_expected_state_version: (loaded.data as WizardPayload).draft.state_version,
+    input_expected_dependency_digest: (loaded.data as WizardPayload).draft.dependency_digest,
+    input_target_group_count: 2,
+    input_confirm_group_count_mismatch: false,
+    input_confirm_discard_changes: false
+  });
+  assert.equal(replayedDefault.error, null, replayedDefault.error?.message);
+  assert.deepEqual(replayedDefault.data, defaultGeneration.data, "default generation replay changed its result");
+
+  const studentToMove = payload.roster[0];
+  const alternateSlot = payload.groups.find((group) => group.session_group_slot_id !== studentToMove.session_group_slot_id)!;
+  const moved = await service.rpc("move_session_roster_wizard_student", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: payload.draft.id,
+    input_student_id: studentToMove.student_id,
+    input_session_group_slot_id: alternateSlot.session_group_slot_id,
+    input_expected_state_version: payload.draft.state_version
+  });
+  assert.equal(moved.error, null, moved.error?.message);
+  payload = moved.data as WizardPayload;
+
+  const countRequestId = randomUUID();
+  const discardRequired = await callGenerate({ target: 1, confirmCount: true, discard: false, requestId: countRequestId });
+  expectFailure("count change after manual redistribution", discardRequired, "PT409", "discard_confirmation_required");
+
+  const smallerGeneration = await callGenerate({ target: 1, confirmCount: true, discard: true, requestId: countRequestId });
+  assert.equal(smallerGeneration.error, null, smallerGeneration.error?.message);
+  payload = smallerGeneration.data as WizardPayload;
+  assert.equal(payload.groups.length, 1);
+  assert.equal(payload.readiness.default_group_count, 2);
+  assert.equal(payload.readiness.requested_group_count, 1);
+  assert.equal(payload.readiness.actual_group_count, 1);
+  assert.equal(payload.readiness.group_count_mismatch, true);
+  assert.equal(payload.readiness.group_count_mismatch_direction, "fewer");
+  assert.equal(payload.readiness.group_count_mismatch_confirmation_required, false);
+  assert.equal(payload.readiness.group_count_mismatch_confirmed, true);
+  assert.equal(payload.readiness.permanent_anchor_mismatch_confirmation_required, false);
+  assert.equal(payload.participants.length, 2, "the extra available teacher was not retained as a participant");
+  assert.equal(payload.participants.filter((teacher) => teacher.is_primary).length, 1);
+  const extraTeacher = payload.participants.find((teacher) => !teacher.is_primary)!;
+  assert.equal(extraTeacher.teacher_id, ids.users.teacherA);
+  assert.equal(extraTeacher.primary_slot_id, null);
+
+  const changedReplay = await service.rpc("generate_session_roster_wizard_groups_v2", {
+    input_request_id: countRequestId,
+    input_actor_id: ids.users.adminA,
+    input_draft_id: payload.draft.id,
+    input_expected_state_version: payload.draft.state_version,
+    input_expected_dependency_digest: payload.draft.dependency_digest,
+    input_target_group_count: 2,
+    input_confirm_group_count_mismatch: false,
+    input_confirm_discard_changes: true
+  });
+  assert.match(changedReplay.error?.message ?? "", /session_roster_request_reused/);
+
+  const countAudit = await requireData<Array<{
+    after_data: Record<string, unknown>;
+    metadata: Record<string, unknown>;
+  }>>(
+    "read count mismatch audit",
+    service
+      .from("session_roster_audit_events")
+      .select("after_data,metadata")
+      .eq("request_id", countRequestId)
+      .eq("action", "draft_refreshed")
+  );
+  assert.equal(countAudit.length, 1);
+  assert.equal(countAudit[0].after_data.default_group_count, 2);
+  assert.equal(countAudit[0].after_data.requested_group_count, 1);
+  assert.equal(countAudit[0].after_data.actual_group_count, 1);
+  assert.equal(countAudit[0].after_data.mismatch_direction, "fewer");
+  assert.equal(countAudit[0].after_data.group_count_mismatch_confirmed, true);
+  assert.equal((countAudit[0].metadata.discard_confirmed as boolean), true);
+  assert.deepEqual(countAudit[0].metadata.discarded_edit_kinds, ["student_placement"]);
+  assert.equal((countAudit[0].after_data.participating_teachers as unknown[]).length, 2);
+  assert.equal((countAudit[0].after_data.primary_responsibilities as unknown[]).length, 1);
+
+  const review = await service.rpc("review_session_roster_wizard_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: payload.draft.id,
+    input_expected_state_version: payload.draft.state_version
+  });
+  assert.equal(review.error, null, review.error?.message);
+  payload = review.data as WizardPayload;
+  const published = await service.rpc("publish_session_roster_wizard_draft_v2", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: payload.draft.id,
+    input_expected_state_version: payload.draft.state_version,
+    input_confirm_publish: true
+  });
+  assert.equal(published.error, null, published.error?.message);
+  const publishedPayload = published.data as WizardPayload & { version: { id: string } };
+  assert.equal(publishedPayload.participants.length, 2);
+  assert.equal(publishedPayload.participants.filter((teacher) => teacher.is_primary).length, 1);
+  const snapshot = await requireData<Array<{ teacher_id: string; is_primary: boolean; primary_slot_id: string | null }>>(
+    "read immutable participant snapshot",
+    service
+      .from("session_roster_version_teachers")
+      .select("teacher_id,is_primary,primary_slot_id")
+      .eq("version_id", publishedPayload.version.id)
+      .order("participant_sort_order")
+  );
+  assert.equal(snapshot.length, 2);
+  assert.equal(snapshot.filter((teacher) => teacher.is_primary).length, 1);
+
+  const participantPlanPath = `${ids.users.studentWriter}/${weekStart}/participant-plan.pdf`;
+  const participantPlan = await service.from("weekly_plans").insert({
+    student_id: ids.users.studentWriter,
+    week_start: weekStart,
+    file_path: participantPlanPath,
+    file_name: "participant-plan.pdf",
+    file_type: "application/pdf",
+    file_size: 12
+  }).select("id").single();
+  assert.equal(participantPlan.error, null, participantPlan.error?.message);
+  const participantDate = addDays(weekStart, 1);
+  const participantSubmission = calculateDailySubmission(participantDate, []);
+  const participantCheckin = await requireData<Array<{ id: string }>>(
+    "insert participant checklist record",
+    service.from("checkins").insert({
+      student_id: ids.users.studentWriter,
+      date: participantDate,
+      completed: false,
+      earned_weight: participantSubmission.earnedWeight,
+      total_weight: participantSubmission.totalWeight,
+      daily_score: participantSubmission.dailyScore
+    }).select("id")
+  );
+  await requireData(
+    "insert participant checklist items",
+    service.from("checkin_items").insert(participantSubmission.items.map((item) => ({
+      checkin_id: participantCheckin[0].id,
+      student_id: ids.users.studentWriter,
+      date: participantDate,
+      task_key: item.key,
+      task_label: item.label,
+      weight: item.weight,
+      completed: item.completed
+    }))).select("id")
+  );
+
+  const participantDashboard = await teacherA.rpc("get_teacher_session_dashboard", {
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: weekStart
+  });
+  assert.equal(participantDashboard.error, null, participantDashboard.error?.message);
+  const dashboard = participantDashboard.data as {
+    groups: Array<{ is_primary_group: boolean; roster_count: number }>;
+  };
+  assert.equal(dashboard.groups.length, 1);
+  assert.equal(dashboard.groups.some((group) => group.is_primary_group), false, "co-teacher received a false primary highlight");
+
+  const publishedGroup = publishedPayload.groups[0] as { session_group_slot_id: string };
+  const participantRoster = await teacherA.rpc("get_teacher_session_group_roster", {
+    input_version_id: publishedPayload.version.id,
+    input_group_id: publishedGroup.session_group_slot_id,
+    input_week_start: weekStart
+  });
+  assert.equal(participantRoster.error, null, participantRoster.error?.message);
+  const participantPlanScope = await teacherA.rpc("can_teacher_read_weekly_plan_path", {
+    input_file_path: participantPlanPath
+  });
+  assert.equal(participantPlanScope.error, null, participantPlanScope.error?.message);
+  assert.equal(participantPlanScope.data, true);
+  const participantGrade = await teacherA.rpc("save_teacher_session_halaqa_grade", {
+    input_version_id: publishedPayload.version.id,
+    input_group_id: publishedGroup.session_group_slot_id,
+    input_student_id: ids.users.studentWriter,
+    input_week_start: weekStart,
+    input_attended: true,
+    input_recitation_points: 35,
+    input_notes: "participant teacher grade"
+  });
+  assert.equal(participantGrade.error, null, participantGrade.error?.message);
+  const participantChecklist = await teacherA.rpc("get_teacher_session_checklist_details", {
+    input_version_id: publishedPayload.version.id,
+    input_group_id: publishedGroup.session_group_slot_id,
+    input_student_id: ids.users.studentWriter,
+    input_week_start: weekStart,
+    input_checklist_date: participantDate
+  });
+  assert.equal(participantChecklist.error, null, participantChecklist.error?.message);
+
+  const nonParticipantDashboard = await expiredTeacher.rpc("get_teacher_session_dashboard", {
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: weekStart
+  });
+  assert.ok(nonParticipantDashboard.error, "non-participating teacher received current participant access");
+  const crossScopeDashboard = await teacherB.rpc("get_teacher_session_dashboard", {
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: weekStart
+  });
+  assert.ok(crossScopeDashboard.error, "cross-masjid teacher received participant access");
+  const superDashboard = await (await signIn("superAdmin")).rpc("get_teacher_session_dashboard", {
+    input_cohort_id: ids.cohortWriter,
+    input_week_start: weekStart
+  });
+  assert.ok(superDashboard.error, "super-admin received participant teacher access");
+}
+
+async function testLegacyWizardTransition(ids: SeedIds) {
+  const service = localClient(serviceRoleKey);
+  const weekStart = ids.weekStart;
+  const currentBefore = await service.rpc("get_current_session_roster", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: weekStart
+  });
+  assert.equal(currentBefore.error, null, currentBefore.error?.message);
+  const currentVersionId = (currentBefore.data as { version: { id: string } }).version.id;
+
+  const legacyLoaded = await service.rpc("load_or_create_session_roster_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: weekStart
+  });
+  assert.equal(legacyLoaded.error, null, legacyLoaded.error?.message);
+  const legacyDraft = legacyLoaded.data as { draft: { id: string; state_version: number; source_state_digest: string } };
+  const legacyDraftId = legacyDraft.draft.id;
+  const legacyRowsBefore = await requireData<Array<{ draft_id: string; student_id: string }>>(
+    "snapshot legacy draft rows",
+    service.from("session_roster_draft_students").select("draft_id,student_id").eq("draft_id", legacyDraftId)
+  );
+
+  const blockedWizardLoad = await service.rpc("load_or_create_session_roster_wizard_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: weekStart
+  });
+  assert.equal(blockedWizardLoad.error?.code, "PT409");
+  assert.match(blockedWizardLoad.error?.message ?? "", /legacy_draft_requires_wizard_upgrade/);
+
+  const preview = await service.rpc("preview_session_roster_wizard_legacy_transition", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: weekStart
+  });
+  assert.equal(preview.error, null, preview.error?.message);
+  const previewData = preview.data as {
+    blocking_legacy_draft: { id: string; state_version: number; source_state_digest: string };
+    current_published_version: { id: string };
+    can_transition: boolean;
+  };
+  assert.equal(previewData.can_transition, true);
+  assert.equal(previewData.blocking_legacy_draft.id, legacyDraftId);
+  assert.equal(previewData.current_published_version.id, currentVersionId);
+
+  const transitionInput = {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: weekStart,
+    input_expected_legacy_draft_id: legacyDraftId,
+    input_expected_legacy_state_version: legacyDraft.draft.state_version,
+    input_expected_legacy_source_state_digest: legacyDraft.draft.source_state_digest,
+    input_expected_published_version_id: currentVersionId,
+    input_confirm_discard_legacy_draft: true
+  };
+  const noConfirm = await service.rpc("transition_session_roster_wizard_legacy_draft", {
+    input_request_id: randomUUID(),
+    ...transitionInput,
+    input_confirm_discard_legacy_draft: false
+  });
+  assert.equal(noConfirm.error?.code, "PT422");
+  assert.match(noConfirm.error?.message ?? "", /discard_confirmation_required/);
+
+  const wrongState = await service.rpc("transition_session_roster_wizard_legacy_draft", {
+    input_request_id: randomUUID(),
+    ...transitionInput,
+    input_expected_legacy_state_version: legacyDraft.draft.state_version + 1
+  });
+  assert.equal(wrongState.error?.code, "PT412");
+  const wrongSource = await service.rpc("transition_session_roster_wizard_legacy_draft", {
+    input_request_id: randomUUID(),
+    ...transitionInput,
+    input_expected_legacy_source_state_digest: "wrong-source"
+  });
+  assert.equal(wrongSource.error?.code, "PT412");
+  const wrongLiveVersion = await service.rpc("transition_session_roster_wizard_legacy_draft", {
+    input_request_id: randomUUID(),
+    ...transitionInput,
+    input_expected_published_version_id: randomUUID()
+  });
+  assert.equal(wrongLiveVersion.error?.code, "PT412");
+
+  const transitionRequestId = randomUUID();
+  const transitioned = await service.rpc("transition_session_roster_wizard_legacy_draft", {
+    input_request_id: transitionRequestId,
+    ...transitionInput
+  });
+  assert.equal(transitioned.error, null, transitioned.error?.message);
+  const transitionedData = transitioned.data as {
+    draft: { id: string; status: string; wizard_mode: string };
+    legacy_transition: {
+      legacy_draft_id: string;
+      new_draft_id: string;
+      published_version_unchanged: boolean;
+      permanent_memberships_changed: boolean;
+    };
+  };
+  assert.equal(transitionedData.draft.status, "draft");
+  assert.equal(transitionedData.draft.wizard_mode, "teacher_driven");
+  assert.equal(transitionedData.legacy_transition.legacy_draft_id, legacyDraftId);
+  assert.equal(transitionedData.legacy_transition.new_draft_id, transitionedData.draft.id);
+  assert.equal(transitionedData.legacy_transition.published_version_unchanged, true);
+  assert.equal(transitionedData.legacy_transition.permanent_memberships_changed, false);
+
+  const superseded = await requireData<Array<{ status: string }>>(
+    "verify legacy draft superseded",
+    service.from("session_roster_drafts").select("status").eq("id", legacyDraftId)
+  );
+  assert.deepEqual(superseded, [{ status: "superseded" }]);
+  const legacyRowsAfter = await requireData<Array<{ draft_id: string; student_id: string }>>(
+    "verify legacy draft rows preserved",
+    service.from("session_roster_draft_students").select("draft_id,student_id").eq("draft_id", legacyDraftId)
+  );
+  assert.deepEqual(legacyRowsAfter, legacyRowsBefore);
+  const currentAfter = await service.rpc("get_current_session_roster", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: weekStart
+  });
+  assert.equal(currentAfter.error, null, currentAfter.error?.message);
+  assert.equal((currentAfter.data as { version: { id: string } }).version.id, currentVersionId);
+
+  const transitionAudit = await requireData<Array<{
+    before_data: Record<string, unknown>;
+    after_data: Record<string, unknown>;
+    metadata: Record<string, unknown>;
+  }>>(
+    "read legacy transition audit",
+    service.from("session_roster_audit_events")
+      .select("before_data,after_data,metadata")
+      .eq("request_id", transitionRequestId)
+      .eq("action", "legacy_draft_transition")
+  );
+  assert.equal(transitionAudit.length, 1);
+  assert.equal(transitionAudit[0].before_data.legacy_draft_id, legacyDraftId);
+  assert.equal(transitionAudit[0].after_data.new_draft_id, transitionedData.draft.id);
+  assert.equal(transitionAudit[0].metadata.explicit_discard_confirmation, true);
+
+  const replay = await service.rpc("transition_session_roster_wizard_legacy_draft", {
+    input_request_id: transitionRequestId,
+    ...transitionInput
+  });
+  assert.equal(replay.error, null, replay.error?.message);
+  assert.deepEqual(replay.data, transitioned.data);
+  const changedReplay = await service.rpc("transition_session_roster_wizard_legacy_draft", {
+    input_request_id: transitionRequestId,
+    ...transitionInput,
+    input_expected_legacy_state_version: legacyDraft.draft.state_version + 1
+  });
+  assert.match(changedReplay.error?.message ?? "", /session_roster_request_reused/);
+
+  const deniedCrossScope = await service.rpc("transition_session_roster_wizard_legacy_draft", {
+    input_request_id: randomUUID(),
+    ...transitionInput,
+    input_actor_id: ids.users.adminB
+  });
+  assert.equal(deniedCrossScope.error?.code, "42501");
+  const deniedSuperAdmin = await service.rpc("transition_session_roster_wizard_legacy_draft", {
+    input_request_id: randomUUID(),
+    ...transitionInput,
+    input_actor_id: ids.users.superAdmin
+  });
+  assert.equal(deniedSuperAdmin.error?.code, "42501");
+
+  const noLegacy = await service.rpc("transition_session_roster_wizard_legacy_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: addDays(weekStart, 7),
+    input_expected_legacy_draft_id: randomUUID(),
+    input_expected_legacy_state_version: 0,
+    input_expected_legacy_source_state_digest: "none",
+    input_expected_published_version_id: null,
+    input_confirm_discard_legacy_draft: true
+  });
+  assert.equal(noLegacy.error?.code, "P0002");
+  assert.match(noLegacy.error?.message ?? "", /legacy_draft_not_found/);
+
+  const concurrentWeek = addDays(weekStart, 7);
+  const concurrentLegacy = await service.rpc("load_or_create_session_roster_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: concurrentWeek
+  });
+  assert.equal(concurrentLegacy.error, null, concurrentLegacy.error?.message);
+  const concurrentDraft = concurrentLegacy.data as { draft: { id: string; state_version: number; source_state_digest: string } };
+  const concurrentPreview = await service.rpc("preview_session_roster_wizard_legacy_transition", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: concurrentWeek
+  });
+  assert.equal(concurrentPreview.error, null, concurrentPreview.error?.message);
+  const concurrentVersion = (concurrentPreview.data as { current_published_version: { id: string } | null }).current_published_version?.id ?? null;
+  const concurrentBase = {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: ids.cohortA,
+    input_week_start: concurrentWeek,
+    input_expected_legacy_draft_id: concurrentDraft.draft.id,
+    input_expected_legacy_state_version: concurrentDraft.draft.state_version,
+    input_expected_legacy_source_state_digest: concurrentDraft.draft.source_state_digest,
+    input_expected_published_version_id: concurrentVersion,
+    input_confirm_discard_legacy_draft: true
+  };
+  const concurrentTransitions = await Promise.all([
+    service.rpc("transition_session_roster_wizard_legacy_draft", { input_request_id: randomUUID(), ...concurrentBase }),
+    service.rpc("transition_session_roster_wizard_legacy_draft", { input_request_id: randomUUID(), ...concurrentBase })
+  ]);
+  assert.equal(concurrentTransitions.filter((result) => result.error === null).length, 1);
+  assert.equal(concurrentTransitions.filter((result) => result.error !== null).length, 1);
+}
+
 async function main() {
   const ids = await seed();
   await runAssertions(ids);
   await testRotationPublicationIntegrity(ids);
   await testStudentRotationAvailability(ids);
   await testStudentSessionRosters(ids);
+  await testLegacyWizardTransition(ids);
+  await testTeacherDrivenGroupCountAmendment(ids);
+  await testTeacherDrivenRotationWizard(ids);
   console.log("RLS integration suite passed: signed-session multi-masjid boundaries are enforced.");
 }
 

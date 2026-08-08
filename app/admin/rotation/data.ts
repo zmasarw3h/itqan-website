@@ -379,7 +379,7 @@ export async function loadActiveRotationTeachers(input: {
     .from("profiles")
     .select("id,name,email,created_at")
     .in("id", orderedTeacherIds)
-    .in("role", ["teacher", "admin", "super_admin"])
+    .in("role", ["teacher", "admin"])
     .eq("active", true)
     .returns<TeacherProfile[]>();
 
