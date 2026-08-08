@@ -110,6 +110,20 @@ describe("access rules", () => {
     expect(navigationLinksForRole("teacher").map((link) => link.href)).toContain("/teacher");
   });
 
+  it("disables prefetch only for expensive admin and teacher destinations", () => {
+    const adminLinks = navigationLinksForRole("admin", true);
+    const adminLink = (href: string) => adminLinks.find((link) => link.href === href);
+
+    expect(adminLink("/admin")?.prefetch).toBe(false);
+    expect(adminLink("/teacher")?.prefetch).toBe(false);
+    expect(adminLink("/admin/rotation")?.prefetch).toBe(false);
+    expect(adminLink("/admin/incentives")?.prefetch).toBe(false);
+    expect(adminLink("/admin/rewards")?.prefetch).toBe(false);
+    expect(adminLink("/admin/students/new")?.prefetch).toBeUndefined();
+    expect(adminLink("/account/change-password")?.prefetch).toBeUndefined();
+    expect(navigationLinksForRole("teacher").find((link) => link.href === "/teacher")?.prefetch).toBe(false);
+  });
+
   it("exposes the complete super-admin console navigation", () => {
     expect(navigationLinksForRole("super_admin").map((link) => link.href)).toEqual([
       "/super-admin",

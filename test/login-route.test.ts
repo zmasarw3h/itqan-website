@@ -45,7 +45,7 @@ describe("login route", () => {
     expect(authenticateWithPhoneMock).not.toHaveBeenCalled();
   });
 
-  it("returns a successful local redirect with no-store and request-id headers", async () => {
+  it("returns a successful local redirect with no-store, request-id, and timing headers", async () => {
     authenticateWithPhoneMock.mockResolvedValue({ ok: true, redirectTo: "/admin" });
 
     const response = await POST(loginRequest(JSON.stringify({
@@ -56,6 +56,7 @@ describe("login route", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("x-request-id")).toBe("test-request-id");
+    expect(response.headers.get("server-timing")).toMatch(/^login-total;dur=\d+$/);
     await expect(response.json()).resolves.toEqual({ ok: true, redirectTo: "/admin" });
 
     const loggedEntry = vi.mocked(console.info).mock.calls[0];

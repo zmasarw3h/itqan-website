@@ -109,6 +109,7 @@ export default async function TeacherDashboardPage({
                           <Link
                             className="inline-flex min-h-11 w-full items-center justify-center rounded-md bg-moss px-4 py-2 text-center text-sm font-semibold text-white hover:bg-ink sm:w-auto"
                             href={`/teacher/groups/${group.group_id}?week=${selectedWeekStart}`}
+                            prefetch={false}
                           >
                             Open grading workspace
                           </Link>

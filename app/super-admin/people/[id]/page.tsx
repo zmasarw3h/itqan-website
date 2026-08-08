@@ -377,6 +377,7 @@ function ScoreStartCorrectionPanel({ profile }: { profile: Profile }) {
       <Link
         className="mt-4 inline-flex rounded-md bg-moss px-4 py-2.5 text-sm font-semibold text-white hover:bg-ink"
         href={`/admin/students/${profile.id}/official-scoring?return_to=super_admin`}
+        prefetch={false}
       >
         Review or change
       </Link>

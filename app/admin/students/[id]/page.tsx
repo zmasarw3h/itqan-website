@@ -360,7 +360,7 @@ export default async function AdminStudentPage({
         <section className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <Link className="text-sm font-medium text-moss hover:text-ink" href="/admin">
+              <Link className="text-sm font-medium text-moss hover:text-ink" href="/admin" prefetch={false}>
                 Back to admin
               </Link>
               <h1 className="mt-2 text-2xl font-semibold text-ink">{student.name}</h1>
@@ -384,6 +384,7 @@ export default async function AdminStudentPage({
             <Link
               className="rounded-md bg-moss px-4 py-2.5 text-sm font-semibold text-white hover:bg-ink"
               href={`/admin/students/${student.id}/official-scoring`}
+              prefetch={false}
             >
               Review or change
             </Link>

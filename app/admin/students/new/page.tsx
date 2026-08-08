@@ -147,7 +147,7 @@ export default async function NewStudentPage({
 
         {resolvedSearchParams.status === "created" && createdRole === "student" && resolvedSearchParams.student ? (
           <p className="mt-3 text-sm">
-            <Link className="font-medium text-moss hover:text-ink" href={`/admin/students/${resolvedSearchParams.student}`}>
+            <Link className="font-medium text-moss hover:text-ink" href={`/admin/students/${resolvedSearchParams.student}`} prefetch={false}>
               Open the new student profile
             </Link>
           </p>
