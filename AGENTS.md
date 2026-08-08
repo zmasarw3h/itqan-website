@@ -22,7 +22,9 @@ Scoped access comes from `student_group_memberships`, `masjid_staff_memberships`
 teacher staff membership for the relevant masjid. Do not add a separate `admin_teacher` role.
 
 The teacher-facing dashboard is implemented under `/teacher`. Teacher access remains week-specific and
-must always be derived from active teacher staff membership plus an exact group assignment.
+must always be derived from active teacher staff membership plus an exact group assignment in the
+relevant cohort and tracker week. That assignment authorizes the teacher's current published cohort
+session; the assigned or primary group is responsibility emphasis, not a permission boundary.
 
 ## Current Core Features
 
@@ -39,10 +41,12 @@ Students can:
 
 Teachers can:
 
-- View every group assigned to them for a selected tracker week.
-- View only the students whose group membership is effective for that assigned group/week.
-- View/download assigned students' weekly plans through short-lived, server-guarded links.
-- Create or update halaqa grades only for the exact assigned student/group/week.
+- View every group in the current published session for an authorized cohort and tracker week.
+- View only students included in that exact published session snapshot.
+- View/download those students' weekly plans through short-lived, server-guarded links.
+- Create or update halaqa grades only within that exact published session context.
+- See their assigned or primary group highlighted without losing access to the cohort's other
+  published groups.
 
 Admin-teachers keep `profiles.role = 'admin'`, default to the admin experience, and can switch to the
 teacher dashboard through capability-aware navigation.
@@ -68,11 +72,12 @@ Super admins can:
 - Create and maintain masajid, cohorts, and halaqa groups.
 - Grant scoped admin or admin-teacher access.
 
-The rotation UI supports explicit masjid/cohort selection for brothers and sisters cohorts. Student
-group balancing is an explicit confirmed operation, separate from weekly teacher assignment
-publishing. The admin page presents Saturday-based week navigation, readiness, group setup, teacher
-availability, and assignment publishing as one ordered workflow. Publishing assignments must never
-change student group memberships.
+The rotation UI supports explicit masjid/cohort selection for brothers and sisters cohorts. It is a
+four-screen sequential wizard: student availability, teacher availability, session groups with
+primary-teacher responsibilities, then review and publication. Only one step is shown at a time;
+completed steps may be revisited, while future steps remain locked until their prerequisites are
+valid. Saturday session placements and publication must never change permanent student group
+memberships.
 
 ## Preserved Features
 
@@ -111,7 +116,8 @@ Do not build unrelated new features such as:
 - Protect all admin data server-side.
 - Students must never see other students' data.
 - Normal admins must never read or mutate data outside masajid they actively administer.
-- Teachers must never read students outside groups assigned to them for the relevant week.
+- Teachers must never read students outside the current published session of a cohort they are
+  authorized to teach for the relevant tracker week.
 - Use server-side role checks plus Supabase RLS.
 - Use a single configured timezone for effective dates.
 - Store schema changes as migrations.
