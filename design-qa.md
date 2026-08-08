@@ -1,159 +1,73 @@
-# Login Redesign — Design QA
+# Teacher screens design QA
 
 ## Comparison target
 
-- Source visual truth: `/Users/zmasarweh/.codex/generated_images/019fc37c-1e2b-7b32-95bf-709a2ae87ce1/exec-6d5034f7-b3c4-426c-90be-310cfd6ed900.png`
-- Browser-rendered desktop capture: `/Users/zmasarweh/Documents/itqan-lite/artifacts/design-qa/login-desktop-final-1487x1058.png`
-- Normalized desktop capture: `/Users/zmasarweh/Documents/itqan-lite/artifacts/design-qa/login-desktop-final-normalized.png`
-- Full-view side-by-side comparison: `/Users/zmasarweh/Documents/itqan-lite/artifacts/design-qa/login-desktop-final-comparison.png`
-- Browser-rendered mobile capture: `/Users/zmasarweh/Documents/itqan-lite/artifacts/design-qa/login-mobile-final-390x844.png`
-- Normalized mobile capture: `/Users/zmasarweh/Documents/itqan-lite/artifacts/design-qa/login-mobile-final-normalized.png`
-- State: unauthenticated `/login`, light theme, empty form.
+- Source visual truth:
+  - `docs/design-handoff/rotation-teacher-redesign-2026-08-08/canvases/01-teacher-dashboard.png`
+  - `docs/design-handoff/rotation-teacher-redesign-2026-08-08/canvases/02-teacher-grading-workspace.png`
+  - `docs/design-handoff/rotation-teacher-redesign-2026-08-08/canvases/03-teacher-checklist-details.png`
+- Browser-rendered implementation:
+  - `artifacts/teacher-redesign/teacher-dashboard-1440x1024.png`
+  - `artifacts/teacher-redesign/teacher-grading-1440x1024.png`
+  - `artifacts/teacher-redesign/teacher-checklist-drawer-1440x1024.png`
+  - `artifacts/teacher-redesign/teacher-dashboard-390x844.png`
+  - `artifacts/teacher-redesign/teacher-grading-390x844.png`
+  - `artifacts/teacher-redesign/teacher-grading-actions-390x844.png`
+  - `artifacts/teacher-redesign/teacher-checklist-sheet-390x844.png`
+- Side-by-side evidence:
+  - `artifacts/teacher-redesign/comparison-dashboard.png`
+  - `artifacts/teacher-redesign/comparison-grading.png`
+  - `artifacts/teacher-redesign/comparison-checklist.png`
 
-## Viewport and density normalization
+## Viewports and normalization
 
-- Source: 1487 × 1058 pixels at density 1.
-- Desktop CSS viewport: 1486 × 1058. The in-app browser returned a 1651 × 1174 PNG with extra capture-canvas pixels; DOM measurements confirmed the app occupied the top-left 1487 × 1058 region, so the implementation was cropped to that region without resizing.
-- Mobile CSS viewport: 390 × 844. The in-app browser returned a 433 × 938 PNG with the same extra capture-canvas behavior; it was cropped to the top-left 390 × 844 region without resizing.
-- The mobile document height is 868px, requiring 24px of normal vertical scrolling. There is no horizontal overflow.
+- Desktop source images: 1487 × 1058 px.
+- Desktop implementation: 1440 × 1024 CSS px in the Codex in-app browser. Browser screenshots are 1600 × 1138 backing pixels with reported `devicePixelRatio = 0.9`.
+- Mobile implementation: 390 × 844 CSS px. Browser screenshots are 433 × 938 backing pixels with reported `devicePixelRatio = 0.9`.
+- Tablet verification: 768 × 844 CSS px.
+- Side-by-side desktop comparisons normalize both source and implementation to 1200 × 854 px before compositing. This removes backing-density differences while retaining the full viewport proportions.
+- State: live, authenticated, current published local session data from the disposable RLS fixture. Live names, counts, item labels, and number of groups/students differ from the sample canvas by design.
 
-## Full-view comparison evidence
+## Full-view findings
 
-The final side-by-side comparison shows the intended 45/55 split, deep-moss and paper surfaces, full-height panels, reference-scale ITQAN wordmark, enlarged Arabic focal point, stronger divider, centered sign-in group, generous field heights, and left-aligned support copy. The divider lands at 669px in a 1486px CSS viewport, within 0.3 percentage points of the source position. The wordmark measures 143px wide and sits approximately 11% from the left edge and 9% from the top.
+- Information hierarchy matches: dark ITQAN shell, teaching/grading eyebrow, page title, week surface, cohort/group workspace, restrained published/assigned emphasis, and privacy footer.
+- Dashboard and grading density match the source pattern. Live fixture counts produce three group rows and two grading rows rather than the canvas's sample four, but no fields or actions disappear.
+- Checklist uses the intended desktop right drawer and mobile full-width bottom sheet. The overlay, summary, item rows, and privacy note match the approved ordering.
+- No actionable P0, P1, or P2 findings remain.
 
-The source includes a subtle vignette and gold-tinted Arabic diacritics. Those remain P3 visual polish rather than required geometry: the production implementation keeps the existing flat moss token and renders the ayah as accessible semantic Arabic text.
+## Focused-region findings
 
-## Focused comparison evidence
-
-A separate focused crop was not needed because the source and implementation were compared at their original 1487 × 1058 scale and all critical details—Arabic shaping, wordmark size, divider, labels, helper text, controls, and support copy—remain legible in the full-view artifact. DOM measurements were also used to verify exact panel, wordmark, field, and control dimensions.
+- Dashboard group region: responsibility badge, real primary teacher, student/plan/grade counts, cohort access, and grading CTA are all visible and separated.
+- Grading table region: attendance, recitation, teacher notes, checklist, weekly plan state, save status, and individual save action align in the desktop grid and become labelled stacked fields on mobile.
+- Drawer region: exact stored labels, completion labels, weights, earned points, record state, and daily totals are present. Private notes, raw check-ins, timestamps, correction actors, and audit metadata are absent.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: passed. Noto Naskh Arabic preserves correct RTL shaping and diacritics. The Arabic line is 76.6px at the reference viewport, scales down without clipping, and stays on one line at 1024px and 320px after the final breakpoint correction. UI type preserves ITQAN's existing sans-serif stack.
-- Spacing and layout rhythm: passed. Desktop is 45/55 with zero-minimum tracks, the form remains capped at 36rem, and both panels fill the viewport. Mobile uses a deliberate 352px hero followed immediately by a flexible form section; no paper gap appears on tall mobile or tablet screens.
-- Colors and visual tokens: passed. Deep moss, warm paper, ink, white, and warm gold match the approved direction with readable contrast. The source vignette remains optional P3 polish.
-- Image quality and asset fidelity: passed. The target contains no required photography or raster illustration. The ayah remains real Arabic text, and the ornamental diamond uses the installed Phosphor icon library.
-- Copy and content: passed. ITQAN, the ayah, translation, citation, labels, helper text, primary action, and administrator support message match the selected direction.
-- Interaction and states: passed. `+442079460958` formats to `+44 20 7946 0958`; Show changes the password field to text and updates to Hide; loading, authentication error, and expired-session behavior are preserved.
-- Accessibility: passed for the implemented scope. Inputs retain explicit labels and helper association, mobile controls are 56px high, desktop controls are 72px high, focus treatment remains visible, Arabic has `dir="rtl"` and `lang="ar"`, and error/status announcements remain semantic.
-- Responsiveness: passed at 1487 × 1058, 1440 × 900, 1024 × 768, 768 × 1024, 430 × 932, 390 × 844, 375 × 812, and 320 × 568. No viewport has horizontal overflow, inter-panel gaps, collapsed fields, or clipped Arabic.
+- Fonts and typography: application system sans-serif matches the canvas's neutral sans character; hierarchy, weights, wrapping, line height, and uppercase eyebrow treatment are consistent. Long live group names wrap without hiding adjacent data.
+- Spacing and layout rhythm: 1440 px frame, header height, page margins, section spacing, separators, and dense table rhythm match. Mobile keeps 16 px page gutters and reachable 44 px controls.
+- Colors and tokens: approved `#17211d`, `#315747`, `#b58a3c`, `#f8f7f2`, white surfaces, stone borders, and restrained amber/green states are used without gradients or decorative substitutes.
+- Image and asset fidelity: the source contains application UI only. Existing Phosphor icons are used; there are no generated images, fake raster assets, inline SVGs, CSS drawings, emoji, or placeholder art.
+- Copy and content: approved ITQAN wordmark and presentation copy are retained. Production renders live group/teacher/student/checklist data rather than canvas sample data.
+
+## Interaction and accessibility verification
+
+- Week selector options were read and navigation was exercised.
+- All published groups remained enabled, including non-assigned groups.
+- Grading controls and resource actions were present at 1440, 768, and 390 CSS px; mobile actions were reached by vertical scrolling with `scrollWidth === viewportWidth`.
+- Checklist opened from an exact published group/student/version/week context and loaded sanitized RPC data.
+- Initial dialog focus moved to Close; Escape dismissed the dialog and restored focus to the Checklist trigger.
+- Overlay dismissal is wired to the labelled backdrop button; dialog focus wraps between the first and last focusable controls.
+- Empty checklist, loading skeleton, denied/stale/invalid messages, and retryable error action are implemented.
+- Browser console was checked after dashboard, grading, and checklist interactions; no application errors or warnings were reported.
 
 ## Comparison history
 
-1. The inherited implementation used a 46/54 desktop split, an undersized wordmark, a low Arabic focal point, a weaker divider, a slightly low form group, and centered support copy. It also relied on a full-page mobile capture that falsely appeared collapsed.
-2. The first correction pass changed the split to 45/55, enlarged and repositioned the wordmark and ayah, strengthened the divider, raised the content groups, left-aligned support copy, and introduced a controlled mobile hero. A normal viewport capture proved the mobile page itself was healthy; only the full-page capture path was faulty.
-3. The responsive matrix then found two P2 issues: unused height created a paper gap between sections on tall mobile/tablet screens, and the ayah wrapped at 1024px and 320px. Switching the mobile shell to a flexible column and adding breakpoint-aware Arabic sizing removed both issues.
-4. The final desktop comparison and responsive metrics found no remaining actionable P0, P1, or P2 differences. Remaining P3 polish is limited to the optional source vignette and two-tone diacritic treatment.
+1. Initial pass found a P2 dashboard issue: the absolutely positioned `Your assigned group` badge crowded the grading CTA with long live names. The assigned card now reserves desktop top space; post-fix evidence is `comparison-dashboard.png`.
+2. Initial pass found a P2 drawer proportion issue: the 520 px desktop drawer was narrower than the canvas's approximately 39% width. It is now 560 px at a 1440 px viewport; post-fix evidence is `comparison-checklist.png`.
+3. Post-fix pass found no actionable P0/P1/P2 differences. Remaining content-height differences come from real fixture row counts and are expected.
 
-## Browser verification
+## Follow-up polish
 
-- Primary interactions tested: adaptive international phone formatting and password Show/Hide.
-- Browser console errors and warnings: none.
-- Responsive DOM checks: no horizontal overflow, no inter-panel gaps, minimum 56px interactive height, and single-line Arabic at the narrow desktop and smallest mobile targets.
-
-## Final result
+- P3: very long production names can create different line breaks than the canvas sample. Current wrapping remains readable and does not hide data or actions.
 
 final result: passed
-
----
-
-# Admin Session Rotation UI — Design QA
-
-## Comparison target
-
-- Source visual truth: `/Users/zmasarweh/.codex/generated_images/019fd2bd-297c-70c3-aae9-29b4ca82e251/exec-62d3be5b-a237-48c8-82b7-2589029e024a.png`, plus the approved Step 2 and Step 4 canvases in `/Users/zmasarweh/.codex/visualizations/2026/08/06/019fd78c-8176-76f1-8d19-678eac4efc45/`.
-- Intended implementation route: `/admin/rotation`.
-- Browser attempt: `http://127.0.0.1:3001/admin/rotation`, desktop viewport.
-
-## Evidence
-
-The browser-rendered implementation could not reach the authenticated Rotation UI. The local server stops at the server-side configuration guard because this worktree has no `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_ANON_KEY`. The captured browser artifact is the Next.js configuration error at `http://127.0.0.1:3001/admin/rotation`; it is not treated as a visual implementation capture.
-
-Static implementation review confirms that the added UI preserves the approved one-page sequence and existing green-header/warm-white/table-first language: Step 2 provides session-only placement, group counts, moved/unchanged distinction, unplaced blockers, and imbalance warnings; Step 3 retains availability and adds primary responsibility selection; Step 4 composes availability, placements, teacher responsibility, review, atomic publish, live-version, revision, stale-refresh confirmation, and audit states. Native controls have at least 44px heights and semantic tables/labels are retained. This review does not replace browser comparison.
-
-## Required fidelity surfaces
-
-- Fonts and typography: blocked from browser comparison.
-- Spacing and layout rhythm: blocked from browser comparison.
-- Colors and visual tokens: blocked from browser comparison.
-- Image quality and asset fidelity: no new raster assets are required by the supplied dense application references; blocked from browser comparison.
-- Copy and content: verified statically against the approved state labels; browser verification remains blocked.
-- Accessibility and responsiveness: semantic table/label and mobile-control implementation reviewed statically; browser verification remains blocked.
-
-## Primary interactions intended for browser verification
-
-- Draft load, student placement/unplacement, primary-teacher assignment, review, publish, revision, and stale refresh confirmation.
-- Desktop and mobile table overflow, section continuation focus/scroll, blocked versus warning-only readiness, and published/read-only audit views.
-- Console error check after configured authenticated rendering.
-
-## Final result
-
-final result: blocked
-
----
-
-# Student availability design QA
-
-## Visual references
-
-- Source visual truth: `/Users/zmasarweh/.codex/generated_images/019fd2bd-297c-70c3-aae9-29b4ca82e251/exec-62d3be5b-a237-48c8-82b7-2589029e024a.png` (1487 × 1058).
-- Implementation capture: `/tmp/itqan-student-availability-qa/implementation-desktop.png` (1280 × 720).
-- Mobile capture: `/tmp/itqan-student-availability-qa/implementation-mobile.png` (390 × 844).
-- Side-by-side comparison: `/tmp/itqan-student-availability-qa/reference-vs-implementation.png`.
-
-## Evidence and findings
-
-The implemented page retains the existing ITQAN shell while applying the reference's dark green rotation header, compact readiness ledger, four-step in-page indicator, table-first availability section, default-attending language, and green/white control system. The implementation intentionally uses the application's existing scoped masjid/cohort/week controls and responsive card/table conventions rather than duplicating mock-only data or creating another route.
-
-At the desktop capture, the availability table is the first workflow section and exposes all required columns and controls. At 390 px, the controls wrap and the table remains usable through horizontal scrolling (860 px table width within a 326 px scroll viewport). The reference's bottom action treatment is adapted into the Step 1 action row so it stays reachable within the existing page flow.
-
-Interaction QA covered marking a student absent, entering an optional reason, searching, filtering to absences, the absence count/save state, and selecting Continue. Continue moved keyboard focus and scrolled to `#session-group-setup` without changing route. Browser console error logs were empty.
-
-No P0, P1, or P2 visual defects were found. A full-page browser capture was not used as evidence because its stitched result duplicated the page header; targeted desktop and mobile captures were used instead.
-
-## Final result
-
-Passed.
-
----
-
-# Admin Session Rotation corrective amendment — Design QA
-
-## Comparison target
-
-- Approved source visuals: Step 1 implementation reference plus the supplied Step 2 and Step 4 draft/published/stale canvases.
-- Deployed implementation: `https://itqan-lite-6ib0pfwky-zmasarw3hs-projects.vercel.app/admin/rotation`, Vercel deployment `2ehHEAcyFBFKrjhUu42no6iMZTFd`, commit `25e5645`.
-- Source visual truth: `/Users/zmasarweh/.codex/generated_images/019fd2bd-297c-70c3-aae9-29b4ca82e251/exec-62d3be5b-a237-48c8-82b7-2589029e024a.png` (1487 × 1058).
-- Authenticated implementation captures: `/Users/zmasarweh/.codex/visualizations/2026/08/06/019fd865-3979-7850-a6e8-990c9e8cb83c/admin-rotation-authenticated-server-error-desktop.png` (1280 × 720 desktop) and `/Users/zmasarweh/.codex/visualizations/2026/08/06/019fd865-3979-7850-a6e8-990c9e8cb83c/admin-rotation-authenticated-server-error-mobile-390x844.png` (390 × 844 mobile).
-- State: successful normal scoped-admin login, then `/admin/rotation`.
-
-## Browser evidence
-
-The initial authenticated run correctly exposed a missing-schema deployment blocker. After applying the reviewed availability, session-roster foundation, and stale-draft recovery migrations in filename order, the same deployed preview rendered successfully for the scoped admin.
-
-Post-migration captures:
-
-- `/Users/zmasarweh/.codex/visualizations/2026/08/06/final-admin-rotation-qa/desktop-step2-1440x1024.png`
-- `/Users/zmasarweh/.codex/visualizations/2026/08/06/final-admin-rotation-qa/desktop-step4-1440x1024.png`
-- `/Users/zmasarweh/.codex/visualizations/2026/08/06/final-admin-rotation-qa/mobile-step2-390x844-v2.png`
-- `/Users/zmasarweh/.codex/visualizations/2026/08/06/final-admin-rotation-qa/mobile-step4-390x844.png`
-
-The rendered page preserves the approved green-header, warm-white, table-first language and the single scrollable four-step sequence. Step 2 clearly separates Saturday-only placements from permanent group management. Step 4 shows blocker-aware roster review and retains the separate weekly teacher-assignment publication panel.
-
-Desktop verification at 1440 × 1024 found no body-level horizontal overflow or browser console warnings/errors. Mobile verification at 390 × 844 found no body-level horizontal overflow; wide data tables remain contained in nine explicit horizontal-scroll regions. Continue actions moved keyboard focus to `#session-group-setup`, `#teacher-responsibilities`, and `#assignment-review` without changing routes.
-
-No form was submitted during authenticated QA. Loading the page initialized the expected unpublished draft for the selected week, but availability, placements, permanent memberships, teacher assignments, review/publication, revision, and stale-refresh mutations were not exercised against live data. Those state transitions remain covered by the disposable database/RLS suite and focused application tests.
-
-## Required fidelity surfaces
-
-- Fonts and typography: passed for the rendered draft state.
-- Spacing and layout rhythm: passed at desktop and mobile; dense tables use intentional contained scrolling on mobile.
-- Colors and visual tokens: passed against the approved moss, warm-white, stone, and warning treatments.
-- Image quality and asset fidelity: no new raster assets are required by these operational surfaces.
-- Copy/content: passed for availability, session placement, permanent-management distinction, teacher responsibility, review blockers, and legacy assignment publication.
-- Accessibility interaction: section focus/scroll continuation passed; semantic labels, tables, and status copy rendered correctly.
-- Published, revision, and stale-refresh visuals were not activated against live data; their contracts and render paths remain test-covered.
-
-## Final result
-
-final result: passed for authenticated non-destructive draft-state QA; live publication/revision mutations intentionally not exercised

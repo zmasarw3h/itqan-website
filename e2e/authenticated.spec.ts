@@ -102,7 +102,7 @@ test.describe("authenticated teacher flow", () => {
     );
 
     await expect(page).toHaveURL(/\/teacher(?:\?|$)/);
-    await expect(page.getByRole("heading", { name: "Assigned groups" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Published teaching groups" })).toBeVisible();
 
     await page.goto("/teacher?week=2000-01-02");
     await expect(page).toHaveURL((url) => url.pathname === "/teacher" && url.searchParams.get("week") !== "2000-01-02");
@@ -121,12 +121,12 @@ test.describe("authenticated teacher flow", () => {
       await expect(page).toHaveURL((url) => url.searchParams.get("week") === alternateWeek);
     }
 
-    let groupLinks = page.getByRole("link", { name: "Open group" });
+    let groupLinks = page.getByRole("link", { name: "Open grading workspace" });
     for (const week of availableWeeks) {
       if ((await groupLinks.count()) > 0) break;
       await weekSelector.selectOption(week);
       await expect(page).toHaveURL((url) => url.searchParams.get("week") === week);
-      groupLinks = page.getByRole("link", { name: "Open group" });
+      groupLinks = page.getByRole("link", { name: "Open grading workspace" });
     }
 
     if ((await groupLinks.count()) === 0) {
@@ -144,25 +144,35 @@ test.describe("authenticated teacher flow", () => {
     expect(groupHrefs.length).toBeGreaterThan(0);
 
     await page.goto(groupHrefs[0]);
-    await expect(page.getByRole("heading", { name: "Roster" })).toBeVisible();
-    await expect(page.getByText("Daily check-ins").first()).toBeVisible();
-    await expect(page.getByText("Partner recitation").first()).toBeVisible();
-    await expect(page.getByRole("button", { name: "Save grade" }).first()).toBeVisible();
+    await expect(page.getByText("Grading workspace").first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Checklist" }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save", exact: true }).first()).toBeVisible();
+
+    const checklistTrigger = page.getByRole("button", { name: "Checklist" }).first();
+    await checklistTrigger.focus();
+    await checklistTrigger.click();
+    const checklistDialog = page.getByRole("dialog", { name: /.+/ });
+    await expect(checklistDialog).toBeVisible();
+    await expect(checklistDialog.getByText("Private notes are never shown.").first()).toBeVisible();
+    await expect(checklistDialog.getByText(/raw check-ins|correction actor|audit metadata|submission timestamp/i)).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(checklistDialog).toBeHidden();
+    await expect(checklistTrigger).toBeFocused();
 
     if (groupHrefs.length > 1) {
       await page.goto(groupHrefs[1]);
-      await expect(page.getByRole("heading", { name: "Roster" })).toBeVisible();
+      await expect(page.getByText("Grading workspace").first()).toBeVisible();
       await page.goto(groupHrefs[0]);
     }
 
-    const planLink = page.getByRole("link", { name: "View weekly plan" }).first();
+    const planLink = page.getByRole("link", { name: "Weekly plan" }).first();
     if ((await planLink.count()) > 0) {
       const downloadPromise = page.waitForEvent("download");
       await planLink.click();
       const download = await downloadPromise;
       expect(download.suggestedFilename().length).toBeGreaterThan(0);
     } else {
-      await expect(page.getByText("No weekly plan").first()).toBeVisible();
+      await expect(page.getByText("No plan").first()).toBeVisible();
     }
 
     const mutationsEnabled =
@@ -170,9 +180,9 @@ test.describe("authenticated teacher flow", () => {
       ["local", "test", "staging"].includes(targetEnvironment) &&
       testInfo.project.name === "chromium";
     if (mutationsEnabled) {
-      await page.getByRole("button", { name: "Save grade" }).first().click();
+      await page.getByRole("button", { name: "Save", exact: true }).first().click();
       await expect(page.getByRole("status")).toContainText("Halaqa grade saved.");
-      await expect(page.getByText(/Last saved/).first()).toBeVisible();
+      await expect(page.getByText("Saved").first()).toBeVisible();
     }
 
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -197,7 +207,7 @@ test.describe("authenticated admin-teacher flow", () => {
     expect(teachingHref).toBe("/teacher");
     await page.goto(teachingHref ?? "/teacher");
     await expect(page).toHaveURL(/\/teacher(?:\?|$)/);
-    await expect(page.getByRole("heading", { name: "Assigned groups" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Published teaching groups" })).toBeVisible();
   });
 });
 

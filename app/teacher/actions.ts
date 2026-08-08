@@ -2,8 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { isValidDateString } from "@/lib/dates";
 import { isTrackerWeekStart, parseTeacherGradeInput } from "@/lib/teacher-dashboard";
-import { classifyTeacherGradeSaveError } from "@/lib/teacher-session";
+import { classifyTeacherGradeSaveError, type TeacherChecklistDetailsResponse } from "@/lib/teacher-session";
 import {
   loadTeacherSessionStudentContext,
   requireTeacherExperience,
@@ -13,6 +14,62 @@ import {
 function groupPath(groupId: string, weekStart: string, status: string) {
   const params = new URLSearchParams({ week: weekStart, status });
   return `/teacher/groups/${groupId}?${params.toString()}`;
+}
+
+export type TeacherChecklistLoadResult =
+  | { ok: true; details: TeacherChecklistDetailsResponse }
+  | { ok: false; status: "denied" | "stale" | "invalid" | "error"; message: string };
+
+export async function loadTeacherChecklistDetails(input: {
+  studentId: string;
+  groupId: string;
+  versionId: string;
+  weekStart: string;
+  checklistDate: string;
+}): Promise<TeacherChecklistLoadResult> {
+  if (
+    !input.studentId || !input.groupId || !input.versionId ||
+    !isTrackerWeekStart(input.weekStart) || !isValidDateString(input.checklistDate)
+  ) {
+    return { ok: false, status: "invalid", message: "Choose a valid checklist date for this tracker week." };
+  }
+
+  let auth: Awaited<ReturnType<typeof requireTeacherExperience>>;
+  try {
+    auth = await requireTeacherExperience(input.weekStart);
+  } catch {
+    return { ok: false, status: "denied", message: "You are not authorized to view this checklist." };
+  }
+
+  try {
+    const context = await loadTeacherSessionStudentContext(auth.supabase, input.studentId, input.weekStart);
+    if (context.publication.version_id !== input.versionId) {
+      return { ok: false, status: "stale", message: "The published roster changed. Close this panel and reload the group." };
+    }
+    if (context.group.group_id !== input.groupId) {
+      return { ok: false, status: "denied", message: "This student is not in the selected published group." };
+    }
+
+    const { data, error } = await auth.supabase.rpc("get_teacher_session_checklist_details", {
+      input_version_id: input.versionId,
+      input_group_id: input.groupId,
+      input_student_id: input.studentId,
+      input_week_start: input.weekStart,
+      input_checklist_date: input.checklistDate
+    });
+
+    if (error || !data) {
+      const status = error?.code === "42501" ? "denied" : error?.code === "22023" ? "invalid" : "error";
+      return { ok: false, status, message: status === "error" ? "Checklist details could not be loaded. Try again." : "This checklist is unavailable for the selected published context." };
+    }
+
+    return { ok: true, details: data as TeacherChecklistDetailsResponse };
+  } catch (error) {
+    if (error instanceof TeacherScopeError) {
+      return { ok: false, status: "denied", message: "This checklist is outside your published session scope." };
+    }
+    return { ok: false, status: "error", message: "Checklist details could not be loaded. Try again." };
+  }
 }
 
 export async function saveTeacherHalaqaGrade(formData: FormData) {

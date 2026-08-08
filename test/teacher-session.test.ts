@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   classifyTeacherGradeSaveError,
   TEACHER_SESSION_CONTRACT_VERSION,
-  classifyTeacherChecklistRecord
+  classifyTeacherChecklistRecord,
+  teacherChecklistItemStatus
 } from "@/lib/teacher-session";
 
 describe("teacher session read contracts", () => {
@@ -41,6 +42,13 @@ describe("teacher session read contracts", () => {
 
   it("keeps the stable contract version explicit", () => {
     expect(TEACHER_SESSION_CONTRACT_VERSION).toBe(1);
+  });
+
+  it("uses privacy-safe checklist labels for historical and current unchecked items", () => {
+    expect(teacherChecklistItemStatus({ completed: true, checklistDate: "2026-08-01", currentDate: "2026-08-08" })).toBe("Completed");
+    expect(teacherChecklistItemStatus({ completed: false, checklistDate: "2026-08-01", currentDate: "2026-08-08" })).toBe("Missed");
+    expect(teacherChecklistItemStatus({ completed: false, checklistDate: "2026-08-08", currentDate: "2026-08-08" })).toBe("Not completed yet");
+    expect(teacherChecklistItemStatus({ completed: false, checklistDate: "2026-08-09", currentDate: "2026-08-08" })).toBe("Not completed yet");
   });
 
   it("preserves actionable grade-save error states", () => {

@@ -13,7 +13,7 @@ export default async function AppNav({
 }: {
   role: Role;
   name: string;
-  variant?: "default" | "rotation";
+  variant?: "default" | "rotation" | "teacher";
   activeHref?: string;
 }) {
   let hasTeacherCapability = role === "teacher";
@@ -25,20 +25,26 @@ export default async function AppNav({
 
   const links = navigationLinksForRole(role, hasTeacherCapability);
 
-  const isRotation = variant === "rotation";
+  const isTeacher = variant === "teacher";
+  const isDark = variant === "rotation" || variant === "teacher";
 
   return (
-    <header className={isRotation ? "border-b border-moss bg-ink" : "border-b border-stone-200 bg-white"}>
-      <nav className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
+    <header className={isDark ? "border-b border-moss bg-ink" : "border-b border-stone-200 bg-white"}>
+      <nav className={isTeacher
+        ? "mx-auto flex min-h-[88px] max-w-[1440px] items-center justify-between gap-3 px-4 py-3 sm:px-8"
+        : "mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3"}
+      >
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-gold">ITQAN</p>
-          <p className={`truncate text-sm ${isRotation ? "text-stone-200" : "text-stone-600"}`}>{name}</p>
+          <p className={isTeacher ? "text-lg font-bold tracking-wide text-gold" : "text-sm font-semibold text-gold"}>ITQAN</p>
+          <p className={`mt-0.5 truncate text-sm ${isDark ? "text-stone-100" : "text-stone-600"}`}>{name}</p>
         </div>
         <div className="hidden items-center gap-2 md:flex">
-          {links.map((link) => (
-            <Link
-              className={isRotation
-                ? `border-b-2 px-3 py-2 text-sm font-medium ${
+          {links.map((link) => {
+            const label = variant === "teacher" && link.href === "/teacher" ? "Dashboard" : link.label;
+            return (
+              <Link
+              className={isDark
+                ? `border-b-2 text-sm font-medium ${isTeacher ? "px-4 py-5" : "px-3 py-2"} ${
                   link.href === activeHref
                     ? "border-gold text-white"
                     : "border-transparent text-stone-100 hover:border-stone-500 hover:text-white"
@@ -47,12 +53,13 @@ export default async function AppNav({
               href={link.href}
               key={`${link.href}-${link.label}`}
             >
-              {link.label}
-            </Link>
-          ))}
+              {label}
+              </Link>
+            );
+          })}
           <form action={signOut}>
-            <button className={isRotation
-              ? "rounded-md border border-stone-500 px-3 py-2 text-sm font-medium text-white hover:bg-moss"
+            <button className={isDark
+              ? `${isTeacher ? "min-h-11 px-4 font-semibold" : "px-3 font-medium"} rounded-md border border-stone-500 py-2 text-sm text-white hover:bg-moss`
               : "rounded-md border border-stone-300 px-3 py-2 text-sm font-medium text-ink hover:bg-stone-100"}
             >
               Sign out
@@ -60,7 +67,7 @@ export default async function AppNav({
           </form>
         </div>
         <details className="relative md:hidden">
-          <summary className={isRotation
+          <summary className={isDark
             ? "list-none rounded-md border border-stone-500 px-3 py-2 text-sm font-medium text-white hover:bg-moss"
             : "list-none rounded-md border border-stone-300 px-3 py-2 text-sm font-medium text-ink hover:bg-stone-100"}
           >
@@ -73,7 +80,7 @@ export default async function AppNav({
                 href={link.href}
                 key={`${link.href}-${link.label}`}
               >
-                {link.label}
+                {variant === "teacher" && link.href === "/teacher" ? "Dashboard" : link.label}
               </Link>
             ))}
             <form action={signOut} className="mt-1 border-t border-stone-200 pt-1">
