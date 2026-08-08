@@ -13,6 +13,8 @@ export type SessionRosterBlockerCode =
   | "target_group_count_invalid"
   | "group_count_exceeds_available_teachers"
   | "group_count_mismatch_confirmation_required"
+  | "student_availability_confirmation_required"
+  | "teacher_availability_confirmation_required"
   | "requested_group_count_not_generated"
   | "duplicate_primary_teacher"
   | "teacher_group_mismatch_confirmation_required"
@@ -54,6 +56,23 @@ export type SessionRosterDraftRosterStudent = Pick<
 
 export type SessionRosterGroupCount = SessionRosterGroup & {
   attending_count: number;
+};
+
+export type SessionRosterWizardAvailabilityPrerequisite = {
+  ready: boolean;
+  confirmed: boolean;
+  confirmed_at: string | null;
+  confirmed_by: string | null;
+  attending_count?: number;
+  unavailable_count?: number;
+  available_teacher_count?: number;
+};
+
+export type SessionRosterWizardPrerequisiteState = {
+  students: SessionRosterWizardAvailabilityPrerequisite;
+  teachers: SessionRosterWizardAvailabilityPrerequisite;
+  groups: Record<string, unknown> & { ready: boolean };
+  review: Record<string, unknown> & { ready: boolean };
 };
 
 export type SessionRosterReadiness = {
@@ -99,8 +118,14 @@ export type SessionRosterReadiness = {
   participating_teachers?: SessionRosterWizardParticipant[];
   imbalance_warning?: boolean;
   primary_responsibilities?: Array<Record<string, unknown>>;
-  prerequisite_state?: Record<string, unknown>;
+  prerequisite_state?: SessionRosterWizardPrerequisiteState;
   recovery_guidance?: string | null;
+  student_availability_confirmed?: boolean;
+  student_availability_confirmed_at?: string | null;
+  student_availability_confirmed_by?: string | null;
+  teacher_availability_confirmed?: boolean;
+  teacher_availability_confirmed_at?: string | null;
+  teacher_availability_confirmed_by?: string | null;
 };
 
 export type SessionRosterDraftMetadata = {
@@ -129,7 +154,7 @@ export type SessionRosterDraftMetadata = {
   dependency_digest?: string | null;
   available_teacher_count?: number;
   derived_group_count?: number;
-  wizard_prerequisite_state?: Record<string, unknown>;
+  wizard_prerequisite_state?: SessionRosterWizardPrerequisiteState;
   mismatch_confirmation_required?: boolean;
   mismatch_confirmed?: boolean;
   unplaced_count?: number;
@@ -152,6 +177,9 @@ export type SessionRosterWizardTeacher = {
   teacher_name: string;
   teacher_email: string | null;
   available: boolean;
+  last_published_week_start: string | null;
+  last_published_halaqa_saturday: string | null;
+  last_published_group_name: string | null;
 };
 
 export type SessionRosterWizardParticipant = {
@@ -185,8 +213,14 @@ export type SessionRosterWizardReadiness = SessionRosterReadiness & {
   mismatch_confirmed: boolean;
   imbalance_warning: boolean;
   primary_responsibilities: Array<Record<string, unknown>>;
-  prerequisite_state: Record<string, unknown>;
+  prerequisite_state: SessionRosterWizardPrerequisiteState;
   recovery_guidance: string | null;
+  student_availability_confirmed: boolean;
+  student_availability_confirmed_at: string | null;
+  student_availability_confirmed_by: string | null;
+  teacher_availability_confirmed: boolean;
+  teacher_availability_confirmed_at: string | null;
+  teacher_availability_confirmed_by: string | null;
 };
 
 export type SessionRosterWizardDraftResponse = {
@@ -201,7 +235,7 @@ export type SessionRosterWizardDraftResponse = {
     actual_group_count: number;
     derived_group_count: number;
     group_count_mismatch_confirmed: boolean;
-    wizard_prerequisite_state: Record<string, unknown>;
+    wizard_prerequisite_state: SessionRosterWizardPrerequisiteState;
     mismatch_confirmation_required: boolean;
     mismatch_confirmed: boolean;
     unplaced_count: number;

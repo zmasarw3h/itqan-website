@@ -138,18 +138,23 @@ The session-roster and teacher-session migrations are additive and depend on the
    legacy-draft preview/transition, and the corresponding authorization/grant reconciliation. Both are
    additive and must be applied in filename order. Before any staging or production apply, run the read-only
    `scripts/report-rotation-legacy-drafts.sql` report and explicitly review each affected cohort/week.
-7. Before staging, run `npm run test:rls`, `npx supabase db lint --local --schema public --level warning
+7. Apply `20260808175048_rotation_wizard_availability_confirmation.sql` last. It adds one sparse
+   cohort/week confirmation row, atomically records student/teacher confirmation in the existing
+   availability RPCs, extends readiness, and adds scoped last-published-primary context. It does not
+   rewrite availability ledgers or published history. Run the read-only confirmation preflight in
+   `docs/ROTATION_WIZARD_CONFIRMATIONS.md` before enabling the wizard UI.
+8. Before staging, run `npm run test:rls`, `npx supabase db lint --local --schema public --level warning
    --fail-on error`, and `npx supabase db advisors --local --type all --level warn --fail-on error` against
    a disposable local stack. The advisor command may report existing warnings on legacy tables and the
    public `btree_gist` extension; treat new findings from this migration as release blockers.
-8. Apply all eight migrations to staging, verify the normal-admin draft/review/publish flow and the
+9. Apply all nine migrations to staging, verify the normal-admin draft/review/publish flow and the
    explicit stale-draft refresh/review flow for an explicitly selected cohort, and verify that signed
    browser clients cannot write roster tables or execute the mutation RPCs. Also verify direct teacher
    reads of raw checkins/checkin_items are denied, the sanitized checklist RPC succeeds, the legacy roster
    RPC is denied before/during/after publication, the confirmed smaller-count path preserves cohort-wide
    co-teacher access without a primary highlight, and the legacy-draft transition preserves the live
    publication. Confirm that the existing availability and teacher-rotation flows remain unchanged.
-9. Back up production, apply the same migration order manually, run the catalog/RLS smoke checks, and
+10. Back up production, apply the same migration order manually, run the catalog/RLS smoke checks, and
    deploy application code only after the schema is ready. This backend slice does not backfill drafts,
    versions, memberships, grades, plans, or teacher assignments; production remains unchanged until an
    admin explicitly uses the existing application workflow. Deploy matching server actions/routes only

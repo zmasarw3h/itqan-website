@@ -6107,7 +6107,9 @@ async function testStudentRotationAvailability(ids: SeedIds) {
   assert.deepEqual(saved.data, {
     cohort_id: ids.cohortA,
     week_start: ids.weekStart,
-    absence_count: 1
+    absence_count: 1,
+    student_availability_confirmed: true,
+    student_availability_revision: 1
   });
 
   const absence = await requireData<{ id: string; available: boolean; reason: string | null; recorded_by: string }>(
@@ -8090,6 +8092,463 @@ async function testTeacherDrivenRotationWizard(ids: SeedIds) {
   assert.deepEqual(historicalVersion, [{ id: publishedPayload.version.id, published_by: ids.users.adminA, version_number: 1 }]);
 }
 
+async function testRotationWizardAvailabilityConfirmation(ids: SeedIds) {
+  type ConfirmationRow = {
+    cohort_id: string;
+    week_start: string;
+    student_availability_confirmed_at: string | null;
+    student_availability_confirmed_by: string | null;
+    teacher_availability_confirmed_at: string | null;
+    teacher_availability_confirmed_by: string | null;
+    student_availability_revision: number;
+    teacher_availability_revision: number;
+    state_version: number;
+  };
+  type WizardTeacher = {
+    teacher_id: string;
+    available: boolean;
+    last_published_week_start: string | null;
+    last_published_halaqa_saturday: string | null;
+    last_published_group_name: string | null;
+  };
+  type WizardPayload = {
+    draft: { id: string; state_version: number; dependency_digest: string };
+    teachers: WizardTeacher[];
+    groups: Array<{ session_group_slot_id: string; primary_teacher_id: string | null }>;
+    readiness: {
+      source_stale: boolean;
+      blocker_codes: string[];
+      student_availability_confirmed: boolean;
+      teacher_availability_confirmed: boolean;
+      prerequisite_state: {
+        students: { confirmed: boolean; ready: boolean };
+        teachers: { confirmed: boolean; ready: boolean; available_teacher_count: number };
+        groups: { ready: boolean };
+        review: { ready: boolean };
+      };
+    };
+  };
+
+  const service = localClient(serviceRoleKey);
+  const [adminA, adminB, superAdmin, teacherA, studentA] = await Promise.all([
+    signIn("adminA"),
+    signIn("adminB"),
+    signIn("superAdmin"),
+    signIn("teacherA"),
+    signIn("studentA")
+  ]);
+  const anonymous = localClient(anonKey);
+  const cohortId = ids.cohortWriter;
+  // +14 is used by the merged group-count regression and +7 by the merged
+  // teacher wizard regression, so keep this focused fixture disjoint.
+  const neverSavedWeek = addDays(ids.weekStart, 49);
+  const sparseWeek = addDays(ids.weekStart, 56);
+  const defaultWeek = addDays(ids.weekStart, 63);
+  const publishedWeek = addDays(ids.weekStart, 70);
+  const contextWeek = addDays(ids.weekStart, 77);
+
+  async function confirmation(weekStart: string, client = service): Promise<ConfirmationRow | null> {
+    const rows = await requireData<ConfirmationRow[]>(
+      `read wizard confirmation ${weekStart}`,
+      client
+        .from("session_roster_wizard_confirmations")
+        .select("cohort_id,week_start,student_availability_confirmed_at,student_availability_confirmed_by,teacher_availability_confirmed_at,teacher_availability_confirmed_by,student_availability_revision,teacher_availability_revision,state_version")
+        .eq("cohort_id", cohortId)
+        .eq("week_start", weekStart)
+    );
+    return rows[0] ?? null;
+  }
+
+  // Missing student rows remain attending, but an untouched source is not a
+  // confirmed Step 1 state. Teacher confirmation alone must not unlock groups.
+  const teacherOnly = await service.rpc("apply_teacher_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: neverSavedWeek,
+    input_available_teacher_ids: [ids.users.teacherA]
+  });
+  assert.equal(teacherOnly.error, null, teacherOnly.error?.message);
+  const neverSaved = await service.rpc("load_or_create_session_roster_wizard_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: neverSavedWeek
+  });
+  assert.equal(neverSaved.error, null, neverSaved.error?.message);
+  const neverSavedPayload = neverSaved.data as WizardPayload;
+  assert.equal(neverSavedPayload.readiness.student_availability_confirmed, false);
+  assert.equal(neverSavedPayload.readiness.teacher_availability_confirmed, true);
+  assert.equal(neverSavedPayload.readiness.prerequisite_state.students.confirmed, false);
+  assert.equal(neverSavedPayload.readiness.prerequisite_state.students.ready, false);
+  assert.equal(neverSavedPayload.readiness.prerequisite_state.teachers.ready, true);
+  assert.equal(neverSavedPayload.readiness.prerequisite_state.groups.ready, false);
+  assert.ok(neverSavedPayload.readiness.blocker_codes.includes("student_availability_confirmation_required"));
+  const neverSavedStudents = await requireData<Array<{ attendance_status: string }>>(
+    "read untouched all-attending wizard students",
+    service
+      .from("session_roster_draft_students")
+      .select("attendance_status")
+      .eq("draft_id", neverSavedPayload.draft.id)
+  );
+  assert.ok(neverSavedStudents.length > 0);
+  assert.ok(neverSavedStudents.every((student) => student.attendance_status === "attending"));
+  assert.equal((await confirmation(neverSavedWeek))?.student_availability_confirmed_at, null);
+
+  // Sparse absences plus confirmation, invalid submissions, and identical
+  // re-confirmations all preserve atomicity and advance the dependency state.
+  const sparseStudentSave = await service.rpc("apply_student_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: sparseWeek,
+    input_absences: [{ student_id: ids.users.studentWriter, reason: "confirmation regression" }]
+  });
+  assert.equal(sparseStudentSave.error, null, sparseStudentSave.error?.message);
+  const sparseTeacherSave = await service.rpc("apply_teacher_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: sparseWeek,
+    input_available_teacher_ids: [ids.users.teacherA]
+  });
+  assert.equal(sparseTeacherSave.error, null, sparseTeacherSave.error?.message);
+  const sparseDraftResult = await service.rpc("load_or_create_session_roster_wizard_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: sparseWeek
+  });
+  assert.equal(sparseDraftResult.error, null, sparseDraftResult.error?.message);
+  const sparseDraft = sparseDraftResult.data as WizardPayload;
+  assert.equal(sparseDraft.readiness.student_availability_confirmed, true);
+  assert.equal(sparseDraft.readiness.teacher_availability_confirmed, true);
+  assert.equal(sparseDraft.readiness.prerequisite_state.students.ready, true);
+  assert.equal(sparseDraft.readiness.prerequisite_state.teachers.ready, true);
+  assert.equal(sparseDraft.readiness.prerequisite_state.groups.ready, false);
+  const sparseAbsencesBefore = await requireData<Array<{ student_id: string; reason: string | null }>>(
+    "read sparse absence before invalid submission",
+    service
+      .from("student_rotation_availability")
+      .select("student_id,reason")
+      .eq("cohort_id", cohortId)
+      .eq("week_start", sparseWeek)
+  );
+  const sparseConfirmationBefore = (await confirmation(sparseWeek))!;
+  const invalidStudent = await service.rpc("apply_student_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: sparseWeek,
+    input_absences: [{ student_id: randomUUID(), reason: "must rollback" }]
+  });
+  assert.ok(invalidStudent.error);
+  const sparseAbsencesAfter = await requireData<Array<{ student_id: string; reason: string | null }>>(
+    "read sparse absence after invalid submission",
+    service
+      .from("student_rotation_availability")
+      .select("student_id,reason")
+      .eq("cohort_id", cohortId)
+      .eq("week_start", sparseWeek)
+  );
+  assert.deepEqual(sparseAbsencesAfter, sparseAbsencesBefore);
+  assert.deepEqual(await confirmation(sparseWeek), sparseConfirmationBefore);
+  const teacherRowsBefore = await requireData<Array<{ teacher_id: string; available: boolean }>>(
+    "read teacher availability before invalid submission",
+    service
+      .from("teacher_rotation_availability")
+      .select("teacher_id,available")
+      .eq("cohort_id", cohortId)
+      .eq("week_start", sparseWeek)
+      .order("teacher_id")
+  );
+  const invalidTeacher = await service.rpc("apply_teacher_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: sparseWeek,
+    input_available_teacher_ids: [randomUUID()]
+  });
+  assert.ok(invalidTeacher.error);
+  const teacherRowsAfter = await requireData<Array<{ teacher_id: string; available: boolean }>>(
+    "read teacher availability after invalid submission",
+    service
+      .from("teacher_rotation_availability")
+      .select("teacher_id,available")
+      .eq("cohort_id", cohortId)
+      .eq("week_start", sparseWeek)
+      .order("teacher_id")
+  );
+  assert.deepEqual(teacherRowsAfter, teacherRowsBefore);
+  assert.deepEqual(await confirmation(sparseWeek), sparseConfirmationBefore);
+  const sameStudentSave = await service.rpc("apply_student_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: sparseWeek,
+    input_absences: [{ student_id: ids.users.studentWriter, reason: "confirmation regression" }]
+  });
+  assert.equal(sameStudentSave.error, null, sameStudentSave.error?.message);
+  const sameTeacherSave = await service.rpc("apply_teacher_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: sparseWeek,
+    input_available_teacher_ids: [ids.users.teacherA]
+  });
+  assert.equal(sameTeacherSave.error, null, sameTeacherSave.error?.message);
+  const sparseConfirmationAfter = (await confirmation(sparseWeek))!;
+  assert.equal(sparseConfirmationAfter.student_availability_revision, sparseConfirmationBefore.student_availability_revision + 1);
+  assert.equal(sparseConfirmationAfter.teacher_availability_revision, sparseConfirmationBefore.teacher_availability_revision + 1);
+  const staleSparse = await service.rpc("load_or_create_session_roster_wizard_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: sparseWeek
+  });
+  assert.equal(staleSparse.error, null, staleSparse.error?.message);
+  assert.equal((staleSparse.data as WizardPayload).readiness.source_stale, true);
+
+  // The table is readable only by the scoped normal admin and has no browser
+  // write privilege. This also checks super-admin and anonymous denial.
+  assert.ok(await confirmation(sparseWeek, adminA));
+  assert.equal(await confirmation(sparseWeek, adminB), null);
+  assert.equal(await confirmation(sparseWeek, superAdmin), null);
+  assert.equal(await confirmation(sparseWeek, studentA), null);
+  assert.equal(await confirmation(sparseWeek, teacherA), null);
+  const anonymousConfirmation = await anonymous
+    .from("session_roster_wizard_confirmations")
+    .select("cohort_id")
+    .eq("cohort_id", cohortId)
+    .eq("week_start", sparseWeek);
+  assert.ok(anonymousConfirmation.error || (anonymousConfirmation.data ?? []).length === 0);
+  const directInsert = await adminA.from("session_roster_wizard_confirmations").insert({
+    cohort_id: cohortId,
+    week_start: addDays(sparseWeek, 7),
+    student_availability_confirmed_at: new Date().toISOString(),
+    student_availability_confirmed_by: ids.users.adminA
+  });
+  assert.ok(directInsert.error, "normal admin bypassed service-only confirmation write");
+
+  // First-save all-attending remains sparse, while confirmed zero teachers is
+  // authoritative but not ready for generation.
+  const defaultStudentSave = await service.rpc("apply_student_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: defaultWeek,
+    input_absences: []
+  });
+  assert.equal(defaultStudentSave.error, null, defaultStudentSave.error?.message);
+  const defaultAbsences = await requireData<Array<{ id: string }>>(
+    "prove confirmed all-attending remains sparse",
+    service
+      .from("student_rotation_availability")
+      .select("id")
+      .eq("cohort_id", cohortId)
+      .eq("week_start", defaultWeek)
+  );
+  assert.equal(defaultAbsences.length, 0);
+  const defaultTeacherSave = await service.rpc("apply_teacher_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: defaultWeek,
+    input_available_teacher_ids: [ids.users.teacherA, ids.users.adminA]
+  });
+  assert.equal(defaultTeacherSave.error, null, defaultTeacherSave.error?.message);
+  const defaultDraftResult = await service.rpc("load_or_create_session_roster_wizard_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: defaultWeek
+  });
+  assert.equal(defaultDraftResult.error, null, defaultDraftResult.error?.message);
+  let defaultPayload = defaultDraftResult.data as WizardPayload;
+  assert.equal(defaultPayload.readiness.student_availability_confirmed, true);
+  assert.equal(defaultPayload.readiness.teacher_availability_confirmed, true);
+  assert.equal(defaultPayload.readiness.prerequisite_state.groups.ready, false);
+  const defaultGeneration = await service.rpc("generate_session_roster_wizard_groups_v2", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: defaultPayload.draft.id,
+    input_expected_state_version: defaultPayload.draft.state_version,
+    input_expected_dependency_digest: defaultPayload.draft.dependency_digest,
+    input_target_group_count: null,
+    input_confirm_group_count_mismatch: false,
+    input_confirm_discard_changes: false
+  });
+  assert.equal(defaultGeneration.error, null, defaultGeneration.error?.message);
+  defaultPayload = defaultGeneration.data as WizardPayload;
+  assert.equal(defaultPayload.groups.length, 2);
+  assert.equal(new Set(defaultPayload.groups.map((group) => group.primary_teacher_id)).size, 2);
+  assert.equal(defaultPayload.readiness.prerequisite_state.groups.ready, true);
+
+  const zeroWeek = addDays(defaultWeek, 7);
+  for (const [name, args] of [
+    ["zero-week students", { input_absences: [] }],
+  ] as const) {
+    const save = await service.rpc("apply_student_rotation_availability", {
+      input_actor_id: ids.users.adminA,
+      input_cohort_id: cohortId,
+      input_week_start: zeroWeek,
+      ...args
+    });
+    assert.equal(save.error, null, `${name} failed: ${save.error?.message}`);
+  }
+  const zeroTeacherSave = await service.rpc("apply_teacher_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: zeroWeek,
+    input_available_teacher_ids: []
+  });
+  assert.equal(zeroTeacherSave.error, null, zeroTeacherSave.error?.message);
+  const zeroPayloadResult = await service.rpc("load_or_create_session_roster_wizard_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: zeroWeek
+  });
+  assert.equal(zeroPayloadResult.error, null, zeroPayloadResult.error?.message);
+  const zeroPayload = zeroPayloadResult.data as WizardPayload;
+  assert.equal(zeroPayload.readiness.teacher_availability_confirmed, true);
+  assert.equal(zeroPayload.readiness.prerequisite_state.teachers.confirmed, true);
+  assert.equal(zeroPayload.readiness.prerequisite_state.teachers.ready, false);
+  assert.ok(zeroPayload.readiness.blocker_codes.includes("no_available_teachers"));
+
+  // Check the primary-history response against a direct, scoped query before
+  // this test adds another publication. The query intentionally ignores
+  // participant snapshots, so co-teacher-only participation cannot qualify.
+  const priorVersionRows = await requireData<Array<{
+    week_start: string;
+    halaqa_saturday: string;
+    version_number: number;
+    published_at: string;
+    session_roster_version_slots: Array<{ primary_teacher_id: string; slot_name: string }>;
+  }>>(
+    "read prior published primary history",
+    service
+      .from("session_roster_versions")
+      .select("week_start,halaqa_saturday,version_number,published_at,session_roster_version_slots!inner(primary_teacher_id,slot_name)")
+      .eq("cohort_id", cohortId)
+      .order("week_start", { ascending: false })
+      .order("version_number", { ascending: false })
+      .limit(20)
+  );
+  const priorPrimaryRows = priorVersionRows.flatMap((row) => {
+    const slots = row.session_roster_version_slots;
+    return slots.map((slot) => ({
+      teacher_id: slot.primary_teacher_id,
+      week_start: row.week_start,
+      halaqa_saturday: row.halaqa_saturday,
+      group_name: slot.slot_name,
+      version_number: row.version_number,
+      published_at: row.published_at
+    }));
+  });
+  const expectedPriorPrimary = new Map<string, (typeof priorPrimaryRows)[number]>();
+  for (const row of priorPrimaryRows) {
+    if (!expectedPriorPrimary.has(row.teacher_id)) expectedPriorPrimary.set(row.teacher_id, row);
+  }
+
+  const publishedStudentSave = await service.rpc("apply_student_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: publishedWeek,
+    input_absences: []
+  });
+  assert.equal(publishedStudentSave.error, null, publishedStudentSave.error?.message);
+  const publishedTeacherSave = await service.rpc("apply_teacher_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: publishedWeek,
+    input_available_teacher_ids: [ids.users.teacherA, ids.users.adminA]
+  });
+  assert.equal(publishedTeacherSave.error, null, publishedTeacherSave.error?.message);
+  const historicalContextResult = await service.rpc("load_or_create_session_roster_wizard_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: publishedWeek
+  });
+  assert.equal(historicalContextResult.error, null, historicalContextResult.error?.message);
+  const historicalContext = historicalContextResult.data as WizardPayload;
+  const contextTeachers = new Map(historicalContext.teachers.map((teacher) => [teacher.teacher_id, teacher]));
+  for (const teacherId of [ids.users.teacherA, ids.users.adminA]) {
+    const expected = expectedPriorPrimary.get(teacherId);
+    assert.equal(contextTeachers.get(teacherId)?.last_published_week_start, expected?.week_start ?? null);
+    assert.equal(contextTeachers.get(teacherId)?.last_published_group_name, expected?.group_name ?? null);
+  }
+  assert.equal(contextTeachers.get(ids.users.futureAssignmentTeacher)?.last_published_week_start ?? null, null);
+
+  const smallerGeneration = await service.rpc("generate_session_roster_wizard_groups_v2", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: historicalContext.draft.id,
+    input_expected_state_version: historicalContext.draft.state_version,
+    input_expected_dependency_digest: historicalContext.draft.dependency_digest,
+    input_target_group_count: 1,
+    input_confirm_group_count_mismatch: true,
+    input_confirm_discard_changes: true
+  });
+  assert.equal(smallerGeneration.error, null, smallerGeneration.error?.message);
+  const smallerPayload = smallerGeneration.data as WizardPayload;
+  assert.equal(smallerPayload.groups.length, 1);
+  const smallerPrimary = smallerPayload.groups[0].primary_teacher_id!;
+  const smallerCoTeacher = [ids.users.teacherA, ids.users.adminA].find((id) => id !== smallerPrimary)!;
+  const smallerReview = await service.rpc("review_session_roster_wizard_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: smallerPayload.draft.id,
+    input_expected_state_version: smallerPayload.draft.state_version
+  });
+  assert.equal(smallerReview.error, null, smallerReview.error?.message);
+  const smallerReviewed = smallerReview.data as WizardPayload;
+  const smallerPublish = await service.rpc("publish_session_roster_wizard_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_draft_id: smallerReviewed.draft.id,
+    input_expected_state_version: smallerReviewed.draft.state_version,
+    input_confirm_publish: true
+  });
+  assert.equal(smallerPublish.error, null, smallerPublish.error?.message);
+
+  const contextStudentSave = await service.rpc("apply_student_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: contextWeek,
+    input_absences: []
+  });
+  assert.equal(contextStudentSave.error, null, contextStudentSave.error?.message);
+  const contextTeacherSave = await service.rpc("apply_teacher_rotation_availability", {
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: contextWeek,
+    input_available_teacher_ids: []
+  });
+  assert.equal(contextTeacherSave.error, null, contextTeacherSave.error?.message);
+  const contextResult = await service.rpc("load_or_create_session_roster_wizard_draft", {
+    input_request_id: randomUUID(),
+    input_actor_id: ids.users.adminA,
+    input_cohort_id: cohortId,
+    input_week_start: contextWeek
+  });
+  assert.equal(contextResult.error, null, contextResult.error?.message);
+  const contextPayload = contextResult.data as WizardPayload;
+  const contextAfterPublication = new Map(contextPayload.teachers.map((teacher) => [teacher.teacher_id, teacher]));
+  assert.equal(contextAfterPublication.get(smallerPrimary)?.last_published_week_start, publishedWeek);
+  assert.equal(contextAfterPublication.get(smallerCoTeacher)?.last_published_week_start, expectedPriorPrimary.get(smallerCoTeacher)?.week_start ?? null);
+  assert.equal(contextAfterPublication.get(ids.users.futureAssignmentTeacher)?.last_published_week_start ?? null, null);
+
+  // Service-only wizard RPCs still reject cross-masjid, teacher, student, and
+  // super-admin actors; URL/browser state cannot grant workflow authority.
+  for (const [label, actorId] of [
+    ["cross-scope", ids.users.adminB],
+    ["teacher", ids.users.teacherA],
+    ["student", ids.users.studentA],
+    ["super-admin", ids.users.superAdmin]
+  ] as const) {
+    const denied = await service.rpc("load_or_create_session_roster_wizard_draft", {
+      input_request_id: randomUUID(),
+      input_actor_id: actorId,
+      input_cohort_id: cohortId,
+      input_week_start: contextWeek
+    });
+    assert.equal(denied.error?.code, "42501", `${label} actor reached wizard RPC`);
+  }
+}
+
 async function testTeacherDrivenGroupCountAmendment(ids: SeedIds) {
   type WizardPayload = {
     draft: { id: string; state_version: number; dependency_digest: string | null };
@@ -8625,6 +9084,7 @@ async function main() {
   await testLegacyWizardTransition(ids);
   await testTeacherDrivenGroupCountAmendment(ids);
   await testTeacherDrivenRotationWizard(ids);
+  await testRotationWizardAvailabilityConfirmation(ids);
   console.log("RLS integration suite passed: signed-session multi-masjid boundaries are enforced.");
 }
 

@@ -407,6 +407,15 @@ which case reload and publish the newly prepared state. Availability is opt-in a
 selected cohort/Sunday means unavailable. See `docs/ROTATION_PUBLICATION.md` for rollout, replay,
 concurrency, run history, temporary legacy compatibility, and later cleanup.
 
+The sequential teacher-driven wizard uses the additive confirmation contract in
+`docs/ROTATION_WIZARD_CONFIRMATIONS.md`. Missing student availability rows still mean attending, but
+Step 1 is not complete until the sparse absence set is saved. An all-attending save therefore creates
+zero absence rows and one confirmation row. Teacher confirmation is independent; a confirmed zero-
+available-teacher answer remains blocked because no group can be generated. Re-saving either source,
+even with identical values, advances its dependency revision and stales placed drafts. Apply the
+confirmation migration after the merged wizard migrations and before deploying the matching server
+actions; use a forward fix if a rollout issue occurs.
+
 Admin workflow in the app:
 
 1. Sign in as an admin.
