@@ -82,7 +82,7 @@ export default function LeaderboardTable({ rows }: { rows: LeaderboardRow[] }) {
                 <td className="px-4 py-3 text-stone-700">{row.score.halaqa_points} / 150</td>
                 <td className="px-4 py-3">
                   {row.canOpenCurrentProfile ? (
-                    <Link className="font-medium text-moss hover:text-ink" href={`/admin/students/${row.studentId}`}>
+                    <Link className="font-medium text-moss hover:text-ink" href={`/admin/students/${row.studentId}`} prefetch={false}>
                       Open
                     </Link>
                   ) : (

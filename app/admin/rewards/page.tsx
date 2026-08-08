@@ -105,7 +105,7 @@ export default async function AdminRewardsPage({
                     <td className="px-3 py-3 font-semibold text-ink">{row.rank}</td>
                     <td className="px-3 py-3">
                       {row.canOpenCurrentProfile ? (
-                        <Link className="font-medium text-moss hover:text-ink" href={`/admin/students/${row.studentId}`}>
+                        <Link className="font-medium text-moss hover:text-ink" href={`/admin/students/${row.studentId}`} prefetch={false}>
                           {row.studentName}
                         </Link>
                       ) : (

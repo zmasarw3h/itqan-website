@@ -43,17 +43,18 @@ export default async function AppNav({
             const label = variant === "teacher" && link.href === "/teacher" ? "Dashboard" : link.label;
             return (
               <Link
-              className={isDark
-                ? `border-b-2 text-sm font-medium ${isTeacher ? "px-4 py-5" : "px-3 py-2"} ${
-                  link.href === activeHref
-                    ? "border-gold text-white"
-                    : "border-transparent text-stone-100 hover:border-stone-500 hover:text-white"
-                }`
-                : "rounded-md px-3 py-2 text-sm font-medium text-ink hover:bg-stone-100"}
-              href={link.href}
-              key={`${link.href}-${link.label}`}
-            >
-              {label}
+                className={isDark
+                  ? `border-b-2 text-sm font-medium ${isTeacher ? "px-4 py-5" : "px-3 py-2"} ${
+                    link.href === activeHref
+                      ? "border-gold text-white"
+                      : "border-transparent text-stone-100 hover:border-stone-500 hover:text-white"
+                  }`
+                  : "rounded-md px-3 py-2 text-sm font-medium text-ink hover:bg-stone-100"}
+                href={link.href}
+                key={`${link.href}-${link.label}`}
+                prefetch={link.prefetch}
+              >
+                {label}
               </Link>
             );
           })}
@@ -79,6 +80,7 @@ export default async function AppNav({
                 className="flex min-h-11 items-center rounded-md px-3 py-2 text-sm font-medium text-ink hover:bg-stone-100"
                 href={link.href}
                 key={`${link.href}-${link.label}`}
+                prefetch={link.prefetch}
               >
                 {variant === "teacher" && link.href === "/teacher" ? "Dashboard" : link.label}
               </Link>

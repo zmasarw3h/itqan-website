@@ -181,6 +181,7 @@ export default async function AdminIncentivesPage({
                       : "rounded-md border border-transparent bg-stone-50 p-4 hover:border-stone-300"
                   }
                   href={`/admin/incentives?week=${data.report.selectedWeekStart}&view=badges`}
+                  prefetch={false}
                 >
                   <p className="text-sm text-stone-600">Badge earners</p>
                   <p className="mt-1 text-2xl font-semibold text-ink">{data.report.mostBadgesThisWeek.length}</p>
@@ -192,6 +193,7 @@ export default async function AdminIncentivesPage({
                       : "rounded-md border border-transparent bg-stone-50 p-4 hover:border-stone-300"
                   }
                   href={`/admin/incentives?week=${data.report.selectedWeekStart}&view=below70`}
+                  prefetch={false}
                 >
                   <p className="text-sm text-stone-600">Below 70%</p>
                   <p className="mt-1 text-2xl font-semibold text-ink">{data.report.below70ThisWeek.length}</p>
@@ -203,6 +205,7 @@ export default async function AdminIncentivesPage({
                       : "rounded-md border border-transparent bg-stone-50 p-4 hover:border-stone-300"
                   }
                   href={`/admin/incentives?week=${data.report.selectedWeekStart}&view=two-week`}
+                  prefetch={false}
                 >
                   <p className="text-sm text-stone-600">Two-week below 70%</p>
                   <p className="mt-1 text-2xl font-semibold text-ink">{data.report.below70TwoWeeksStraight.length}</p>
@@ -214,6 +217,7 @@ export default async function AdminIncentivesPage({
                       : "rounded-md border border-transparent bg-stone-50 p-4 hover:border-stone-300"
                   }
                   href={`/admin/incentives?week=${data.report.selectedWeekStart}&view=three-week`}
+                  prefetch={false}
                 >
                   <p className="text-sm text-stone-600">Three-week 70%+</p>
                   <p className="mt-1 text-2xl font-semibold text-ink">{data.report.passingThreeWeeksStraight.length}</p>
