@@ -225,3 +225,12 @@ export function classifyTeacherChecklistRecord(input: {
 
   return input.completedItemCount === input.itemCount ? "complete" : "partial";
 }
+
+export function teacherChecklistItemStatus(input: {
+  completed: boolean;
+  checklistDate: string;
+  currentDate: string;
+}) {
+  if (input.completed) return "Completed" as const;
+  return input.checklistDate < input.currentDate ? "Missed" as const : "Not completed yet" as const;
+}
