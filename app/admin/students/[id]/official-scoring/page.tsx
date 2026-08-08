@@ -82,7 +82,7 @@ export default async function OfficialScoringPage({
     <>
       <AppNav role={profile.role} name={profile.name} />
       <main className="mx-auto max-w-3xl px-4 py-8">
-        <Link className="text-sm font-semibold text-moss hover:text-ink" href={backHref}>
+        <Link className="text-sm font-semibold text-moss hover:text-ink" href={backHref} prefetch={false}>
           ← Back to {student.name}
         </Link>
         <p className="mt-5 text-sm font-semibold uppercase tracking-[0.14em] text-gold">Official scoring</p>

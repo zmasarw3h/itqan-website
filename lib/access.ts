@@ -19,16 +19,17 @@ export function defaultPathForRole(role: Role) {
 export type AppNavigationLink = {
   href: string;
   label: string;
+  prefetch?: false;
 };
 
 export function navigationLinksForRole(role: Role, hasTeacherCapability = false): AppNavigationLink[] {
   if (role === "admin") {
     return [
-      { href: "/admin", label: "Admin" },
-      ...(hasTeacherCapability ? [{ href: "/teacher", label: "Teaching" }] : []),
-      { href: "/admin/rotation", label: "Rotation" },
-      { href: "/admin/incentives", label: "Incentives" },
-      { href: "/admin/rewards", label: "Rewards" },
+      { href: "/admin", label: "Admin", prefetch: false },
+      ...(hasTeacherCapability ? [{ href: "/teacher", label: "Teaching", prefetch: false as const }] : []),
+      { href: "/admin/rotation", label: "Rotation", prefetch: false },
+      { href: "/admin/incentives", label: "Incentives", prefetch: false },
+      { href: "/admin/rewards", label: "Rewards", prefetch: false },
       { href: "/admin/students/new", label: "Add User" },
       { href: "/account/change-password", label: "Password" }
     ];
@@ -59,7 +60,7 @@ export function navigationLinksForRole(role: Role, hasTeacherCapability = false)
   }
 
   return [
-    { href: "/teacher", label: "Teaching" },
+    { href: "/teacher", label: "Teaching", prefetch: false },
     { href: "/account/change-password", label: "Password" }
   ];
 }
