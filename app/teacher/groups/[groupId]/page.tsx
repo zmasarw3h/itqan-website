@@ -71,13 +71,13 @@ export default async function TeacherGroupPage({ params, searchParams }: {
   return (
     <>
       <AppNav activeHref="/teacher" name={profile.name} role={profile.role} variant="teacher" />
-      <main className="mx-auto max-w-[1440px] px-4 py-8 sm:px-8">
+      <main className="mx-auto max-w-[1440px] px-4 py-4 sm:px-8 sm:py-8">
         <Link className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-moss hover:text-ink" href={`/teacher?week=${selectedWeekStart}`}><ArrowLeft aria-hidden="true" /> Published teaching groups</Link>
-        <div className="mt-3 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+        <div className="mt-1 flex flex-col gap-3 sm:mt-3 lg:flex-row lg:items-end lg:justify-between lg:gap-6">
           <header>
-            <p className="text-sm font-bold uppercase tracking-wide text-gold">Grading workspace</p>
-            <h1 className="mt-2 text-4xl font-bold tracking-tight text-ink">{rosterResponse.group.group_name}</h1>
-            <p className="mt-3 text-base text-stone-600">{dashboard.scope.masjid_name} · {dashboard.scope.cohort_kind === "brothers" ? "Brothers" : "Sisters"} · {formatWeekRange(selectedWeekStart)} · Published roster version {publication.version_number}</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-gold sm:text-sm">Grading workspace</p>
+            <h1 className="mt-1 text-2xl font-bold tracking-tight text-ink sm:mt-2 sm:text-4xl">{rosterResponse.group.group_name}</h1>
+            <p className="mt-1 text-xs leading-5 text-stone-600 sm:mt-3 sm:text-base">{dashboard.scope.masjid_name} · {dashboard.scope.cohort_kind === "brothers" ? "Brothers" : "Sisters"} · <span className="sm:hidden">Published version {publication.version_number}</span><span className="hidden sm:inline">{formatWeekRange(selectedWeekStart)} · Published roster version {publication.version_number}</span></p>
           </header>
           <div className="w-full lg:max-w-[430px]"><TeacherWeekSelector path={`/teacher/groups/${groupId}`} presentation="card" selectedWeekStart={selectedWeekStart} weekStarts={groupWeekStarts} /></div>
         </div>
@@ -85,20 +85,20 @@ export default async function TeacherGroupPage({ params, searchParams }: {
         <StatusMessage status={status} />
 
         {groupSummary?.is_assigned_group ? (
-          <aside className="mt-6 flex items-center gap-4 rounded-lg border border-[#e6cd91] bg-[#fffaf0] px-5 py-3 text-sm text-stone-700">
-            <Star aria-hidden="true" className="size-7 shrink-0 rounded-full bg-[#c48d26] p-1.5 text-white" weight="fill" />
-            <strong className="text-ink">Your assigned group</strong><span className="h-6 w-px bg-[#dfc98f]" /><span>You can also grade other published cohort groups.</span>
+          <aside className="mt-3 flex min-h-10 items-center gap-2 rounded-lg border border-[#e6cd91] bg-[#fffaf0] px-3 py-2 text-xs text-stone-700 sm:mt-6 sm:gap-4 sm:px-5 sm:py-3 sm:text-sm">
+            <Star aria-hidden="true" className="size-6 shrink-0 rounded-full bg-[#c48d26] p-1.5 text-white sm:size-7" weight="fill" />
+            <strong className="text-ink">Your assigned group</strong><span className="hidden h-6 w-px bg-[#dfc98f] sm:block" /><span className="hidden sm:inline">You can also grade other published cohort groups.</span>
           </aside>
         ) : null}
 
-        <section aria-label="Group summary" className="mt-5 grid rounded-xl border border-stone-300 bg-white sm:grid-cols-2 lg:grid-cols-4">
-          <div className="flex items-center gap-5 border-b border-stone-200 px-7 py-5 sm:border-r lg:border-b-0"><span className="grid size-12 place-items-center rounded-full bg-moss text-white"><UsersThree aria-hidden="true" className="size-6" weight="fill" /></span><p><strong className="block text-xl text-ink">{rosterResponse.roster.length}</strong><span className="text-sm text-stone-600">Students</span></p></div>
-          <div className="flex items-center gap-5 border-b border-stone-200 px-7 py-5 lg:border-b-0 lg:border-r"><span className="grid size-12 place-items-center rounded-full bg-moss text-white"><CheckCircle aria-hidden="true" className="size-6" /></span><p><strong className="block text-xl text-ink">{gradedCount}</strong><span className="text-sm text-stone-600">Graded</span></p></div>
-          <div className="flex items-center gap-5 border-b border-stone-200 px-7 py-5 sm:border-b-0 sm:border-r"><span className="grid size-12 place-items-center rounded-full bg-moss text-white"><ClipboardText aria-hidden="true" className="size-6" weight="fill" /></span><p><strong className="block text-xl text-ink">{planCount}</strong><span className="text-sm text-stone-600">Plans</span></p></div>
-          <div className="flex items-center gap-5 px-7 py-5"><span className="grid size-12 place-items-center rounded-full bg-moss text-white"><User aria-hidden="true" className="size-6" /></span><p><strong className="block text-base text-ink">{rosterResponse.group.primary_teacher_name}</strong><span className="text-sm text-stone-600">Primary teacher</span></p></div>
+        <section aria-label="Group summary" className="mt-3 grid grid-cols-4 rounded-lg border border-stone-300 bg-white sm:mt-5 lg:rounded-xl">
+          <div className="flex min-w-0 items-center justify-center gap-5 border-r border-stone-200 px-1 py-2 text-center lg:justify-start lg:px-7 lg:py-5 lg:text-left"><span className="hidden size-12 place-items-center rounded-full bg-moss text-white lg:grid"><UsersThree aria-hidden="true" className="size-6" weight="fill" /></span><p><strong className="block text-lg text-ink lg:text-xl">{rosterResponse.roster.length}</strong><span className="text-[10px] text-stone-600 sm:text-xs lg:text-sm">Students</span></p></div>
+          <div className="flex min-w-0 items-center justify-center gap-5 border-r border-stone-200 px-1 py-2 text-center lg:justify-start lg:px-7 lg:py-5 lg:text-left"><span className="hidden size-12 place-items-center rounded-full bg-moss text-white lg:grid"><CheckCircle aria-hidden="true" className="size-6" /></span><p><strong className="block text-lg text-ink lg:text-xl">{gradedCount}</strong><span className="text-[10px] text-stone-600 sm:text-xs lg:text-sm">Graded</span></p></div>
+          <div className="flex min-w-0 items-center justify-center gap-5 border-r border-stone-200 px-1 py-2 text-center lg:justify-start lg:px-7 lg:py-5 lg:text-left"><span className="hidden size-12 place-items-center rounded-full bg-moss text-white lg:grid"><ClipboardText aria-hidden="true" className="size-6" weight="fill" /></span><p><strong className="block text-lg text-ink lg:text-xl">{planCount}</strong><span className="text-[10px] text-stone-600 sm:text-xs lg:text-sm">Plans</span></p></div>
+          <div className="flex min-w-0 items-center justify-center gap-5 px-1 py-2 text-center lg:justify-start lg:px-7 lg:py-5 lg:text-left"><span className="hidden size-12 place-items-center rounded-full bg-moss text-white lg:grid"><User aria-hidden="true" className="size-6" /></span><p className="min-w-0"><strong className="block truncate text-xs text-ink sm:text-sm lg:text-base">{rosterResponse.group.primary_teacher_name}</strong><span className="text-[9px] text-stone-600 sm:text-xs lg:text-sm">Primary</span></p></div>
         </section>
 
-        <section className="mt-5 overflow-hidden rounded-xl border border-stone-300 bg-white">
+        <section className="mt-3 overflow-hidden rounded-lg border border-stone-300 bg-white sm:mt-5 lg:rounded-xl">
           <div className="hidden grid-cols-[2.5fr_1.15fr_1.05fr_1.9fr_1.2fr_1.15fr_.75fr] gap-5 border-b border-stone-200 px-7 py-4 text-sm font-semibold text-ink lg:grid">
             <span>Student</span><span>Attendance</span><span>Recitation / 50</span><span>Teacher notes</span><span className="inline-flex items-center gap-1">Resources <Info aria-hidden="true" /></span><span>Status</span><span>Action</span>
           </div>
@@ -121,7 +121,7 @@ export default async function TeacherGroupPage({ params, searchParams }: {
           )) : <div className="px-5 py-14 text-center"><h2 className="text-lg font-semibold text-ink">No students in this published group</h2><p className="mt-2 text-sm text-stone-600">There are no grade or resource actions for this roster.</p></div>}
         </section>
 
-        <aside className="mt-6 flex items-start gap-3 rounded-xl border border-[#e6decf] bg-[#fbf8f1] px-5 py-5 text-sm text-stone-600"><LockKey aria-hidden="true" className="mt-0.5 size-6 shrink-0 text-gold" />Checklist details are read-only and exclude private student notes.</aside>
+        <aside className="mt-4 flex items-start gap-2 rounded-lg border border-[#e6decf] bg-[#fbf8f1] px-3 py-3 text-xs text-stone-600 sm:mt-6 sm:gap-3 sm:rounded-xl sm:px-5 sm:py-5 sm:text-sm"><LockKey aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-gold sm:size-6" />Checklist details are read-only and exclude private student notes.</aside>
       </main>
     </>
   );

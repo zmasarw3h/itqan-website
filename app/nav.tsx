@@ -31,12 +31,12 @@ export default async function AppNav({
   return (
     <header className={isDark ? "border-b border-moss bg-ink" : "border-b border-stone-200 bg-white"}>
       <nav className={isTeacher
-        ? "mx-auto flex min-h-[88px] max-w-[1440px] items-center justify-between gap-3 px-4 py-3 sm:px-8"
+        ? "mx-auto flex min-h-16 max-w-[1440px] items-center justify-between gap-3 px-4 py-2 sm:min-h-[88px] sm:px-8 sm:py-3"
         : "mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3"}
       >
         <div className="min-w-0">
-          <p className={isTeacher ? "text-lg font-bold tracking-wide text-gold" : "text-sm font-semibold text-gold"}>ITQAN</p>
-          <p className={`mt-0.5 truncate text-sm ${isDark ? "text-stone-100" : "text-stone-600"}`}>{name}</p>
+          <p className={isTeacher ? "text-base font-bold tracking-wide text-gold sm:text-lg" : "text-sm font-semibold text-gold"}>ITQAN</p>
+          <p className={`mt-0.5 truncate text-sm ${isTeacher ? "hidden sm:block" : ""} ${isDark ? "text-stone-100" : "text-stone-600"}`}>{name}</p>
         </div>
         <div className="hidden items-center gap-2 md:flex">
           {links.map((link) => {
@@ -68,15 +68,15 @@ export default async function AppNav({
         </div>
         <details className="relative md:hidden">
           <summary className={isDark
-            ? "list-none rounded-md border border-stone-500 px-3 py-2 text-sm font-medium text-white hover:bg-moss"
-            : "list-none rounded-md border border-stone-300 px-3 py-2 text-sm font-medium text-ink hover:bg-stone-100"}
+            ? "inline-flex min-h-11 list-none items-center rounded-md border border-stone-500 px-3 py-2 text-sm font-medium text-white hover:bg-moss"
+            : "inline-flex min-h-11 list-none items-center rounded-md border border-stone-300 px-3 py-2 text-sm font-medium text-ink hover:bg-stone-100"}
           >
             Menu
           </summary>
           <div className="absolute right-0 z-20 mt-2 w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-stone-200 bg-white p-2 shadow-lg">
             {links.map((link) => (
               <Link
-                className="block rounded-md px-3 py-2 text-sm font-medium text-ink hover:bg-stone-100"
+                className="flex min-h-11 items-center rounded-md px-3 py-2 text-sm font-medium text-ink hover:bg-stone-100"
                 href={link.href}
                 key={`${link.href}-${link.label}`}
               >
@@ -84,7 +84,7 @@ export default async function AppNav({
               </Link>
             ))}
             <form action={signOut} className="mt-1 border-t border-stone-200 pt-1">
-              <button className="block w-full rounded-md px-3 py-2 text-left text-sm font-medium text-ink hover:bg-stone-100">
+              <button className="block min-h-11 w-full rounded-md px-3 py-2 text-left text-sm font-medium text-ink hover:bg-stone-100">
                 Sign out
               </button>
             </form>

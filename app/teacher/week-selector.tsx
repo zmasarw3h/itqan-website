@@ -19,12 +19,12 @@ export default function TeacherWeekSelector({
 
   if (presentation === "card") {
     return (
-      <label className="relative flex min-h-[112px] w-full cursor-pointer items-center gap-5 rounded-xl border border-stone-300 bg-white px-5 py-4 transition hover:border-moss sm:px-8">
-        <CalendarBlank aria-hidden="true" className="size-8 shrink-0 text-ink" weight="regular" />
+      <label className="relative flex min-h-[72px] w-full cursor-pointer items-center gap-3 rounded-lg border border-stone-300 bg-white px-4 py-3 transition hover:border-moss sm:min-h-[112px] sm:gap-5 sm:rounded-xl sm:px-8 sm:py-4">
+        <CalendarBlank aria-hidden="true" className="size-6 shrink-0 text-ink sm:size-8" weight="regular" />
         <span className="min-w-0">
           <span className="block text-xs font-semibold uppercase tracking-wide text-stone-500">Tracker week</span>
-          <span className="mt-1 block text-lg font-semibold text-ink">{formatWeekRange(selectedWeekStart)}</span>
-          <span className="mt-0.5 block text-sm text-stone-600">
+          <span className="mt-0.5 block text-base font-semibold text-ink sm:mt-1 sm:text-lg">{formatWeekRange(selectedWeekStart)}</span>
+          <span className="mt-0.5 hidden text-sm text-stone-600 sm:block">
             {friendlyDate(selectedWeekStart).replace(",", "")} – {friendlyDate(addDays(selectedWeekStart, 6)).replace(",", "")}
           </span>
         </span>
