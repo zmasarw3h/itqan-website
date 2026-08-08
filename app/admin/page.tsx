@@ -55,6 +55,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
           <Link
             className="rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink"
             href={leaderboardExportHref(data.selectedWeekStart, data.below70Only)}
+            prefetch={false}
           >
             Export CSV
           </Link>

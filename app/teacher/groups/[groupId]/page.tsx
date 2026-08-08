@@ -50,7 +50,7 @@ export default async function TeacherGroupPage({ params, searchParams }: {
       <>
         <AppNav activeHref="/teacher" name={profile.name} role={profile.role} variant="teacher" />
         <main className="mx-auto max-w-4xl px-4 py-10 sm:px-8">
-          <Link className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-moss hover:text-ink" href={`/teacher?week=${selectedWeekStart}`}><ArrowLeft aria-hidden="true" /> Published teaching groups</Link>
+          <Link className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-moss hover:text-ink" href={`/teacher?week=${selectedWeekStart}`} prefetch={false}><ArrowLeft aria-hidden="true" /> Published teaching groups</Link>
           <h1 className="mt-4 text-3xl font-bold text-ink">Group unavailable</h1>
           <section className="mt-8 rounded-xl border border-amber-200 bg-amber-50 px-5 py-12 text-center">
             <h2 className="text-xl font-semibold text-ink">No published session roster</h2>
@@ -72,7 +72,7 @@ export default async function TeacherGroupPage({ params, searchParams }: {
     <>
       <AppNav activeHref="/teacher" name={profile.name} role={profile.role} variant="teacher" />
       <main className="mx-auto max-w-[1440px] px-4 py-4 sm:px-8 sm:py-8">
-        <Link className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-moss hover:text-ink" href={`/teacher?week=${selectedWeekStart}`}><ArrowLeft aria-hidden="true" /> Published teaching groups</Link>
+        <Link className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-moss hover:text-ink" href={`/teacher?week=${selectedWeekStart}`} prefetch={false}><ArrowLeft aria-hidden="true" /> Published teaching groups</Link>
         <div className="mt-1 flex flex-col gap-3 sm:mt-3 lg:flex-row lg:items-end lg:justify-between lg:gap-6">
           <header>
             <p className="text-xs font-bold uppercase tracking-wide text-gold sm:text-sm">Grading workspace</p>
