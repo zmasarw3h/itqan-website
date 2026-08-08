@@ -10,6 +10,10 @@ export type SessionRosterBlockerCode =
   | "missing_primary_teacher_responsibility"
   | "no_available_teachers"
   | "session_group_count_mismatch"
+  | "target_group_count_invalid"
+  | "group_count_exceeds_available_teachers"
+  | "group_count_mismatch_confirmation_required"
+  | "requested_group_count_not_generated"
   | "duplicate_primary_teacher"
   | "teacher_group_mismatch_confirmation_required"
   | "source_changed"
@@ -68,7 +72,17 @@ export type SessionRosterReadiness = {
   current_source_digest: string | null;
   available_teacher_count?: number;
   teacher_count?: number;
+  default_group_count?: number;
+  requested_group_count?: number | null;
+  actual_group_count?: number;
   derived_group_count?: number;
+  group_count_mismatch?: boolean;
+  group_count_mismatch_direction?: "none" | "fewer" | "more";
+  group_count_mismatch_confirmation_required?: boolean;
+  group_count_mismatch_confirmed?: boolean;
+  actual_group_count_mismatch?: boolean;
+  permanent_anchor_mismatch_confirmation_required?: boolean;
+  permanent_anchor_mismatch_confirmed?: boolean;
   dependency_revision?: number;
   dependency_digest?: string | null;
   mismatch_confirmation_required?: boolean;
@@ -82,6 +96,7 @@ export type SessionRosterReadiness = {
     reason: string | null;
     confirmed: boolean;
   }>;
+  participating_teachers?: SessionRosterWizardParticipant[];
   imbalance_warning?: boolean;
   primary_responsibilities?: Array<Record<string, unknown>>;
   prerequisite_state?: Record<string, unknown>;
@@ -139,10 +154,31 @@ export type SessionRosterWizardTeacher = {
   available: boolean;
 };
 
+export type SessionRosterWizardParticipant = {
+  teacher_id: string;
+  teacher_name: string;
+  teacher_email: string | null;
+  available: boolean;
+  participating: boolean;
+  is_primary: boolean;
+  primary_slot_id: string | null;
+  primary_slot_name: string | null;
+};
+
 export type SessionRosterWizardReadiness = SessionRosterReadiness & {
   available_teacher_count: number;
   teacher_count: number;
+  default_group_count: number;
+  requested_group_count: number | null;
+  actual_group_count: number;
   derived_group_count: number;
+  group_count_mismatch: boolean;
+  group_count_mismatch_direction: "none" | "fewer" | "more";
+  group_count_mismatch_confirmation_required: boolean;
+  group_count_mismatch_confirmed: boolean;
+  actual_group_count_mismatch: boolean;
+  permanent_anchor_mismatch_confirmation_required: boolean;
+  permanent_anchor_mismatch_confirmed: boolean;
   dependency_revision: number;
   dependency_digest: string | null;
   mismatch_confirmation_required: boolean;
@@ -160,7 +196,11 @@ export type SessionRosterWizardDraftResponse = {
     dependency_revision: number;
     dependency_digest: string | null;
     available_teacher_count: number;
+    default_group_count: number;
+    requested_group_count: number | null;
+    actual_group_count: number;
     derived_group_count: number;
+    group_count_mismatch_confirmed: boolean;
     wizard_prerequisite_state: Record<string, unknown>;
     mismatch_confirmation_required: boolean;
     mismatch_confirmed: boolean;
@@ -170,6 +210,7 @@ export type SessionRosterWizardDraftResponse = {
     recovery_guidance: string | null;
   };
   teachers: SessionRosterWizardTeacher[];
+  participants: SessionRosterWizardParticipant[];
   groups: Array<SessionRosterGroup & {
     session_group_slot_id: string;
     anchor_group_id: string | null;
@@ -256,6 +297,60 @@ export type SessionRosterWizardPublishedResponse = {
     mismatch_reason: string | null;
   }>;
   roster: Array<SessionRosterPublishedStudent & { session_group_slot_id: string }>;
+  participants: SessionRosterWizardParticipant[];
+};
+
+export type SessionRosterWizardLegacyTransitionSummary = {
+  legacy_draft_id: string;
+  legacy_draft_state_version: number;
+  legacy_draft_source_state_digest: string;
+  new_draft_id: string;
+  new_draft_revision_number: number;
+  discarded_legacy_rows: {
+    draft_students: number;
+    draft_groups: number;
+    rows_preserved: true;
+    draft_marked_superseded: true;
+  };
+  published_version_id: string | null;
+  published_version_unchanged: true;
+  permanent_memberships_changed: false;
+  teacher_assignments_changed: false;
+  grades_changed: false;
+  plans_changed: false;
+};
+
+export type SessionRosterWizardLegacyTransitionResponse = SessionRosterWizardDraftResponse & {
+  legacy_transition: SessionRosterWizardLegacyTransitionSummary;
+};
+
+export type SessionRosterWizardLegacyTransitionPreviewResponse = {
+  contract_version: typeof SESSION_ROSTER_WIZARD_CONTRACT_VERSION;
+  masjid_id: string;
+  cohort_id: string;
+  week_start: string;
+  blocking_legacy_draft: {
+    id: string;
+    revision_number: number;
+    state_version: number;
+    source_state_digest: string;
+    status: "draft";
+    created_at: string;
+    updated_at: string;
+  } | null;
+  current_published_version: {
+    id: string;
+    version_number: number;
+    published_by: string;
+    published_at: string;
+  } | null;
+  can_transition: boolean;
+  recovery: {
+    code: string;
+    message: string;
+    confirm_discard_legacy_draft?: true;
+    published_version_unchanged?: true;
+  };
 };
 
 export type SessionRosterHistoryEvent = {
@@ -270,7 +365,9 @@ export type SessionRosterHistoryEvent = {
     | "version_published"
     | "revision_created"
     | "draft_refreshed"
-    | "source_dependency_changed";
+    | "source_dependency_changed"
+    | "participant_snapshot_recorded"
+    | "legacy_draft_transition";
   draft_id: string | null;
   version_id: string | null;
   request_id: string;
@@ -309,11 +406,15 @@ export type SessionRosterRpcName =
   | "create_session_roster_revision"
   | "load_or_create_session_roster_wizard_draft"
   | "generate_session_roster_wizard_groups"
+  | "generate_session_roster_wizard_groups_v2"
   | "move_session_roster_wizard_student"
   | "assign_session_roster_wizard_primary_teacher"
   | "review_session_roster_wizard_draft"
   | "publish_session_roster_wizard_draft"
+  | "publish_session_roster_wizard_draft_v2"
   | "create_session_roster_wizard_revision"
+  | "preview_session_roster_wizard_legacy_transition"
+  | "transition_session_roster_wizard_legacy_draft"
   | "get_current_session_roster"
   | "get_session_roster_history";
 

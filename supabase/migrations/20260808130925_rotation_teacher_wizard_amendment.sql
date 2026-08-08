@@ -3322,7 +3322,26 @@ begin
 
   if current_draft.id is not null then
     if current_draft.wizard_mode <> 'teacher_driven' then
-      raise exception using errcode = 'PT409', message = 'session_roster_legacy_draft_requires_wizard_upgrade';
+      select versions.*
+      into current_version
+      from public.session_roster_versions as versions
+      where versions.cohort_id = input_cohort_id
+        and versions.week_start = input_week_start
+      order by versions.version_number desc
+      limit 1;
+
+      raise exception using
+        errcode = 'PT409',
+        message = 'session_roster_legacy_draft_requires_wizard_upgrade',
+        detail = jsonb_build_object(
+          'recovery_code', 'explicit_legacy_draft_transition_required',
+          'legacy_draft_id', current_draft.id,
+          'legacy_state_version', current_draft.state_version,
+          'legacy_source_state_digest', current_draft.source_state_digest,
+          'current_published_version_id', current_version.id,
+          'confirm_discard_legacy_draft', true,
+          'published_version_unchanged', true
+        )::text;
     end if;
     result_payload := private.session_roster_wizard_draft_payload(current_draft.id);
     perform private.session_roster_write_request(

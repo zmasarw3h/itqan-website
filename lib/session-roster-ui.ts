@@ -38,7 +38,9 @@ export function sessionRosterAuditLabel(action: SessionRosterHistoryEvent["actio
     version_published: "Saturday roster published",
     revision_created: "Revision started",
     draft_refreshed: "Stale draft refreshed",
-    source_dependency_changed: "Source availability changed"
+    source_dependency_changed: "Source availability changed",
+    participant_snapshot_recorded: "Teacher participation snapshotted",
+    legacy_draft_transition: "Legacy draft transitioned"
   }[action];
 }
 
@@ -48,6 +50,12 @@ export function sessionRosterReadinessSummary(readiness: SessionRosterReadiness)
   }
   if (readiness.unplaced_count > 0) {
     return `${readiness.unplaced_count} attending ${readiness.unplaced_count === 1 ? "student is" : "students are"} unplaced.`;
+  }
+  if (readiness.group_count_mismatch_confirmation_required) {
+    return "Confirm the deliberate smaller group count before review.";
+  }
+  if (readiness.blocker_codes.includes("group_count_exceeds_available_teachers")) {
+    return "The requested group count cannot exceed the available-teacher count.";
   }
   if (readiness.missing_primary_teachers.length > 0) {
     return `${readiness.missing_primary_teachers.length} ${readiness.missing_primary_teachers.length === 1 ? "group needs" : "groups need"} a primary teacher.`;

@@ -25,6 +25,8 @@ import type {
   SessionRosterHistoryResponse,
   SessionRosterPublishedResponse,
   SessionRosterWizardDraftResponse,
+  SessionRosterWizardLegacyTransitionPreviewResponse,
+  SessionRosterWizardLegacyTransitionResponse,
   SessionRosterWizardPublishedResponse
 } from "@/lib/session-roster";
 import { sessionRosterActionError, type SessionRosterActionError } from "@/lib/session-roster-ui";
@@ -513,14 +515,20 @@ export async function loadOrCreateSessionRosterWizardDraft(input: SessionRosterA
 export async function generateSessionRosterWizardGroups(input: SessionRosterActionScope & {
   draftId: string;
   expectedStateVersion: number;
+  expectedDependencyDigest: string;
+  targetGroupCount?: number | null;
+  confirmGroupCountMismatch?: boolean;
   confirmDiscardChanges: boolean;
 }) {
   return runSessionRosterAction<SessionRosterWizardDraftResponse>(input, ({ adminSupabase, profile }) =>
-    adminSupabase.rpc("generate_session_roster_wizard_groups", {
+    adminSupabase.rpc("generate_session_roster_wizard_groups_v2", {
       input_request_id: crypto.randomUUID(),
       input_actor_id: profile.id,
       input_draft_id: input.draftId,
       input_expected_state_version: input.expectedStateVersion,
+      input_expected_dependency_digest: input.expectedDependencyDigest,
+      input_target_group_count: input.targetGroupCount ?? null,
+      input_confirm_group_count_mismatch: input.confirmGroupCountMismatch ?? false,
       input_confirm_discard_changes: input.confirmDiscardChanges
     })
   );
@@ -583,7 +591,7 @@ export async function publishSessionRosterWizardDraft(input: SessionRosterAction
   expectedStateVersion: number;
 }) {
   return runSessionRosterAction<SessionRosterWizardPublishedResponse>(input, ({ adminSupabase, profile }) =>
-    adminSupabase.rpc("publish_session_roster_wizard_draft", {
+    adminSupabase.rpc("publish_session_roster_wizard_draft_v2", {
       input_request_id: crypto.randomUUID(),
       input_actor_id: profile.id,
       input_draft_id: input.draftId,
@@ -603,6 +611,38 @@ export async function createSessionRosterWizardRevision(input: SessionRosterActi
       input_cohort_id: cohort.id,
       input_week_start: weekStart,
       input_expected_published_version_id: input.expectedPublishedVersionId
+    })
+  );
+}
+
+export async function previewSessionRosterWizardLegacyTransition(input: SessionRosterActionScope) {
+  return runSessionRosterAction<SessionRosterWizardLegacyTransitionPreviewResponse>(input, ({ adminSupabase, profile, cohort, weekStart }) =>
+    adminSupabase.rpc("preview_session_roster_wizard_legacy_transition", {
+      input_actor_id: profile.id,
+      input_cohort_id: cohort.id,
+      input_week_start: weekStart
+    })
+  );
+}
+
+export async function transitionSessionRosterWizardLegacyDraft(input: SessionRosterActionScope & {
+  legacyDraftId: string;
+  expectedLegacyStateVersion: number;
+  expectedLegacySourceStateDigest: string;
+  expectedPublishedVersionId: string | null;
+  confirmDiscardLegacyDraft: true;
+}) {
+  return runSessionRosterAction<SessionRosterWizardLegacyTransitionResponse>(input, ({ adminSupabase, profile, cohort, weekStart }) =>
+    adminSupabase.rpc("transition_session_roster_wizard_legacy_draft", {
+      input_request_id: crypto.randomUUID(),
+      input_actor_id: profile.id,
+      input_cohort_id: cohort.id,
+      input_week_start: weekStart,
+      input_expected_legacy_draft_id: input.legacyDraftId,
+      input_expected_legacy_state_version: input.expectedLegacyStateVersion,
+      input_expected_legacy_source_state_digest: input.expectedLegacySourceStateDigest,
+      input_expected_published_version_id: input.expectedPublishedVersionId,
+      input_confirm_discard_legacy_draft: input.confirmDiscardLegacyDraft
     })
   );
 }

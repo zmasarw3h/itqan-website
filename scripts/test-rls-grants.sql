@@ -265,11 +265,15 @@ begin
       ('apply_teacher_rotation_availability(uuid,uuid,date,jsonb)'),
       ('load_or_create_session_roster_wizard_draft(uuid,uuid,uuid,date)'),
       ('generate_session_roster_wizard_groups(uuid,uuid,uuid,bigint,boolean)'),
+      ('generate_session_roster_wizard_groups_v2(uuid,uuid,uuid,bigint,text,integer,boolean,boolean)'),
       ('move_session_roster_wizard_student(uuid,uuid,uuid,uuid,uuid,bigint)'),
       ('assign_session_roster_wizard_primary_teacher(uuid,uuid,uuid,uuid,uuid,bigint,boolean)'),
       ('review_session_roster_wizard_draft(uuid,uuid,uuid,bigint)'),
       ('publish_session_roster_wizard_draft(uuid,uuid,uuid,bigint,boolean)'),
+      ('publish_session_roster_wizard_draft_v2(uuid,uuid,uuid,bigint,boolean)'),
       ('create_session_roster_wizard_revision(uuid,uuid,uuid,date,uuid)'),
+      ('preview_session_roster_wizard_legacy_transition(uuid,uuid,date)'),
+      ('transition_session_roster_wizard_legacy_draft(uuid,uuid,uuid,date,uuid,bigint,text,uuid,boolean)'),
       ('get_current_session_roster(uuid,uuid,date)'),
       ('get_session_roster_history(uuid,uuid,date)')
     ) expected_service(signature)
@@ -337,11 +341,15 @@ begin
   if not has_function_privilege('service_role', 'public.apply_teacher_rotation_availability(uuid,uuid,date,jsonb)', 'EXECUTE')
     or not has_function_privilege('service_role', 'public.load_or_create_session_roster_wizard_draft(uuid,uuid,uuid,date)', 'EXECUTE')
     or not has_function_privilege('service_role', 'public.generate_session_roster_wizard_groups(uuid,uuid,uuid,bigint,boolean)', 'EXECUTE')
+    or not has_function_privilege('service_role', 'public.generate_session_roster_wizard_groups_v2(uuid,uuid,uuid,bigint,text,integer,boolean,boolean)', 'EXECUTE')
     or not has_function_privilege('service_role', 'public.move_session_roster_wizard_student(uuid,uuid,uuid,uuid,uuid,bigint)', 'EXECUTE')
     or not has_function_privilege('service_role', 'public.assign_session_roster_wizard_primary_teacher(uuid,uuid,uuid,uuid,uuid,bigint,boolean)', 'EXECUTE')
     or not has_function_privilege('service_role', 'public.review_session_roster_wizard_draft(uuid,uuid,uuid,bigint)', 'EXECUTE')
     or not has_function_privilege('service_role', 'public.publish_session_roster_wizard_draft(uuid,uuid,uuid,bigint,boolean)', 'EXECUTE')
-    or not has_function_privilege('service_role', 'public.create_session_roster_wizard_revision(uuid,uuid,uuid,date,uuid)', 'EXECUTE') then
+    or not has_function_privilege('service_role', 'public.publish_session_roster_wizard_draft_v2(uuid,uuid,uuid,bigint,boolean)', 'EXECUTE')
+    or not has_function_privilege('service_role', 'public.create_session_roster_wizard_revision(uuid,uuid,uuid,date,uuid)', 'EXECUTE')
+    or not has_function_privilege('service_role', 'public.preview_session_roster_wizard_legacy_transition(uuid,uuid,date)', 'EXECUTE')
+    or not has_function_privilege('service_role', 'public.transition_session_roster_wizard_legacy_draft(uuid,uuid,uuid,date,uuid,bigint,text,uuid,boolean)', 'EXECUTE') then
     raise exception 'service_role lacks guarded teacher-driven wizard EXECUTE';
   end if;
 

@@ -143,12 +143,12 @@ The public tables are:
 - `session_roster_drafts`: one current mutable draft per cohort/week, with a monotonic revision number,
   source-state digest, optimistic `state_version`, review metadata, and links to its base/current
   published version. Legacy drafts keep `wizard_mode = 'legacy'`; teacher-driven drafts add only the
-  wizard readiness/dependency fields (`available_teacher_count`, derived group count, prerequisite state,
-  mismatch/confirmation state, unplaced count, imbalance warning, primary responsibilities, and recovery
-  guidance). A stale legacy refresh follows the existing contract; a wizard source change requires the
-  explicit discard-confirmation regeneration path. A current legacy draft is never silently rewritten by
-  the wizard loader; it must finish through the legacy contract or be handled during rollout before the
-  wizard is used for that cohort/week.
+  wizard readiness/dependency fields (`default_group_count`, `requested_group_count`, actual/derived group
+  count, available teacher count, prerequisite state, count-vs-anchor mismatch/confirmation state, unplaced
+  count, imbalance warning, primary responsibilities, and recovery guidance). A stale legacy refresh follows
+  the existing contract; a wizard source change requires the explicit discard-confirmation regeneration path.
+  A current legacy draft is never silently rewritten by the wizard loader; it must finish through the legacy
+  contract or use the explicit audited transition before the wizard is used for that cohort/week.
 - `session_roster_draft_groups`: legacy permanent-group snapshots plus nullable primary responsible-teacher
   identity/name. These remain for the existing contract and are not weekly assignment replacements.
 - `session_roster_draft_slots`: additive Saturday-only session slots. Each slot has an immutable-in-draft
@@ -165,6 +165,10 @@ The public tables are:
   session identity; wizard rows use the additive slot identity and leave the legacy `session_group_id` null.
   Snapshot names, optional permanent anchor, week/Saturday, primary-teacher identity/name, version, and
   publishing actor/time are retained for history.
+- `session_roster_version_teachers`: immutable published participant snapshots. It records every available
+  eligible teacher captured by a teacher-driven publish, whether that teacher has a unique primary slot or
+  participates as a cohort co-teacher without a primary responsibility. This snapshot is the authorization
+  source for current-version cohort-wide teacher surfaces and preserves participant identity historically.
 - `session_roster_audit_events`: append-only draft movement, responsibility, review, publish, revision,
   and `draft_refreshed` history. A refresh event records the superseded and replacement draft/version
   identities, source digest, actor, request, and discard scope in its before/after/metadata payloads.
@@ -173,9 +177,10 @@ The public tables are:
 
 Readiness is database-derived. Every attending student must be placed exactly once; unplaced attending
 students, source changes, an unreviewed current state, no session groups with attending students, and
-missing primary responsibility are blockers. In the wizard, zero teachers and any group-count mismatch are
-also blockers; duplicate primary responsibilities and unconfirmed teacher/anchor mismatches are explicit
-blockers. A group-count imbalance is a warning only. Primary teachers must be active, authorized cohort
+missing primary responsibility are blockers. In the wizard, zero teachers, targets above the available
+teacher count, and unconfirmed smaller counts are blockers; a confirmed smaller count is allowed. Duplicate
+primary responsibilities and unconfirmed teacher/anchor mismatches are explicit blockers. A group-count
+imbalance is a warning only. Primary teachers must be active, authorized cohort
 teachers with Saturday staff coverage and exact positive teacher availability; responsibility is a
 highlight/ownership marker, not an exclusivity rule for future teacher viewing or grading. The
 published-session teacher APIs authorize an active teacher or admin-teacher with an exact active assignment

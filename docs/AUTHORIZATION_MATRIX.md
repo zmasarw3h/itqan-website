@@ -65,6 +65,7 @@ policy was already super-admin-only and remains unchanged):
 | `weekly_plans` | Student own select and path/snapshot-checked insert/update; scoped admin or current published-session cohort-authorized teacher select |
 | `partner_recitations` | Student own select and current-round insert; scoped admin or assigned-teacher select; scoped admin insert/update/delete |
 | `halaqa_grades` | Student own select; scoped admin or current published-session cohort-authorized teacher select; scoped admin or exact current published-session version/group/student teacher insert/update. Historical session snapshots remain available to the scoped admin correction path. |
+| `session_roster_version_teachers` | No student access; scoped normal-admin and current captured participant reads for the current published version only; immutable history, with writes limited to the guarded publication trigger/service path |
 | `weekly_incentive_runs` | Masjid-scoped admin/super-admin select/insert/update |
 | `accountability_obligations` | Student own select and constrained attestation; masjid-scoped admin/super-admin select/insert/update; pending rows require a valid week-specific masjid/cohort/group scope |
 | `badge_awards` | Student own select; masjid-scoped admin/super-admin select/insert/update |
@@ -155,14 +156,21 @@ The additive teacher-driven wizard contracts are also service-role-only:
 `load_or_create_session_roster_wizard_draft(...)`, `generate_session_roster_wizard_groups(...)`,
 `move_session_roster_wizard_student(...)`, `assign_session_roster_wizard_primary_teacher(...)`,
 `review_session_roster_wizard_draft(...)`, `publish_session_roster_wizard_draft(...)`, and
-`create_session_roster_wizard_revision(...)`. They derive the default slot count from available eligible
-teachers, treat missing student availability as attending, keep Saturday slots separate from permanent
-groups, require explicit discard confirmation after source/manual changes, and record mismatch overrides
-and publication atomically. The wizard loader does not silently convert an existing legacy draft; rollout
-must finish or explicitly handle that legacy draft before using the wizard for the same cohort/week.
+`create_session_roster_wizard_revision(...)` remain stable contracts. The additive v2 generation and
+publication calls add `generate_session_roster_wizard_groups_v2(...)` and
+`publish_session_roster_wizard_draft_v2(...)`: the default count is exactly the available eligible-teacher
+count; only a confirmed smaller positive count is allowed, and extra available teachers are preserved in
+the immutable participant snapshot without a primary highlight. Expected state/dependency markers,
+request IDs, and explicit discard confirmation protect replay and regeneration. The wizard loader does not
+silently convert an existing legacy draft. `preview_session_roster_wizard_legacy_transition(...)` returns
+the blocking draft/source/live-version recovery state, while
+`transition_session_roster_wizard_legacy_draft(...)` is the normal-admin-scoped, service-only,
+explicit-discard, replay-safe supersede-and-create transition.
 
 The teacher session contracts are authenticated, caller-checked projections over the current published
-version only: `teacher_session_authorized_scopes(date)`,
+version only. Authorization also accepts an active eligible teacher captured in the current
+`session_roster_version_teachers` participant snapshot, while the legacy exact-assignment path remains
+available: `teacher_session_authorized_scopes(date)`,
 `get_teacher_session_dashboard(uuid,date)`, `get_teacher_session_group_roster(uuid,uuid,date)`,
 `get_teacher_session_student_context(uuid,date)`, and
 `get_teacher_session_checklist_details(uuid,uuid,uuid,date,date)` are read-only; the individual
