@@ -100,3 +100,110 @@
 - P3: very long production names can create different line breaks than the canvas sample. Current wrapping remains readable and does not hide data or actions.
 
 final result: passed
+
+---
+
+# Admin rotation wizard design QA — superseded preflight
+
+## Comparison target
+
+- Source visual truth:
+  - `docs/design-handoff/rotation-teacher-redesign-2026-08-08/canvases/04-admin-student-availability.png`
+  - `docs/design-handoff/rotation-teacher-redesign-2026-08-08/canvases/05-admin-teacher-availability.png`
+  - `docs/design-handoff/rotation-teacher-redesign-2026-08-08/canvases/06-admin-session-groups.png`
+  - `docs/design-handoff/rotation-teacher-redesign-2026-08-08/canvases/07-admin-review-publish.png`
+- Source dimensions: 1487 × 1058 px each, opened at original resolution.
+- Required implementation captures: 390 × 844, 768 px, and 1440 × 1024 authenticated `/admin/rotation` screens.
+- Implementation screenshot paths: unavailable; no valid browser-rendered rotation screenshot was captured.
+- Side-by-side comparison evidence: unavailable because the implementation capture failed before the rotation route rendered.
+- Density normalization: not applicable without implementation screenshots.
+
+## Browser verification attempted
+
+- Started the full disposable local Supabase stack and applied every migration through `20260808154200_rotation_teacher_wizard_review_amendment.sql`.
+- Created local-only representative admin, teacher, student, permanent-group, teacher-availability, and student-absence records.
+- Authenticated successfully as the disposable scoped admin and reached the live local admin dashboard.
+- Switched the in-app browser to the required 390 × 844 viewport before opening the rotation route.
+- The host volume reached zero free space while Next.js compiled `/admin/rotation`. That crashed the disposable Postgres container and left Docker's local metadata returning input/output errors. Regenerable `.next` and npm cache data were removed, but Docker could not restart or remove the dead database container.
+- No production or remote staging environment was accessed or mutated.
+
+## Findings
+
+- [P0] Visual comparison evidence is missing.
+  - Location: all four `/admin/rotation` steps at mobile, tablet, and desktop viewports.
+  - Evidence: source canvases are available, but there is no authenticated browser-rendered implementation image to place beside them.
+  - Impact: hierarchy, density, clipping, overflow, action reachability, and keyboard behavior cannot receive the required visual acceptance.
+  - Fix: free host disk space or restart Docker Desktop, restart the disposable Supabase stack, reseed local QA records, then capture and compare all four steps and material states.
+
+## Static and automated evidence
+
+- The production route renders exactly one selected step.
+- Mobile student rows switch from the desktop table to compact labelled rows; group and review surfaces use responsive grids and stacked labelled rows without primary-workflow horizontal scrolling.
+- Step parsing, canonical URL scope/week/step preservation, prerequisite locking, readiness mapping, and separate mismatch messages have focused unit coverage.
+- Loading, denied/no-context, stale, validation-blocked, mismatch confirmation, regeneration discard, legacy recovery, retryable error, revision draft, and already-published presentations are implemented.
+- `npm run check` passes with 47 test files and 376 tests.
+
+## Open questions
+
+- None about intended behavior. The remaining blocker is local visual infrastructure only.
+
+## Implementation checklist
+
+- Restore a healthy disposable local database.
+- Capture students, teachers, groups, and review at 390 × 844 and 1440 × 1024, plus the 768 px breakpoint.
+- Exercise Back/Forward, search/filter, absence editing, zero-teacher blocking, smaller group-count confirmation, regeneration confirmation, student movement, primary responsibility assignment, review, and explicit publish confirmation.
+- Check keyboard focus, console errors, full-page horizontal overflow, and action reachability.
+- Build side-by-side comparisons and resolve every P0/P1/P2 visual finding.
+
+final result: superseded by the completed authenticated pass below
+
+---
+
+# Admin rotation wizard design QA — PR #63 amendment
+
+## Comparison target and evidence
+
+- Canonical source canvases: `docs/design-handoff/rotation-teacher-redesign-2026-08-08/canvases/04-admin-student-availability.png` through `07-admin-review-publish.png`, each opened at its original 1487 × 1058 resolution.
+- Authenticated desktop captures at 1440 × 1024:
+  - `artifacts/design-qa/admin-rotation-pr63/04-students-desktop-1440x1024.png`
+  - `artifacts/design-qa/admin-rotation-pr63/05-teachers-desktop-1440x1024.png`
+  - `artifacts/design-qa/admin-rotation-pr63/06-groups-desktop-1440x1024.png`
+  - `artifacts/design-qa/admin-rotation-pr63/07-review-desktop-1440x1024.png`
+- Authenticated mobile captures at 390 × 844 use the same step-numbered names with `mobile-390x844`. Full-page mobile action-reachability captures use `mobile-full`.
+- Direct three-column source/desktop/mobile comparisons:
+  - `artifacts/design-qa/admin-rotation-pr63/04-students-comparison.png`
+  - `artifacts/design-qa/admin-rotation-pr63/05-teachers-comparison.png`
+  - `artifacts/design-qa/admin-rotation-pr63/06-groups-comparison.png`
+  - `artifacts/design-qa/admin-rotation-pr63/07-review-comparison.png`
+- State: disposable local Supabase data, authenticated scoped admin, canonical week `2026-12-06`. No production or remote staging data was read or mutated.
+
+## Direct comparison findings
+
+- Student availability retains the canvas hierarchy: compact title/metrics, Saturday-only integrity message, search/filter actions, dense desktop table, labelled mobile rows, and explicit confirmation/continue actions. The implementation correctly replaces the canvas's generic “Draft saved” treatment with authoritative server confirmation and unsaved-edit feedback.
+- Teacher availability retains search, counts, dense rows, and explicit Available/Unavailable controls. The merged contract's last-published Saturday and group are shown; null history is “Never assigned.” Internal-looking email addresses are not presented.
+- Session groups retains the compact group-count control, anchored group columns/cards, primary responsibility selects, redistribution disclosure, imbalance warning, and Back/Continue actions. Corrected “Moved for Saturday” markers appear only for attending placements whose selected anchored slot differs from the permanent group.
+- Review restores A/B/C summaries and direct Edit students/teachers/groups links while keeping readiness, participant/placement totals, atomic/versioned/audited publication copy, history, explicit confirmation, and publish action.
+- Live fixture row counts, names, dates, and two generated groups differ intentionally from the sample canvases. A revisited completed Step 1 correctly shows later steps completed because backend readiness is authoritative; the canvas depicts an untouched first-step state.
+- The existing real navigation, ITQAN wordmark, Phosphor icons, stone surfaces, moss actions, green readiness states, amber warnings, restrained separators, and dense system typography match the approved color and hierarchy roles.
+
+## Responsive and interaction findings
+
+- At 390 × 844, the primary workflow has no horizontal scroll, desktop table squeezing, microscopic controls, card-per-student padding explosion, clipping, overlapping action bars, or off-viewport controls.
+- Student rows become dense labelled rows; teacher availability uses full-width 44 px segmented controls; group cards preserve primary responsibility and movement context; review summaries become compact two-column labelled rows.
+- Full-page mobile evidence confirms search, filters, absence controls, last-assigned context, redistribution disclosure, primary responsibility controls, direct edit links, audit disclosure, confirmation, Back/Continue/Publish actions, and integrity messaging remain reachable.
+- Step changes now restore the viewport to the page top, preventing query-string navigation from inheriting a lower scroll position and clipping the next screen's header.
+- Search and all practical action controls meet the 44 px target. Keyboard focus styling and native radio/checkbox/select semantics remain visible and logically ordered.
+- Browser console inspection after all four steps reported zero errors and zero warnings. `document.documentElement.scrollWidth <= window.innerWidth` passed at 390 px.
+
+## Authenticated journey and state coverage
+
+- The disposable-local journey exercised student confirmation, confirmed zero-teacher blocking, locked groups deep link, teacher confirmation, group generation, regeneration/discard confirmation, redistribution, corrected moved marker/count, review Edit links, reload, Back/Forward, identical re-confirmation staleness, stale review clamping, regeneration, review confirmation, and publish readiness without publishing.
+- Existing presentation paths remain for loading, denied, empty/no-context, stale, validation-blocked, mismatch confirmation, legacy recovery, retryable error, revision draft, and already-published states.
+
+## Remaining differences
+
+- The approved desktop canvases use sample production-like volumes (24 students and four teachers/groups); the disposable RLS fixture has four students, five active teachers, two available teachers, and two groups. Density and row structure were compared, not fabricated to match sample counts.
+- Mobile has no separate approved canonical canvas. Its composition is a responsive adaptation of the same hierarchy and controls, verified at the required viewport and through full-page action evidence.
+- No actionable P0, P1, or P2 visual or interaction finding remains.
+
+final result: passed

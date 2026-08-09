@@ -1,5 +1,6 @@
 import type { AdminCreateUserScopeOptions } from "@/lib/admin-user-scope";
 import type { CohortKind } from "@/lib/types";
+import type { RotationWizardStep } from "@/lib/rotation-workflow";
 
 export type RotationContext = {
   masjid: {
@@ -88,6 +89,7 @@ export function rotationPath(input: {
   cohortId: string;
   weekStart: string;
   status?: string;
+  step?: RotationWizardStep;
 }) {
   const params = new URLSearchParams({
     masjid: input.masjidId,
@@ -97,6 +99,10 @@ export function rotationPath(input: {
 
   if (input.status) {
     params.set("status", input.status);
+  }
+
+  if (input.step) {
+    params.set("step", input.step);
   }
 
   return `/admin/rotation?${params.toString()}`;

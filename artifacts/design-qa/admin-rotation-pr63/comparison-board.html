@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin rotation canvas comparison</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #edeae2; color: #17211d; font-family: Arial, sans-serif; }
+      main { padding: 24px; }
+      h1 { margin: 0 0 18px; font-size: 24px; }
+      .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 390px; gap: 18px; align-items: start; }
+      figure { margin: 0; min-width: 0; }
+      figcaption { margin-bottom: 8px; font-size: 14px; font-weight: 700; }
+      img { display: block; width: 100%; height: auto; border: 1px solid #cfcac0; background: white; box-shadow: 0 8px 24px rgba(23,33,29,.08); }
+      .mobile img { width: 390px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1 id="title">Admin rotation</h1>
+      <div class="grid">
+        <figure><figcaption>Approved canvas · 1487 × 1058</figcaption><img id="canvas" alt="Approved admin rotation canvas" /></figure>
+        <figure><figcaption>Implementation · 1440 × 1024</figcaption><img id="desktop" alt="Desktop implementation" /></figure>
+        <figure class="mobile"><figcaption>Responsive implementation · 390 × 844</figcaption><img id="mobile" alt="Mobile implementation" /></figure>
+      </div>
+    </main>
+    <script>
+      const names = {
+        "04-students": "Student availability",
+        "05-teachers": "Teacher availability",
+        "06-groups": "Session groups",
+        "07-review": "Review and publish"
+      };
+      const key = new URLSearchParams(location.search).get("step") || "04-students";
+      document.querySelector("#title").textContent = `Admin rotation · ${names[key]}`;
+      document.querySelector("#canvas").src = `../../../docs/design-handoff/rotation-teacher-redesign-2026-08-08/canvases/${key === "04-students" ? "04-admin-student-availability" : key === "05-teachers" ? "05-admin-teacher-availability" : key === "06-groups" ? "06-admin-session-groups" : "07-admin-review-publish"}.png`;
+      document.querySelector("#desktop").src = `${key}-desktop-1440x1024.png`;
+      document.querySelector("#mobile").src = `${key}-mobile-390x844.png`;
+    </script>
+  </body>
+</html>

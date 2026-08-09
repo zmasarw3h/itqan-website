@@ -14,6 +14,7 @@ import {
   type RotationContext
 } from "@/lib/rotation-scope";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { parseRotationWizardStep } from "@/lib/rotation-workflow";
 import {
   buildCohortGroupRebalancePreview,
   buildTeacherRotationPersistencePlan,
@@ -35,6 +36,7 @@ export type RotationSearchParams = {
   cohort?: string;
   week?: string;
   status?: string;
+  step?: string;
 };
 
 export type { RotationContext } from "@/lib/rotation-scope";
@@ -59,6 +61,9 @@ export type RotationTeacherRow = RotationTeacher & {
   created_at: string | null;
   sort_order: number;
   email: string;
+  last_published_week_start: string | null;
+  last_published_halaqa_saturday: string | null;
+  last_published_group_name: string | null;
 };
 
 export type RotationGroupRow = RotationGroup & {
@@ -401,6 +406,10 @@ export async function loadActiveRotationTeachers(input: {
   }
 
   const availabilityByTeacherId = new Map((availabilityRows ?? []).map((row) => [row.teacher_id, row.available]));
+  const lastPublishedByTeacherId = await loadLastPublishedTeacherContexts({
+    adminSupabase: input.adminSupabase,
+    cohortId: input.context.cohort.id
+  });
 
   return orderedTeacherIds
     .map((teacherId, index) => {
@@ -416,10 +425,83 @@ export async function loadActiveRotationTeachers(input: {
         email: profile.email,
         created_at: profile.created_at ?? null,
         sort_order: index + 1,
-        available: availabilityByTeacherId.get(profile.id) ?? false
+        available: availabilityByTeacherId.get(profile.id) ?? false,
+        last_published_week_start: lastPublishedByTeacherId.get(profile.id)?.weekStart ?? null,
+        last_published_halaqa_saturday: lastPublishedByTeacherId.get(profile.id)?.halaqaSaturday ?? null,
+        last_published_group_name: lastPublishedByTeacherId.get(profile.id)?.groupName ?? null
       };
     })
     .filter((teacher): teacher is RotationTeacherRow => teacher !== null);
+}
+
+async function loadLastPublishedTeacherContexts(input: {
+  adminSupabase: AdminSupabaseClient;
+  cohortId: string;
+}) {
+  type VersionRow = { id: string; week_start: string; halaqa_saturday: string; version_number: number; published_at: string };
+  type AssignmentRow = { version_id: string; teacher_id: string | null; group_name: string; sort_order: number; assignment_id: string };
+  const { data: versions, error: versionError } = await input.adminSupabase
+    .from("session_roster_versions")
+    .select("id,week_start,halaqa_saturday,version_number,published_at")
+    .eq("cohort_id", input.cohortId)
+    .returns<VersionRow[]>();
+
+  if (versionError) throw new Error("Unable to load teacher publication history.");
+  if (!versions?.length) return new Map<string, { weekStart: string; halaqaSaturday: string; groupName: string }>();
+
+  const versionIds = versions.map((version) => version.id);
+  const [slotResult, legacyResult] = await Promise.all([
+    input.adminSupabase
+      .from("session_roster_version_slots")
+      .select("version_id,primary_teacher_id,slot_name,slot_sort_order,slot_id")
+      .in("version_id", versionIds)
+      .not("primary_teacher_id", "is", null),
+    input.adminSupabase
+      .from("session_roster_version_groups")
+      .select("version_id,primary_teacher_id,group_name,group_sort_order,group_id")
+      .in("version_id", versionIds)
+      .not("primary_teacher_id", "is", null)
+  ]);
+  if (slotResult.error || legacyResult.error) throw new Error("Unable to load teacher publication history.");
+
+  const assignments: AssignmentRow[] = [
+    ...(slotResult.data ?? []).map((row) => ({
+      version_id: row.version_id as string,
+      teacher_id: row.primary_teacher_id as string | null,
+      group_name: row.slot_name as string,
+      sort_order: row.slot_sort_order as number,
+      assignment_id: row.slot_id as string
+    })),
+    ...(legacyResult.data ?? []).map((row) => ({
+      version_id: row.version_id as string,
+      teacher_id: row.primary_teacher_id as string | null,
+      group_name: row.group_name as string,
+      sort_order: row.group_sort_order as number,
+      assignment_id: row.group_id as string
+    }))
+  ];
+  const versionById = new Map(versions.map((version) => [version.id, version]));
+  assignments.sort((left, right) => {
+    const leftVersion = versionById.get(left.version_id)!;
+    const rightVersion = versionById.get(right.version_id)!;
+    return rightVersion.week_start.localeCompare(leftVersion.week_start)
+      || rightVersion.version_number - leftVersion.version_number
+      || rightVersion.published_at.localeCompare(leftVersion.published_at)
+      || left.sort_order - right.sort_order
+      || right.assignment_id.localeCompare(left.assignment_id);
+  });
+
+  const result = new Map<string, { weekStart: string; halaqaSaturday: string; groupName: string }>();
+  for (const assignment of assignments) {
+    if (!assignment.teacher_id || result.has(assignment.teacher_id)) continue;
+    const version = versionById.get(assignment.version_id)!;
+    result.set(assignment.teacher_id, {
+      weekStart: version.week_start,
+      halaqaSaturday: version.halaqa_saturday,
+      groupName: assignment.group_name
+    });
+  }
+  return result;
 }
 
 export async function loadPriorTeacherAssignments(input: {
@@ -564,7 +646,8 @@ export async function loadRotationPageData(input: {
           masjidId: context.masjid.id,
           cohortId: context.cohort.id,
           weekStart: selectedWeekStart,
-          status: input.searchParams.status
+          status: input.searchParams.status,
+          step: parseRotationWizardStep(input.searchParams.step)
         })
       : null;
   const [settings, groups, teachers] = await Promise.all([

@@ -54,6 +54,12 @@ export function sessionRosterReadinessSummary(readiness: SessionRosterReadiness)
   if (readiness.group_count_mismatch_confirmation_required) {
     return "Confirm the deliberate smaller group count before review.";
   }
+  if (readiness.permanent_anchor_mismatch_confirmation_required) {
+    return "Confirm the primary-teacher responsibility exception separately from the group count.";
+  }
+  if (readiness.blocker_codes.includes("no_available_teachers")) {
+    return "At least one available teacher is required before groups can be prepared.";
+  }
   if (readiness.blocker_codes.includes("group_count_exceeds_available_teachers")) {
     return "The requested group count cannot exceed the available-teacher count.";
   }
