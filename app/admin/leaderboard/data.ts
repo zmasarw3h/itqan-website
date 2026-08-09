@@ -19,6 +19,7 @@ import {
   loadHistoricalReportingAvailableWeeks,
   loadHistoricalReportingStudentsForWeeks
 } from "@/lib/reporting-population";
+import { parseBelow70StreakReadRows, type Below70StreakReadRow } from "@/lib/below70-streak";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn, HalaqaGrade, PartnerRecitation } from "@/lib/types";
 
@@ -186,6 +187,7 @@ export async function loadLeaderboardData(
 
   for (const student of population) {
     if (!student.scoring_eligible) continue;
+    if (populationByWeek.get(studentWeekKey(student.student_id, student.week_start)) === null) continue;
     const weeks = eligibleWeeksByStudent.get(student.student_id) ?? new Set<string>();
     weeks.add(student.week_start);
     eligibleWeeksByStudent.set(student.student_id, weeks);
@@ -241,6 +243,30 @@ export async function loadLeaderboardData(
   const checkinsByStudentWeek = groupCheckinsByStudentWeek(validCheckins);
   const partnerRecitationsByStudentWeek = groupPartnerRecitationsByStudentWeek(validPartnerRecitations);
   const halaqaGradesByStudentWeek = groupHalaqaGradesByStudentWeek(validHalaqaGrades);
+  const streakThroughWeekStart = completedWeekStartsDescending[0] ?? null;
+  const below70StreakByStudent = new Map<string, number>();
+
+  if (streakThroughWeekStart && students.length > 0) {
+    const { data: streakRows, error: streakError } = await supabase
+      .rpc("get_students_below70_streaks", {
+        input_student_ids: students.map((student) => student.id),
+        input_through_week_start: streakThroughWeekStart
+      })
+      .returns<Below70StreakReadRow[]>();
+
+    if (streakError) {
+      throw new Error("Unable to load below-70 streaks.");
+    }
+
+    for (const streakRow of parseBelow70StreakReadRows(streakRows)) {
+      below70StreakByStudent.set(streakRow.student_id, streakRow.active_streak_length);
+    }
+
+    if (below70StreakByStudent.size !== students.length) {
+      throw new Error("Below-70 streak data did not cover the selected student population.");
+    }
+  }
+
   const streakDataByStudent = new Map<
     string,
     {
@@ -286,7 +312,8 @@ export async function loadLeaderboardData(
       selectedWeekPartnerRecitationsByStudent,
       selectedWeekHalaqaGradeByStudent,
       streakDataByStudent,
-      minimumWeekStartByStudent
+      minimumWeekStartByStudent,
+      below70StreakByStudent
     }),
     availableWeekStarts,
     selectedWeekStart,

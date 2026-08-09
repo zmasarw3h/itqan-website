@@ -54,6 +54,7 @@ export function buildStudentBelow70Streak(input: {
   studentId: string;
   completedWeekStartsDescending: string[];
   minimumWeekStart?: string | null;
+  resetEffectiveThroughWeekStart?: string | null;
   checkins: Pick<CheckIn, "date" | "daily_score">[];
   partnerRecitations: Pick<PartnerRecitation, "week_start" | "round" | "points">[];
   halaqaGrades: Pick<HalaqaGrade, "week_start" | "attendance_points" | "recitation_points">[];
@@ -95,6 +96,7 @@ export function buildStudentBelow70Streak(input: {
   return calculateBelow70Streak({
     completedWeekStartsDescending: input.completedWeekStartsDescending,
     minimumWeekStart: input.minimumWeekStart,
+    resetEffectiveThroughWeekStart: input.resetEffectiveThroughWeekStart,
     checkinsByWeek,
     partnerRecitationsByWeek,
     halaqaGradeByWeek

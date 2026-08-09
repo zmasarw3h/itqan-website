@@ -67,6 +67,7 @@ export function calculateWeekScoreForStudent(input: {
 export function calculateBelow70Streak(input: {
   completedWeekStartsDescending: string[];
   minimumWeekStart?: string | null;
+  resetEffectiveThroughWeekStart?: string | null;
   eligibleWeekStarts?: ReadonlySet<string>;
   checkinsByWeek: ReadonlyMap<string, Pick<CheckIn, "student_id" | "date" | "daily_score">[]>;
   partnerRecitationsByWeek: ReadonlyMap<string, Pick<PartnerRecitation, "student_id" | "round" | "points">[]>;
@@ -87,6 +88,10 @@ export function calculateBelow70Streak(input: {
     }
 
     if (weekStart < input.minimumWeekStart) {
+      break;
+    }
+
+    if (input.resetEffectiveThroughWeekStart && weekStart <= input.resetEffectiveThroughWeekStart) {
       break;
     }
 
@@ -139,6 +144,7 @@ export function buildLeaderboardRows(input: {
     }
   >;
   minimumWeekStartByStudent?: ReadonlyMap<string, string | null | undefined>;
+  below70StreakByStudent?: ReadonlyMap<string, number>;
 }) {
   const selectedWeekComplete = weekIsComplete(input.selectedWeekStart, input.today);
   const rows = input.students.flatMap<LeaderboardRow>((student) => {
@@ -155,13 +161,15 @@ export function buildLeaderboardRows(input: {
       halaqaGrade: input.selectedWeekHalaqaGradeByStudent.get(student.id) ?? null
     });
     const streakData = input.streakDataByStudent.get(student.id);
-    const below70Streak = streakData
-      ? calculateBelow70Streak({
-          completedWeekStartsDescending: input.completedWeekStartsDescending,
-          minimumWeekStart: input.minimumWeekStartByStudent?.get(student.id) ?? null,
-          ...streakData
-        })
-      : 0;
+    const below70Streak = input.below70StreakByStudent?.has(student.id)
+      ? input.below70StreakByStudent.get(student.id) ?? 0
+      : streakData
+        ? calculateBelow70Streak({
+            completedWeekStartsDescending: input.completedWeekStartsDescending,
+            minimumWeekStart: input.minimumWeekStartByStudent?.get(student.id) ?? null,
+            ...streakData
+          })
+        : 0;
     const belowThreshold = score.percentage < PASSING_PERCENTAGE;
 
     return [{

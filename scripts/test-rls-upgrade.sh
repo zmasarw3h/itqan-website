@@ -190,6 +190,9 @@ from unnest(array[
   'public.historical_reporting_available_weeks()',
   'public.historical_reporting_activity_for_weeks(date[])',
   'public.historical_reporting_students_for_weeks(date[])',
+  'public.get_student_below70_streak(uuid,date)',
+  'public.get_students_below70_streaks(uuid[],date)',
+  'public.reset_student_below70_streak(uuid,uuid,boolean,text)',
   'public.student_historical_reporting_scope_for_week(date)',
   'public.student_cohort_leaderboard_for_week(date)',
   'public.student_leaderboard_available_weeks()',
@@ -208,6 +211,9 @@ from unnest(array[
   'private.raw_historical_report_week_scopes()',
   'private.raw_student_reporting_week_is_allowed(uuid,date)',
   'private.raw_historical_weekly_percentage(uuid,date)',
+  'private.raw_below70_streak(uuid,date)',
+  'private.raw_below70_streak_snapshot(uuid,date)',
+  'private.prevent_below70_streak_reset_mutation()',
   'private.rotation_publication_state(uuid,date)',
   'private.rotation_publication_normalize_assignments(jsonb,date)',
   'private.assert_rotation_publication_setup(jsonb)',
@@ -245,6 +251,8 @@ where not triggers.tgisinternal
     'rotation_publication_state_version_masajid_trigger',
     'rotation_publication_state_version_staff_trigger',
     'rotation_publication_state_version_profiles_trigger'
+    ,'below70_streak_resets_immutable_update'
+    ,'below70_streak_resets_immutable_delete'
   )
 order by namespaces.nspname, relations.relname, triggers.tgname;
 
@@ -269,6 +277,9 @@ from unnest(array[
   'public.historical_reporting_available_weeks()',
   'public.historical_reporting_activity_for_weeks(date[])',
   'public.historical_reporting_students_for_weeks(date[])',
+  'public.get_student_below70_streak(uuid,date)',
+  'public.get_students_below70_streaks(uuid[],date)',
+  'public.reset_student_below70_streak(uuid,uuid,boolean,text)',
   'public.student_historical_reporting_scope_for_week(date)',
   'public.student_cohort_leaderboard_for_week(date)',
   'public.student_leaderboard_available_weeks()',
@@ -286,7 +297,9 @@ from unnest(array[
   'private.raw_can_open_current_student_profile(uuid,uuid)',
   'private.raw_historical_report_week_scopes()',
   'private.raw_student_reporting_week_is_allowed(uuid,date)',
-  'private.raw_historical_weekly_percentage(uuid,date)'
+  'private.raw_historical_weekly_percentage(uuid,date)',
+  'private.raw_below70_streak(uuid,date)',
+  'private.raw_below70_streak_snapshot(uuid,date)'
 ]::text[]) as signatures(signature)
 join pg_proc as procedures on procedures.oid = to_regprocedure(signatures.signature)
 cross join lateral aclexplode(coalesce(procedures.proacl, acldefault('f', procedures.proowner))) as privileges
@@ -354,6 +367,7 @@ eval "$(cd "$upgrade_root" && "$supabase_cli" status -o env)"
   export RLS_DB_CONTAINER="$db_container"
   cd "$repo_root"
   npx --no-install tsx scripts/test-rls.ts
+  npx --no-install tsx scripts/test-below70-streak-reset.ts
   if [[ "$rollout_compatibility_mode" == true ]]; then
     npx --no-install tsx scripts/test-historical-report-rollout-compatibility.ts
   else

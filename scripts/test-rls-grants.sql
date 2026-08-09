@@ -36,6 +36,8 @@ insert into expected_authenticated_definers (signature) values
   ('get_teacher_session_dashboard(uuid,date)'),
   ('get_teacher_session_group_roster(uuid,uuid,date)'),
   ('get_teacher_session_student_context(uuid,date)'),
+  ('get_student_below70_streak(uuid,date)'),
+  ('get_students_below70_streaks(uuid[],date)'),
   ('group_masjid_id(uuid)'),
   ('historical_reporting_available_weeks()'),
   ('historical_reporting_activity_for_weeks(date[])'),
@@ -70,7 +72,8 @@ insert into expected_authenticated_definers (signature) values
   ('teacher_session_grade_snapshot_matches(uuid,date,uuid,uuid,uuid,uuid,uuid)'),
   ('teacher_session_grade_snapshot_matches_v2(uuid,date,uuid,uuid,uuid,uuid,uuid,uuid)'),
   ('teacher_session_plan_scope_matches(uuid,date)'),
-  ('save_teacher_session_halaqa_grade(uuid,uuid,uuid,date,boolean,integer,text)');
+  ('save_teacher_session_halaqa_grade(uuid,uuid,uuid,date,boolean,integer,text)'),
+  ('reset_student_below70_streak(uuid,uuid,boolean,text)');
 
 -- The shared rotation trigger is deliberately attached only to tables whose
 -- row shape it handles in an explicit branch. Keep this catalog assertion
@@ -654,6 +657,19 @@ begin
     )
   ) then
     raise exception 'transactional closure state is directly accessible outside owner functions';
+  end if;
+
+  if exists (
+    select 1
+    from (values ('anon'), ('authenticated'), ('service_role')) as roles(role_name)
+    cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE')) as privileges(privilege_name)
+    where has_table_privilege(
+      roles.role_name,
+      'public.below70_streak_resets',
+      privileges.privilege_name
+    )
+  ) then
+    raise exception 'below-70 reset ledger is directly accessible outside its typed RPCs';
   end if;
 end;
 $$;

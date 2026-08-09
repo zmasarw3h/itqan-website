@@ -158,7 +158,7 @@ The session-roster and teacher-session migrations are additive and depend on the
    deploy application code only after the schema is ready. This backend slice does not backfill drafts,
    versions, memberships, grades, plans, or teacher assignments; production remains unchanged until an
    admin explicitly uses the existing application workflow. Deploy matching server actions/routes only
-   after all eight migrations are applied and the catalog assertion confirms the teacher-session grants,
+   after all nine migrations are applied and the catalog assertion confirms the teacher-session grants,
    participant snapshot grants, transition grants, and legacy/raw-checklist restrictions. No migration is
    applied to production by this PR.
 
@@ -169,6 +169,26 @@ published/superseded rows or roll back by mutating permanent memberships/assignm
 forward refresh fix is the supported way to correct a published Saturday roster after the current version
 is reviewed. Do not reverse the constraint replacement on a live database merely to hide a failed refresh;
 preserve the audit trail and use a reviewed forward fix.
+
+### Below-70 streak reset backend
+
+Apply `20260809185224_below70_streak_reset.sql` after
+`20260808175048_rotation_wizard_availability_confirmation.sql`. It is additive: it creates the
+append-only reset ledger, typed read RPCs, the scoped reset RPC, immutable-row triggers, and the audit
+uniqueness guard. Do not backfill resets and do not apply this migration to production as part of this
+PR.
+
+Use database-first deployment for staging and any later production rollout:
+
+1. Run `npm run test:rls`, `npm run test:rls:upgrade`, `npx supabase db lint --local --schema public --level warning --fail-on error`, and `npx supabase db advisors --local --type all --level warn --fail-on error` against disposable/local databases.
+2. Apply the migration in filename order to staging, then verify the catalog grants, typed read rows, normal-admin/admin-teacher reset path, failed-test denial, replay behavior, and historical grade immutability.
+3. Deploy the matching server code only after the migration and catalog checks pass. The later Terra UI must consume the typed contracts documented below rather than writing `below70_streak_resets` directly.
+
+There is no destructive rollback. If a deployment issue occurs, roll back the app server code while
+leaving reset rows and audit history intact, pause the reset action, and ship a reviewed forward-fix
+migration. Never delete reset rows, audit events, or historical grades to simulate a rollback. A forward
+fix may correct validation or read behavior; it must preserve the append-only ledger and the existing
+`request_id`/student-week uniqueness guarantees.
 
 ## Rollback
 

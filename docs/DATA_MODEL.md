@@ -45,6 +45,31 @@ Internal transactional state lives in the unexposed `private` schema:
 - `workflow_expected_state_snapshots`: binds a staff-grant request UUID to its stable desired inputs and original canonical access snapshot, so a committed response can be replayed after the target state changes.
 - `masjid_update_requests`: stores stable masjid-update inputs and committed results for exact replay without repeating the hierarchy update or audit event.
 
+## Below-70 Streak Resets
+
+`below70_streak_resets` is an append-only, server-mediated ledger. Each row stores the student, the
+historical `masjid_id`, `cohort_id`, and `halaqa_group_id` used for authorization, the effective-through
+canonical Sunday, the server-calculated `previous_streak_length`, an always-true
+`passed_test_confirmation`, an optional trimmed 280-character `admin_note`, the caller `actor_id`, a
+caller `request_id`, and `created_at`. Foreign keys use `on delete restrict` so later hierarchy changes
+cannot erase the meaning of a historical reset. A unique `(student_id, effective_through_week_start)`
+boundary and unique request UUID make retries and concurrent submissions one logical reset.
+
+The table has no browser-role table grants and a deny-only RLS policy. `reset_student_below70_streak(...)`
+is the only authenticated write contract; it locks the student, resolves the latest completed week from
+`current_effective_date()` (Toronto's existing 1:00 a.m. operational boundary), resolves exactly one
+historical scope, requires an active normal admin/admin-teacher for that scope's masjid, requires explicit
+passed-test confirmation, recomputes the active streak, and inserts the reset plus its
+`super_admin_audit_events` row atomically. Super-admin and ordinary-teacher sessions cannot execute it.
+
+`get_student_below70_streak(student_id, through_week_start)` and the batch
+`get_students_below70_streaks(student_ids, through_week_start)` contracts return the typed active streak
+and latest reset summary. A null through-week means the latest completed canonical week. The database
+calculation counts only completed qualifying weeks after the latest reset boundary; missing activity is
+the existing zero-contribution score, while missing/ambiguous historical membership, incomplete weeks,
+and passing weeks break the consecutive run. Grades, activity, and historical snapshots are never
+rewritten, so a report through a week before the reset retains the original interpretation.
+
 Server-side helper functions expose narrow caller-relative views used by the app:
 
 - `student_weekly_teacher_name(week_start)`: returns only the signed-in student's assigned teacher display name.
