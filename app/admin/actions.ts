@@ -17,6 +17,14 @@ import {
 import { buildAdminUserCreateInput, scopedUserSetupFailureSearchParams } from "@/lib/admin-users";
 import { normalizeNote } from "@/lib/checkins";
 import {
+  latestCompletedTrackerWeekStart,
+  normalizeBelow70ResetNote,
+  parseBelow70StreakReadRows,
+  parseBelow70StreakResetResult,
+  type Below70StreakReadRow
+} from "@/lib/below70-streak";
+import type { Below70ResetActionStatus } from "@/lib/below70-streak-admin-ui";
+import {
   checkInEffectiveDateString,
   isValidDateString,
   torontoCivilDateString,
@@ -51,6 +59,109 @@ function adminStudentStatusPath(studentId: string, status: string, weekStart?: s
 
 function formString(value: FormDataEntryValue | null) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export type Below70StreakResetActionResult =
+  | { ok: true; status: "reset" | "replayed"; streak: Below70StreakReadRow }
+  | { ok: false; status: Below70ResetActionStatus; streak?: Below70StreakReadRow };
+
+function below70StreakReadRowFromReset(result: ReturnType<typeof parseBelow70StreakResetResult>): Below70StreakReadRow {
+  return {
+    student_id: result.student_id,
+    active_streak_length: result.active_streak_length,
+    streak_through_week_start: result.effective_through_week_start,
+    latest_reset_id: result.reset_id,
+    latest_reset_masjid_id: result.masjid_id,
+    latest_reset_cohort_id: result.cohort_id,
+    latest_reset_group_id: result.halaqa_group_id,
+    latest_reset_effective_through_week_start: result.effective_through_week_start,
+    latest_reset_previous_streak_length: result.previous_streak_length,
+    latest_reset_passed_test_confirmation: result.passed_test_confirmation,
+    latest_reset_admin_note: result.admin_note,
+    latest_reset_actor_id: result.actor_id,
+    latest_reset_created_at: result.created_at
+  };
+}
+
+function below70ResetFailureStatus(error: { code?: string | null; message?: string | null }): Below70ResetActionStatus {
+  if (error.code === "42501") return "unauthorized";
+  if (error.code === "22023") {
+    return error.message?.includes("active below-70 streak") ? "ineligible" : "invalid";
+  }
+  return "error";
+}
+
+async function loadBelow70StreakForAdmin(
+  supabase: Awaited<ReturnType<typeof requireProfile>>["supabase"],
+  studentId: string,
+  throughWeekStart: string
+) {
+  try {
+    const { data, error } = await supabase
+      .rpc("get_student_below70_streak", {
+        input_student_id: studentId,
+        input_through_week_start: throughWeekStart
+      })
+      .returns<Below70StreakReadRow[]>();
+    if (error) return null;
+    return parseBelow70StreakReadRows(data)[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function resetStudentBelow70Streak(input: {
+  requestId: string;
+  studentId: string;
+  passedTest: boolean;
+  note: string | null;
+}): Promise<Below70StreakResetActionResult> {
+  if (!UUID_PATTERN.test(input.requestId) || !UUID_PATTERN.test(input.studentId) || !input.passedTest) {
+    return { ok: false, status: "invalid" };
+  }
+
+  let note: string | null;
+  try {
+    note = normalizeBelow70ResetNote(input.note);
+  } catch {
+    return { ok: false, status: "invalid" };
+  }
+
+  const { supabase } = await requireProfile(["admin"]);
+  const throughWeekStart = latestCompletedTrackerWeekStart();
+  let resetData: unknown;
+
+  try {
+    const { data, error } = await supabase.rpc("reset_student_below70_streak", {
+      input_request_id: input.requestId,
+      input_student_id: input.studentId,
+      input_passed_test: true,
+      input_note: note
+    });
+    if (error || !data) {
+      const status = below70ResetFailureStatus(error ?? {});
+      const streak = status === "ineligible"
+        ? await loadBelow70StreakForAdmin(supabase, input.studentId, throughWeekStart)
+        : null;
+      return streak ? { ok: false, status, streak } : { ok: false, status };
+    }
+    resetData = data;
+  } catch {
+    return { ok: false, status: "error" };
+  }
+
+  let resetResult: ReturnType<typeof parseBelow70StreakResetResult>;
+  try {
+    resetResult = parseBelow70StreakResetResult(resetData);
+  } catch {
+    return { ok: false, status: "error" };
+  }
+
+  revalidatePath(`/admin/students/${input.studentId}`);
+  const refreshedStreak = await loadBelow70StreakForAdmin(supabase, input.studentId, throughWeekStart);
+  if (refreshedStreak) return { ok: true, status: resetResult.status, streak: refreshedStreak };
+
+  return { ok: true, status: resetResult.status, streak: below70StreakReadRowFromReset(resetResult) };
 }
 
 export async function createUser(formData: FormData) {

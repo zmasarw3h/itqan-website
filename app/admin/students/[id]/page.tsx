@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { correctPartnerRecitations } from "@/app/admin/actions";
 import AppNav from "@/app/nav";
 import CorrectionForm, { type CorrectionFormCheckIn } from "./correction-form";
+import Below70StreakReset from "./below70-streak-reset";
 import HalaqaGradeForm from "./halaqa-grade-form";
 import StudentDeleteForm from "./student-delete-form";
 import StudentWeekSelector from "./student-week-selector";
@@ -18,6 +19,11 @@ import {
   weekStartForDate
 } from "@/lib/dates";
 import { PASSING_PERCENTAGE } from "@/lib/leaderboard";
+import {
+  latestCompletedTrackerWeekStart,
+  parseBelow70StreakReadRows,
+  type Below70StreakReadRow
+} from "@/lib/below70-streak";
 import { PARTNER_RECITATION_ROUNDS } from "@/lib/partner-recitations";
 import { officialScoringStatus } from "@/lib/official-scoring";
 import { calculateDailyScoreProgress, calculateWeeklyScore, formatScore } from "@/lib/scoring";
@@ -129,6 +135,7 @@ export default async function AdminStudentPage({
   const { supabase, profile } = await requireProfile(["admin"]);
   const today = checkInEffectiveDateString();
   const currentTrackerWeekStart = weekStartForDate(today);
+  const latestCompletedWeekStart = latestCompletedTrackerWeekStart();
   const selectedWeekStart = validWeekStart(resolvedSearchParams.week, currentTrackerWeekStart);
   const selectedWeekDates = weekDatesFromStart(selectedWeekStart);
   const selectedWeekDateSet = new Set(selectedWeekDates);
@@ -184,6 +191,22 @@ export default async function AdminStudentPage({
 
   if (!student) {
     notFound();
+  }
+
+  const { data: below70StreakRows, error: below70StreakError } = await supabase
+    .rpc("get_student_below70_streak", {
+      input_student_id: student.id,
+      input_through_week_start: latestCompletedWeekStart
+    })
+    .returns<Below70StreakReadRow[]>();
+  let below70Streak: Below70StreakReadRow | null = null;
+
+  if (!below70StreakError) {
+    try {
+      below70Streak = parseBelow70StreakReadRows(below70StreakRows)[0] ?? null;
+    } catch {
+      // The page remains usable if a stale or malformed status projection cannot be rendered.
+    }
   }
 
   const { data: checkins } = await supabase
@@ -390,6 +413,12 @@ export default async function AdminStudentPage({
             </Link>
           </div>
         </section>
+
+        <Below70StreakReset
+          initialLoadError={Boolean(below70StreakError) || !below70Streak}
+          initialStreak={below70Streak}
+          studentId={student.id}
+        />
 
         <section className="mt-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
