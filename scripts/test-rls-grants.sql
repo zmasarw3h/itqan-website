@@ -145,6 +145,40 @@ $$;
 
 do $$
 declare
+  previous_streak_constraint text;
+  reset_function_definition text;
+begin
+  select pg_get_constraintdef(constraints.oid, true)
+  into previous_streak_constraint
+  from pg_constraint as constraints
+  where constraints.conrelid = 'public.below70_streak_resets'::regclass
+    and constraints.conname = 'below70_streak_resets_previous_streak_check';
+
+  if previous_streak_constraint is null
+    or previous_streak_constraint !~ 'previous_streak_length > 0' then
+    raise exception 'below-70 reset ledger must require previous_streak_length > 0, got: %', previous_streak_constraint;
+  end if;
+
+  if exists (
+    select 1
+    from public.below70_streak_resets
+    where previous_streak_length <= 0
+  ) then
+    raise exception 'below-70 reset ledger contains a non-positive previous streak';
+  end if;
+
+  select pg_get_functiondef('public.reset_student_below70_streak(uuid,uuid,boolean,text)'::regprocedure)
+  into reset_function_definition;
+
+  if reset_function_definition is null
+    or position('previous_streak_length <= 0' in reset_function_definition) = 0 then
+    raise exception 'reset RPC does not enforce positive server-calculated streak eligibility';
+  end if;
+end;
+$$;
+
+do $$
+declare
   invalid_allowlist text;
   unlisted_application_definers text;
   unexpected_authenticated text;

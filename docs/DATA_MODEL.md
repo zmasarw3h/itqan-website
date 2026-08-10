@@ -59,8 +59,11 @@ The table has no browser-role table grants and a deny-only RLS policy. `reset_st
 is the only authenticated write contract; it locks the student, resolves the latest completed week from
 `current_effective_date()` (Toronto's existing 1:00 a.m. operational boundary), resolves exactly one
 historical scope, requires an active normal admin/admin-teacher for that scope's masjid, requires explicit
-passed-test confirmation, recomputes the active streak, and inserts the reset plus its
+passed-test confirmation and a positive server-calculated active streak, recomputes the active streak, and
+inserts the reset plus its
 `super_admin_audit_events` row atomically. Super-admin and ordinary-teacher sessions cannot execute it.
+Three consecutive completed below-70 weeks remain the intervention/test trigger; they are not the minimum
+reset-permission threshold.
 
 `get_student_below70_streak(student_id, through_week_start)` is the student-specific typed read: an active
 student reading their own row receives only `student_id`, `active_streak_length`, and

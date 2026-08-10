@@ -259,8 +259,9 @@ insert/update/delete it directly.
 The reset changes only the active streak boundary. Historical grades, check-ins, partner recitations,
 halaqa grades, snapshots, and historical report scores remain unchanged. Missing activity contributes zero
 under the existing weekly score policy; missing/ambiguous membership, incomplete weeks, and passing weeks
-break a consecutive run. A student must have at least three consecutive completed below-70 weeks before
-the reset is accepted.
+break a consecutive run. After explicit passed-test confirmation, any positive active below-70 streak
+(one, two, three, or more completed weeks) may be reset; zero is rejected. Three consecutive completed
+below-70 weeks remain the intervention/test trigger and do not define the reset-permission minimum.
 
 ## Deploy App
 

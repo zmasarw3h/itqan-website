@@ -26,7 +26,7 @@ describe("below-70 streak reset contracts", () => {
     expect(below70Streak(["2026-08-02", "2026-07-26", "2026-07-19", "2026-07-12"], "2026-07-12")).toBe(4);
   });
 
-  it("keeps zero, one, and two-week streaks below the reset threshold", () => {
+  it("calculates zero, one, and two-week active streak lengths", () => {
     expect(below70Streak(["2026-08-02"], "2026-08-09")).toBe(0);
     expect(below70Streak(["2026-08-02"], "2026-08-02")).toBe(1);
     expect(below70Streak(["2026-08-02", "2026-07-26"], "2026-07-26")).toBe(2);
@@ -142,13 +142,13 @@ describe("below-70 streak reset contracts", () => {
         cohort_id: "cohort-1",
         halaqa_group_id: "group-1",
         effective_through_week_start: "2026-08-02",
-        previous_streak_length: 3,
+        previous_streak_length: 1,
         passed_test_confirmation: true,
         admin_note: null,
         actor_id: "admin-1",
         created_at: "2026-08-09T05:00:00.000Z",
         active_streak_length: 0
-      }).status
-    ).toBe("reset");
+      }).previous_streak_length
+    ).toBe(1);
   });
 });
