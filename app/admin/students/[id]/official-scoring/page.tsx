@@ -3,10 +3,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import AppNav from "@/app/nav";
 import { applyOfficialScoringStart, reviewOfficialScoringStart } from "./actions";
+import { isAdminStudentWorkspaceView } from "@/lib/admin-student-workspace";
 import { canAdminManageStudentForWeek, requireScopedAdmin } from "@/lib/admin-scope";
-import { addDays, formatWeekRange, torontoCivilDateString, weekStartForDate } from "@/lib/dates";
+import { addDays, formatWeekRange, isValidDateString, torontoCivilDateString, weekStartForDate } from "@/lib/dates";
 import {
+  displayOfficialScoringBoundary,
   isCanonicalScoringSunday,
+  isLegacyOfficialScoringBoundary,
   officialScoringStatus,
   parseOfficialScoringChangePreview
 } from "@/lib/official-scoring";
@@ -18,6 +21,8 @@ type SearchParams = {
   proposed?: string;
   status?: string;
   return_to?: string;
+  return_week?: string;
+  return_view?: string;
 };
 
 function money(cents: number) {
@@ -70,11 +75,18 @@ export default async function OfficialScoringPage({
     ? parseOfficialScoringChangePreview(previewResponse.data)
     : null;
   const currentStatus = officialScoringStatus(student.score_starts_on, currentWeekStart);
-  const defaultDate = student.score_starts_on ?? addDays(currentWeekStart, 7);
+  const defaultDate = student.score_starts_on && !isLegacyOfficialScoringBoundary(student.score_starts_on)
+    ? student.score_starts_on
+    : addDays(currentWeekStart, 7);
   const returnTo = query.return_to === "super_admin" ? "super_admin" : "";
+  const returnWeek = query.return_week && isValidDateString(query.return_week)
+    && weekStartForDate(query.return_week) === query.return_week
+    ? query.return_week
+    : currentWeekStart;
+  const returnView = isAdminStudentWorkspaceView(query.return_view) ? query.return_view : "settings";
   const backHref = returnTo
     ? `/super-admin/people/${student.id}`
-    : `/admin/students/${student.id}`;
+    : `/admin/students/${student.id}?week=${encodeURIComponent(returnWeek)}&view=${encodeURIComponent(returnView)}`;
   const errorMessage = messageFor(query.status)
     ?? (proposed && !preview ? "This proposed change is no longer valid. Start a fresh review." : null);
 
@@ -113,6 +125,8 @@ export default async function OfficialScoringPage({
           <form action={reviewOfficialScoringStart} className="mt-5 grid gap-3">
             <input name="student_id" type="hidden" value={student.id} />
             {returnTo ? <input name="return_to" type="hidden" value={returnTo} /> : null}
+            <input name="return_week" type="hidden" value={returnWeek} />
+            <input name="return_view" type="hidden" value={returnView} />
             <label>
               <span className="text-sm font-medium text-ink">Official scoring begins</span>
               <input
@@ -147,7 +161,9 @@ export default async function OfficialScoringPage({
             <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
               <div>
                 <dt className="text-stone-600">Current boundary</dt>
-                <dd className="font-semibold text-ink">{preview.old_score_starts_on ?? "Not scorable yet"}</dd>
+                <dd className="font-semibold text-ink">
+                  {displayOfficialScoringBoundary(preview.old_score_starts_on)}
+                </dd>
               </div>
               <div>
                 <dt className="text-stone-600">Proposed boundary</dt>
@@ -195,6 +211,8 @@ export default async function OfficialScoringPage({
                 <input name="score_starts_on" type="hidden" value={preview.new_score_starts_on} />
                 <input name="expected_score_starts_on" type="hidden" value={preview.old_score_starts_on ?? ""} />
                 {returnTo ? <input name="return_to" type="hidden" value={returnTo} /> : null}
+                <input name="return_week" type="hidden" value={returnWeek} />
+                <input name="return_view" type="hidden" value={returnView} />
                 <label>
                   <span className="text-sm font-medium text-ink">Reason for change</span>
                   <textarea

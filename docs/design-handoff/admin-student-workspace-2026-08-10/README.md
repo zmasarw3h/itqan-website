@@ -312,6 +312,9 @@ Download; never leave the viewer as a blank frame.
 Frontend work may begin after the preview endpoint contract is explicit, but
 merges remain serialized.
 
+The backend contract and frontend handoff are documented in
+[backend-fit.md](backend-fit.md).
+
 ## Implementation acceptance
 
 The implementation PR must include:
