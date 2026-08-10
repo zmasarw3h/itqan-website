@@ -3,13 +3,6 @@ import { BELOW70_RESET_NOTE_MAX_LENGTH, normalizeBelow70ResetNote } from "@/lib/
 export type Below70ResetActionStatus = "unauthorized" | "ineligible" | "invalid" | "error";
 
 export function below70StreakAdminStatus(streakLength: number) {
-  if (streakLength >= 3) {
-    return {
-      canReset: true,
-      description: "This student is eligible for a streak reset after passing the required test."
-    };
-  }
-
   if (streakLength === 0) {
     return {
       canReset: false,
@@ -17,9 +10,16 @@ export function below70StreakAdminStatus(streakLength: number) {
     };
   }
 
+  if (streakLength >= 3) {
+    return {
+      canReset: true,
+      description: "This 3+-week streak is the intervention and test trigger. After passed-test confirmation, it can be reset."
+    };
+  }
+
   return {
-    canReset: false,
-    description: "A reset becomes available after 3 consecutive completed weeks below 70%."
+    canReset: true,
+    description: "This positive below-70% streak can be reset after passed-test confirmation."
   };
 }
 
@@ -43,7 +43,7 @@ export function below70ResetErrorMessage(status: Below70ResetActionStatus) {
     case "unauthorized":
       return "You are no longer authorized to reset this student's streak.";
     case "ineligible":
-      return "This student no longer has an eligible below-70% streak. The status has been refreshed.";
+      return "This student no longer has a positive below-70% streak to reset. The status has been refreshed.";
     case "invalid":
       return "Review the confirmation and note, then try again.";
     default:
