@@ -10,11 +10,11 @@ import {
 } from "@/lib/dates";
 import {
   buildHalaqaFeedbackDisplay,
-  buildStudentBelow70Streak,
   buildWeeklyGradeBreakdown,
   completedStudentGradeWeekStartsDescending,
   studentGradesScope
 } from "@/lib/grades";
+import { parseBelow70StreakReadRows, type Below70StreakReadRow } from "@/lib/below70-streak";
 import { calculateDailyScoreProgress } from "@/lib/scoring";
 import { loadStudentWeekContext } from "@/lib/student-scope";
 import { requireProfile } from "@/lib/supabase-server";
@@ -82,7 +82,6 @@ export default async function StudentGradesPage({
     ])
   ].sort((a, b) => b.localeCompare(a));
   const completedWeekStartsDescending = completedStudentGradeWeekStartsDescending({ selectedWeekStart, today });
-  const streakDates = completedWeekStartsDescending.flatMap((weekStart) => weekDatesFromStart(weekStart));
 
   const { data: checkins } = await supabase
     .from("checkins")
@@ -102,43 +101,26 @@ export default async function StudentGradesPage({
     .eq("student_id", scope.studentId)
     .eq("week_start", scope.weekStart)
     .maybeSingle<HalaqaGrade>();
-  const { data: streakCheckins } = streakDates.length
+  const { data: streakRows, error: streakError } = completedWeekStartsDescending.length
     ? await supabase
-        .from("checkins")
-        .select("date,daily_score")
-        .eq("student_id", scope.studentId)
-        .in("date", streakDates)
-        .returns<Array<Pick<CheckIn, "date" | "daily_score">>>()
-    : { data: [] };
-  const { data: streakPartnerRecitations } = completedWeekStartsDescending.length
-    ? await supabase
-        .from("partner_recitations")
-        .select("week_start,round,points")
-        .eq("student_id", scope.studentId)
-        .in("week_start", completedWeekStartsDescending)
-        .returns<Array<Pick<PartnerRecitation, "week_start" | "round" | "points">>>()
-    : { data: [] };
-  const { data: streakHalaqaGrades } = completedWeekStartsDescending.length
-    ? await supabase
-        .from("halaqa_grades")
-        .select("week_start,attendance_points,recitation_points")
-        .eq("student_id", scope.studentId)
-        .in("week_start", completedWeekStartsDescending)
-        .returns<Array<Pick<HalaqaGrade, "week_start" | "attendance_points" | "recitation_points">>>()
-    : { data: [] };
+        .rpc("get_student_below70_streak", {
+          input_student_id: scope.studentId,
+          input_through_week_start: completedWeekStartsDescending[0]
+        })
+        .returns<Below70StreakReadRow[]>()
+    : { data: [], error: null };
+
+  if (streakError) {
+    throw new Error("Unable to load below-70 streak.");
+  }
+
+  const parsedStreakRows = parseBelow70StreakReadRows(streakRows);
+  const below70Streak = parsedStreakRows[0]?.active_streak_length ?? 0;
   const weeklyScore = buildWeeklyGradeBreakdown({
     weekDates: scope.weekDates,
     checkins: selectedWeekIsScorable ? (checkins ?? []) : [],
     partnerRecitations: selectedWeekIsScorable ? (partnerRecitations ?? []) : [],
     halaqaGrade: selectedWeekIsScorable ? (halaqaGrade ?? null) : null
-  });
-  const below70Streak = buildStudentBelow70Streak({
-    studentId: scope.studentId,
-    completedWeekStartsDescending,
-    minimumWeekStart: scoreStartsOn,
-    checkins: streakCheckins ?? [],
-    partnerRecitations: streakPartnerRecitations ?? [],
-    halaqaGrades: streakHalaqaGrades ?? []
   });
   const streakCardClass =
     below70Streak >= 3 ? "rounded-lg bg-red-50 p-5" : below70Streak > 0 ? "rounded-lg bg-amber-50 p-5" : "rounded-lg bg-stone-50 p-5";

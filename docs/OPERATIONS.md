@@ -234,6 +234,34 @@ the current tree does not remove it from Git history; see `docs/PRIVACY_INCIDENT
 - Bulk reset: not available through the quarantined importer. Use the existing guarded operator workflow
   for an explicitly requested individual reset; this slice does not rotate existing credentials.
 
+## Below-70 Streak Reset Backend Contract
+
+The later Terra admin page must call `reset_student_below70_streak(request_id, student_id, true, note)`
+through the authenticated Supabase client. The boolean must be explicit `true`; `false` or an omitted
+confirmation is rejected. Notes are optional, trimmed, and limited to 280 characters without control
+characters. The RPC returns `status: reset | replayed`, the immutable reset/scope identity, the effective
+through Sunday, the authoritative previous streak length, the actor/time, and `active_streak_length: 0`.
+It is safe to retry the same request UUID; a second request for the same student and completed week also
+returns the existing logical reset rather than creating another audit event.
+
+Use `get_student_below70_streak(student_id, through_week_start)` for one student, or
+`get_students_below70_streaks(student_ids, through_week_start)` for a scoped list. Pass a completed
+canonical Sunday; omit the week to read through the latest completed week. A student may call only the
+single-student RPC for their own row and receives `student_id`, `active_streak_length`, and
+`streak_through_week_start`; every `latest_reset_*` field is null. The batch RPC is restricted to active
+admins and super admins. Authorized administrative single and batch reads retain the complete reset summary,
+including historical masjid/cohort/group scope, effective-through week, previous length, passed-test
+confirmation, actor/time, and the optional note. This is the unchanged contract for the later Terra admin
+page. Ordinary teachers, cross-masjid admins, anonymous callers, and signed super-admin callers cannot
+execute the reset command. The reset ledger itself has no browser table grants, so the UI must not
+insert/update/delete it directly.
+
+The reset changes only the active streak boundary. Historical grades, check-ins, partner recitations,
+halaqa grades, snapshots, and historical report scores remain unchanged. Missing activity contributes zero
+under the existing weekly score policy; missing/ambiguous membership, incomplete weeks, and passing weeks
+break a consecutive run. A student must have at least three consecutive completed below-70 weeks before
+the reset is accepted.
+
 ## Deploy App
 
 Manual through Vercel/Git integration:
