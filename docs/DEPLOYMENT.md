@@ -174,15 +174,18 @@ preserve the audit trail and use a reviewed forward fix.
 
 Apply `20260809185224_below70_streak_reset.sql` after
 `20260808175048_rotation_wizard_availability_confirmation.sql`, then apply
-`20260810031942_below70_streak_read_privacy.sql` after the reset migration. Both are additive: the first
+`20260810031942_below70_streak_read_privacy.sql` after the reset migration, then apply
+`20260810131306_below70_positive_streak_reset_eligibility.sql` after the privacy migration. The first
 creates the append-only reset ledger, typed read RPCs, the scoped reset RPC, immutable-row triggers, and
-the audit uniqueness guard; the second is a forward-fix for read projections and batch authorization.
-Do not backfill resets and do not apply either migration to production as part of this PR.
+the audit uniqueness guard; the second is a forward-fix for read projections and batch authorization; the
+third safely replaces the previous-streak check and reset guard so any positive active streak is eligible
+after passed-test confirmation. The first two migrations are already part of the production baseline; do
+not apply the new forward-fix migration to production as part of this PR.
 
 Use database-first deployment for staging and any later production rollout:
 
 1. Run `npm run test:rls`, `npm run test:rls:upgrade`, `npx supabase db lint --local --schema public --level warning --fail-on error`, and `npx supabase db advisors --local --type all --level warn --fail-on error` against disposable/local databases.
-2. Apply the migration in filename order to staging, then verify the catalog grants, typed read rows, normal-admin/admin-teacher reset path, failed-test denial, replay behavior, and historical grade immutability.
+2. Apply the new forward-fix after the two production-baseline migrations in filename order to staging, then verify the catalog grants, typed read rows, positive-streak reset path, zero-streak denial, failed-test denial, replay behavior, and historical grade immutability.
 3. Deploy the matching server code only after the migration and catalog checks pass. The later Terra UI must consume the typed contracts documented below rather than writing `below70_streak_resets` directly.
 
 There is no destructive rollback. If a deployment issue occurs, roll back the app server code while

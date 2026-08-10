@@ -126,7 +126,7 @@ export function parseBelow70StreakReadRow(value: unknown): Below70StreakReadRow 
     latest_reset_previous_streak_length: nullableInteger(
       row.latest_reset_previous_streak_length,
       "latest_reset_previous_streak_length",
-      3
+      1
     ),
     latest_reset_passed_test_confirmation: nullableBoolean(
       row.latest_reset_passed_test_confirmation,
@@ -173,7 +173,7 @@ export function parseBelow70StreakResetResult(value: unknown): Below70StreakRese
       result.effective_through_week_start,
       "effective_through_week_start"
     ),
-    previous_streak_length: requireInteger(result.previous_streak_length, "previous_streak_length", 3),
+    previous_streak_length: requireInteger(result.previous_streak_length, "previous_streak_length", 1),
     passed_test_confirmation: true,
     admin_note: nullableString(result.admin_note, "admin_note"),
     actor_id: requireString(result.actor_id, "actor_id"),

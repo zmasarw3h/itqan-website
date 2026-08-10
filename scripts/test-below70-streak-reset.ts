@@ -359,18 +359,58 @@ async function main() {
   await expectDenied(adminA, { ...baseArgs, input_request_id: randomUUID(), input_passed_test: true, input_note: "x".repeat(281) }, "overlong admin note");
   await expectDenied(adminA, { ...baseArgs, input_request_id: randomUUID(), input_passed_test: true, input_note: "bad\nlog" }, "control-character admin note");
 
-  for (const [label, student] of [
-    ["zero", students.zero],
-    ["one", students.one],
-    ["two", students.two]
-  ] as const) {
-    await expectDenied(adminA, {
+  await expectDenied(adminA, {
+    input_request_id: randomUUID(),
+    input_student_id: students.zero.id,
+    input_passed_test: true,
+    input_note: "zero"
+  }, "zero-week streak");
+  await runLocalPsql(`
+    do $$
+    begin
+      if exists (
+        select 1
+        from public.below70_streak_resets
+        where student_id = '${students.zero.id}'::uuid
+      ) then
+        raise exception using message = 'zero streak created a reset row';
+      end if;
+    end;
+    $$;
+  `);
+  assert.equal(await countResetAudits(service, students.zero.id), 0, "zero streak created an audit row");
+
+  const oneReset = await requireData<ResetResult>(
+    "reset one-week streak",
+    adminA.rpc("reset_student_below70_streak", {
       input_request_id: randomUUID(),
-      input_student_id: student.id,
+      input_student_id: students.one.id,
       input_passed_test: true,
-      input_note: label
-    }, `${label}-week streak`);
-  }
+      input_note: "One week"
+    })
+  );
+  assert.equal(oneReset.status, "reset");
+  assert.equal(oneReset.previous_streak_length, 1);
+  assert.equal(oneReset.effective_through_week_start, latestCompletedWeek);
+  assert.equal(oneReset.passed_test_confirmation, true);
+  assert.equal(oneReset.active_streak_length, 0);
+  assertFullResetMetadata(await readStreak(adminA, students.one.id, latestCompletedWeek), oneReset, "one-week reset read");
+
+  const twoReset = await requireData<ResetResult>(
+    "reset two-week streak",
+    adminA.rpc("reset_student_below70_streak", {
+      input_request_id: randomUUID(),
+      input_student_id: students.two.id,
+      input_passed_test: true,
+      input_note: "Two weeks"
+    })
+  );
+  assert.equal(twoReset.status, "reset");
+  assert.equal(twoReset.previous_streak_length, 2);
+  assert.equal(twoReset.effective_through_week_start, latestCompletedWeek);
+  assert.equal(twoReset.passed_test_confirmation, true);
+  assert.equal(twoReset.active_streak_length, 0);
+  assertFullResetMetadata(await readStreak(adminA, students.two.id, latestCompletedWeek), twoReset, "two-week reset read");
 
   const exactRequestId = randomUUID();
   const exactReset = await requireData<ResetResult>(
