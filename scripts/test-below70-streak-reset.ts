@@ -160,6 +160,51 @@ async function readStreak(clientToTest: SupabaseClient, studentId: string, throu
   return data[0] as ReadRow;
 }
 
+async function expectBatchDenied(clientToTest: SupabaseClient, studentId: string, throughWeekStart: string, label: string) {
+  const { data, error } = await clientToTest.rpc("get_students_below70_streaks", {
+    input_student_ids: [studentId],
+    input_through_week_start: throughWeekStart
+  });
+  assert.ok(error, `${label} should be denied`);
+  assert.equal(data, null, `${label} returned data after denial`);
+}
+
+function assertFullResetMetadata(row: ReadRow, reset: ResetResult, label: string) {
+  assert.equal(row.latest_reset_id, reset.reset_id, `${label}: reset id`);
+  assert.equal(row.latest_reset_masjid_id, reset.masjid_id, `${label}: masjid id`);
+  assert.equal(row.latest_reset_cohort_id, reset.cohort_id, `${label}: cohort id`);
+  assert.equal(row.latest_reset_group_id, reset.halaqa_group_id, `${label}: group id`);
+  assert.equal(
+    row.latest_reset_effective_through_week_start,
+    reset.effective_through_week_start,
+    `${label}: effective-through week`
+  );
+  assert.equal(row.latest_reset_previous_streak_length, reset.previous_streak_length, `${label}: previous streak`);
+  assert.equal(
+    row.latest_reset_passed_test_confirmation,
+    reset.passed_test_confirmation,
+    `${label}: passed-test confirmation`
+  );
+  assert.equal(row.latest_reset_admin_note, reset.admin_note, `${label}: admin note`);
+  assert.equal(row.latest_reset_actor_id, reset.actor_id, `${label}: actor id`);
+  assert.equal(row.latest_reset_created_at, reset.created_at, `${label}: created timestamp`);
+}
+
+function assertStudentMinimalProjection(row: ReadRow, studentId: string, throughWeekStart: string) {
+  assert.equal(row.student_id, studentId);
+  assert.equal(row.streak_through_week_start, throughWeekStart);
+  assert.equal(row.latest_reset_id, null, "student read exposed the reset id");
+  assert.equal(row.latest_reset_masjid_id, null, "student read exposed the reset masjid");
+  assert.equal(row.latest_reset_cohort_id, null, "student read exposed the reset cohort");
+  assert.equal(row.latest_reset_group_id, null, "student read exposed the reset group");
+  assert.equal(row.latest_reset_effective_through_week_start, null, "student read exposed the reset boundary");
+  assert.equal(row.latest_reset_previous_streak_length, null, "student read exposed the previous streak");
+  assert.equal(row.latest_reset_passed_test_confirmation, null, "student read exposed test confirmation");
+  assert.equal(row.latest_reset_admin_note, null, "student read exposed the admin note");
+  assert.equal(row.latest_reset_actor_id, null, "student read exposed the reset actor");
+  assert.equal(row.latest_reset_created_at, null, "student read exposed the reset timestamp");
+}
+
 async function countResetAudits(service: SupabaseClient, studentId: string) {
   const { data, error } = await service
     .from("super_admin_audit_events")
@@ -179,6 +224,12 @@ async function main() {
   const superAdmin = await signIn("superadmin@rls.local");
   const existingStudent = await signIn("studenta@rls.local");
   const anonymous = client(anonKey);
+  const inactiveAdmin = await createUser(service, "below70-inactive-admin", "admin");
+  await requireData(
+    "deactivate batch-read admin",
+    service.from("profiles").update({ active: false }).eq("id", inactiveAdmin.id).select("id")
+  );
+  const inactiveAdminClient = await signIn(inactiveAdmin.email);
 
   const effectiveDate = await requireData<string>("current effective date", adminA.rpc("current_effective_date"));
   const latestCompletedWeek = latestCompletedWeekFromEffectiveDate(effectiveDate);
@@ -343,17 +394,47 @@ async function main() {
   assert.equal(exactRead.latest_reset_previous_streak_length, 3);
   assert.equal(exactRead.latest_reset_passed_test_confirmation, true);
   assert.equal(exactRead.latest_reset_admin_note, "Passed test");
+  assertFullResetMetadata(exactRead, exactReset, "scoped admin single read");
   const ownRead = await readStreak(exactStudentClient, students.exact3.id, latestCompletedWeek);
   assert.equal(ownRead.active_streak_length, 0);
-  assert.equal(ownRead.latest_reset_admin_note, null, "student read exposed the admin note");
+  assertStudentMinimalProjection(ownRead, students.exact3.id, latestCompletedWeek);
+  await expectBatchDenied(exactStudentClient, students.exact3.id, latestCompletedWeek, "student batch read");
+  await expectBatchDenied(ordinaryTeacher, students.exact3.id, latestCompletedWeek, "ordinary teacher batch read");
+  await expectBatchDenied(inactiveAdminClient, students.exact3.id, latestCompletedWeek, "inactive admin batch read");
+  await expectBatchDenied(anonymous, students.exact3.id, latestCompletedWeek, "anonymous batch read");
   const batchRead = await adminA.rpc("get_students_below70_streaks", {
     input_student_ids: [students.exact3.id, students.more4.id],
     input_through_week_start: latestCompletedWeek
   });
   assert.equal(batchRead.error, null, `batch read: ${batchRead.error?.message}`);
+  assert.ok(Array.isArray(batchRead.data), "scoped batch read did not return rows");
   assert.equal((batchRead.data as ReadRow[]).length, 2, "scoped batch read omitted an authorized student");
+  const adminBatchExactRead = (batchRead.data as ReadRow[]).find((row) => row.student_id === students.exact3.id);
+  assert.ok(adminBatchExactRead, "scoped batch read omitted the reset target");
+  assertFullResetMetadata(adminBatchExactRead, exactReset, "scoped admin batch read");
   const studentRead = await readStreak(existingStudent, students.exact3.id, latestCompletedWeek).catch((error: Error) => error);
   assert.ok(studentRead instanceof Error, "another student cannot read the reset target");
+  const superSingleRead = await readStreak(superAdmin, students.exact3.id, latestCompletedWeek);
+  assertFullResetMetadata(superSingleRead, exactReset, "super-admin single read");
+  const superBatchRead = await superAdmin.rpc("get_students_below70_streaks", {
+    input_student_ids: [students.exact3.id],
+    input_through_week_start: latestCompletedWeek
+  });
+  assert.equal(superBatchRead.error, null, `super-admin batch read: ${superBatchRead.error?.message}`);
+  assert.ok(Array.isArray(superBatchRead.data) && superBatchRead.data.length === 1, "super-admin batch read changed shape");
+  assertFullResetMetadata(superBatchRead.data[0] as ReadRow, exactReset, "super-admin batch read");
+  const crossMasjidBatchForAdminA = await adminA.rpc("get_students_below70_streaks", {
+    input_student_ids: [students.crossMasjidTarget.id],
+    input_through_week_start: latestCompletedWeek
+  });
+  assert.equal(crossMasjidBatchForAdminA.error, null, `cross-masjid batch filtering: ${crossMasjidBatchForAdminA.error?.message}`);
+  assert.deepEqual(crossMasjidBatchForAdminA.data, [], "normal admin batch read crossed masjid scope");
+  const crossMasjidBatchForAdminB = await adminB.rpc("get_students_below70_streaks", {
+    input_student_ids: [students.crossMasjidTarget.id],
+    input_through_week_start: latestCompletedWeek
+  });
+  assert.equal(crossMasjidBatchForAdminB.error, null, `in-scope batch read: ${crossMasjidBatchForAdminB.error?.message}`);
+  assert.ok(Array.isArray(crossMasjidBatchForAdminB.data) && crossMasjidBatchForAdminB.data.length === 1, "in-scope admin batch read omitted its student");
   const historicalRead = await readStreak(adminA, students.exact3.id, week2);
   assert.equal(historicalRead.latest_reset_id, null, "a reset effective later must not rewrite older history");
   assert.equal(historicalRead.active_streak_length, 2, "older below-70 history remains intact");

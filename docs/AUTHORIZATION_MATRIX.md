@@ -21,7 +21,7 @@ the legacy permanent-membership roster endpoint is revoked.
 | Partner recitation | Own rows; current round writes require an effective, matching group snapshot | Read only assigned group/week rows | Scoped read/write for administered masajid | Global operational access |
 | Halaqa grades | Own read only | Read and grade any group in the current published session snapshot of an authorized cohort/week; exact published version/group/student membership is required for each grade write, and assigned/primary groups are highlight-only | Scoped read/write for administered masajid; historical session-backed grades retain their snapshot identity | Global operational access |
 | Incentives/accountability | Own eligible post-`score_starts_on` obligations and badges; only the existing self-attestation update is allowed | No direct access | Scoped rows; guarded scoring-boundary activation/forward moves require authority over all affected history | Global operational access; guarded scoring-boundary changes may also move backward |
-| Below-70 streak reset | Read own typed streak/reset projection; no reset command | No read or reset command unless the profile also has active scoped admin authority | Read scoped typed projection; `reset_student_below70_streak(...)` only for an active student in the admin's relevant masjid after an explicit passed-test confirmation and server-calculated streak of at least 3 | Read projection if needed for operations; reset command is explicitly denied |
+| Below-70 streak reset | Read own minimal typed active-streak projection (`student_id`, `active_streak_length`, `streak_through_week_start`); every `latest_reset_*` field is null; no reset command | No read or reset command unless the profile also has active scoped admin authority | Read scoped typed projection including reset metadata; `reset_student_below70_streak(...)` only for an active student in the admin's relevant masjid after an explicit passed-test confirmation and server-calculated streak of at least 3 | Read the complete operational projection if needed; reset command is explicitly denied |
 | Masajid/cohorts/groups | Active hierarchy connected to a current Toronto-civil-date membership | Active hierarchy connected to a current Toronto-civil-week assignment with Saturday teacher eligibility | Active currently administered masajid and active descendants | Global setup access, including inactive entities |
 | Student memberships | Own history | Rows whose membership window overlaps an effective assignment week | Scoped insert and deliberate open-row closure; identity/history rewrites and deletion are denied | Global read; signed direct insert/update/delete denied |
 | Staff memberships | Own history | Own history | Scoped teacher insert and deliberate deactivation/closure; identity/history rewrites, reactivation, admin grants, and deletion are denied | Global read; writes only through guarded service-role workflows |
@@ -128,9 +128,11 @@ The `authenticated` role can execute only these caller-relative definer function
   `teacher_assignment_contexts()`, and
   `admin_students_for_week(date)`, plus the atomic, actor-scoped
   `apply_admin_checkin_correction(uuid,date,text,text,text[])` mutation.
-- Below-70 streak contracts: `get_student_below70_streak(uuid,date)` and
-  `get_students_below70_streaks(uuid[],date)` return only an authorized typed active-streak/read-reset
-  projection. `reset_student_below70_streak(uuid,uuid,boolean,text)` accepts a request UUID, target
+- Below-70 streak contracts: `get_student_below70_streak(uuid,date)` preserves the student's own read but
+  returns students only the three-field active-streak projection with every `latest_reset_*` field null;
+  scoped admins and super admins receive the complete authorized reset projection. The batch
+  `get_students_below70_streaks(uuid[],date)` is restricted to active admins and super admins and returns
+  only per-student authorized rows. `reset_student_below70_streak(uuid,uuid,boolean,text)` accepts a request UUID, target
   student, explicit `true` passed-test confirmation, and optional concise note; it is granted to
   authenticated sessions only but internally accepts only active normal admins/admin-teachers with
   current administration authority for the student's historical reset scope. It excludes students,

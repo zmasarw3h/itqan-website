@@ -246,12 +246,15 @@ returns the existing logical reset rather than creating another audit event.
 
 Use `get_student_below70_streak(student_id, through_week_start)` for one student, or
 `get_students_below70_streaks(student_ids, through_week_start)` for a scoped list. Pass a completed
-canonical Sunday; omit the week to read through the latest completed week. The response contains
-`active_streak_length` plus the latest reset summary, including historical masjid/cohort/group scope,
-effective-through week, previous length, passed-test confirmation, actor/time, and an admin-only note.
-Students can request only their own row. Ordinary teachers, cross-masjid admins, anonymous callers, and
-signed super-admin callers cannot execute the reset command. The reset ledger itself has no browser table
-grants, so the UI must not insert/update/delete it directly.
+canonical Sunday; omit the week to read through the latest completed week. A student may call only the
+single-student RPC for their own row and receives `student_id`, `active_streak_length`, and
+`streak_through_week_start`; every `latest_reset_*` field is null. The batch RPC is restricted to active
+admins and super admins. Authorized administrative single and batch reads retain the complete reset summary,
+including historical masjid/cohort/group scope, effective-through week, previous length, passed-test
+confirmation, actor/time, and the optional note. This is the unchanged contract for the later Terra admin
+page. Ordinary teachers, cross-masjid admins, anonymous callers, and signed super-admin callers cannot
+execute the reset command. The reset ledger itself has no browser table grants, so the UI must not
+insert/update/delete it directly.
 
 The reset changes only the active streak boundary. Historical grades, check-ins, partner recitations,
 halaqa grades, snapshots, and historical report scores remain unchanged. Missing activity contributes zero

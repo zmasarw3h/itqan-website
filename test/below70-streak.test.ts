@@ -114,6 +114,25 @@ describe("below-70 streak reset contracts", () => {
         latest_reset_created_at: "2026-08-09T05:00:00.000Z"
       }).latest_reset_previous_streak_length
     ).toBe(4);
+    const studentProjection = parseBelow70StreakReadRow({
+      student_id: "student-1",
+      active_streak_length: 0,
+      streak_through_week_start: "2026-08-02",
+      latest_reset_id: null,
+      latest_reset_masjid_id: null,
+      latest_reset_cohort_id: null,
+      latest_reset_group_id: null,
+      latest_reset_effective_through_week_start: null,
+      latest_reset_previous_streak_length: null,
+      latest_reset_passed_test_confirmation: null,
+      latest_reset_admin_note: null,
+      latest_reset_actor_id: null,
+      latest_reset_created_at: null
+    });
+    expect(studentProjection.active_streak_length).toBe(0);
+    expect(studentProjection.latest_reset_id).toBeNull();
+    expect(studentProjection.latest_reset_admin_note).toBeNull();
+    expect(studentProjection.latest_reset_actor_id).toBeNull();
     expect(
       parseBelow70StreakResetResult({
         status: "reset",

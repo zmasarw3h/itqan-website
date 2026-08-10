@@ -173,10 +173,11 @@ preserve the audit trail and use a reviewed forward fix.
 ### Below-70 streak reset backend
 
 Apply `20260809185224_below70_streak_reset.sql` after
-`20260808175048_rotation_wizard_availability_confirmation.sql`. It is additive: it creates the
-append-only reset ledger, typed read RPCs, the scoped reset RPC, immutable-row triggers, and the audit
-uniqueness guard. Do not backfill resets and do not apply this migration to production as part of this
-PR.
+`20260808175048_rotation_wizard_availability_confirmation.sql`, then apply
+`20260810031942_below70_streak_read_privacy.sql` after the reset migration. Both are additive: the first
+creates the append-only reset ledger, typed read RPCs, the scoped reset RPC, immutable-row triggers, and
+the audit uniqueness guard; the second is a forward-fix for read projections and batch authorization.
+Do not backfill resets and do not apply either migration to production as part of this PR.
 
 Use database-first deployment for staging and any later production rollout:
 

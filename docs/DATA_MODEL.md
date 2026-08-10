@@ -62,9 +62,13 @@ historical scope, requires an active normal admin/admin-teacher for that scope's
 passed-test confirmation, recomputes the active streak, and inserts the reset plus its
 `super_admin_audit_events` row atomically. Super-admin and ordinary-teacher sessions cannot execute it.
 
-`get_student_below70_streak(student_id, through_week_start)` and the batch
-`get_students_below70_streaks(student_ids, through_week_start)` contracts return the typed active streak
-and latest reset summary. A null through-week means the latest completed canonical week. The database
+`get_student_below70_streak(student_id, through_week_start)` is the student-specific typed read: an active
+student reading their own row receives only `student_id`, `active_streak_length`, and
+`streak_through_week_start`; every nullable `latest_reset_*` field is returned as null. Scoped admins and
+super admins receive the complete authorized latest-reset summary. The batch
+`get_students_below70_streaks(student_ids, through_week_start)` is an administrative read for active admins
+and super admins only and returns complete reset metadata for rows authorized by the existing scope rules.
+A null through-week means the latest completed canonical week. The database
 calculation counts only completed qualifying weeks after the latest reset boundary; missing activity is
 the existing zero-contribution score, while missing/ambiguous historical membership, incomplete weeks,
 and passing weeks break the consecutive run. Grades, activity, and historical snapshots are never
