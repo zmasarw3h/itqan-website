@@ -55,7 +55,9 @@ export default function HalaqaGradeForm({
   const [attended, setAttended] = useState(initialAttended);
   const [recitationPoints, setRecitationPoints] = useState(initialRecitationPoints);
   const [notes, setNotes] = useState(initialNotes);
+  const [resultDismissed, setResultDismissed] = useState(false);
   const summary = halaqaGradeDraftSummary(attended, recitationPoints);
+  const visibleResultStatus = resultDismissed ? undefined : resultStatus;
   const draftKey = `itqan:v1:admin-halaqa-grade:${studentId}:${weekStart}`;
   const dirty = attended !== initialAttended
     || (attended && recitationPoints !== initialRecitationPoints)
@@ -113,6 +115,7 @@ export default function HalaqaGradeForm({
                 className="size-5 accent-moss"
                 name="attended"
                 onChange={() => {
+                  setResultDismissed(true);
                   setAttended(value);
                   onSummaryChange?.(halaqaGradeDraftSummary(value, recitationPoints).totalPoints);
                 }}
@@ -138,6 +141,7 @@ export default function HalaqaGradeForm({
             name="recitation_points"
             onChange={(event) => {
               const value = event.target.value.replace(/^0+(?=\d)/, "");
+              setResultDismissed(true);
               setRecitationPoints(value);
               onSummaryChange?.(halaqaGradeDraftSummary(true, value).totalPoints);
             }}
@@ -176,7 +180,10 @@ export default function HalaqaGradeForm({
         <textarea
           className="mt-1.5 min-h-24 w-full resize-y rounded-md border border-stone-300 px-3 py-2 text-ink"
           name="notes"
-          onChange={(event) => setNotes(event.target.value)}
+          onChange={(event) => {
+            setResultDismissed(true);
+            setNotes(event.target.value);
+          }}
           placeholder="Optional student feedback"
           value={notes}
         />
@@ -185,9 +192,9 @@ export default function HalaqaGradeForm({
       <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <SaveButton />
         <div className="min-h-5 text-right">
-          <ResultMessage status={resultStatus} />
-          {!resultStatus && dirty ? <p className="text-sm text-stone-500" role="status">Unsaved changes</p> : null}
-          {!resultStatus && !dirty ? <p className="text-sm text-stone-500">{grade ? "Saved grade" : "Not saved yet"}</p> : null}
+          <ResultMessage status={visibleResultStatus} />
+          {!visibleResultStatus && dirty ? <p className="text-sm text-stone-500" role="status">Unsaved changes</p> : null}
+          {!visibleResultStatus && !dirty ? <p className="text-sm text-stone-500">{grade ? "Saved grade" : "Not saved yet"}</p> : null}
         </div>
       </div>
       {!attended ? <p className="mt-5 flex items-start gap-2 border-t border-stone-200 pt-4 text-sm text-stone-600"><Info aria-hidden="true" className="mt-0.5 size-4 shrink-0" />Selecting Yes adds the required recitation-points field.</p> : null}

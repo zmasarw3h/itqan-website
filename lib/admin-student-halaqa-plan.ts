@@ -5,6 +5,10 @@ export type WeeklyPlanPreviewKind = "image" | "pdf" | "unsupported";
 export const WEEKLY_PLAN_MIN_ZOOM = 50;
 export const WEEKLY_PLAN_MAX_ZOOM = 200;
 
+export function adminStudentHalaqaPlanContextKey(studentId: string, weekStart: string) {
+  return `${studentId}:${weekStart}`;
+}
+
 export function clampWeeklyPlanZoom(value: number) {
   return Math.min(WEEKLY_PLAN_MAX_ZOOM, Math.max(WEEKLY_PLAN_MIN_ZOOM, Math.round(value / 5) * 5));
 }

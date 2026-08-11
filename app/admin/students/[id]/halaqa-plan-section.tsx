@@ -2,20 +2,13 @@
 
 import { useState } from "react";
 import { CalendarBlank, Medal } from "@phosphor-icons/react";
+import { adminStudentHalaqaPlanContextKey } from "@/lib/admin-student-halaqa-plan";
 import { formatWeekRange } from "@/lib/dates";
 import type { HalaqaGrade, WeeklyPlan } from "@/lib/types";
 import HalaqaGradeForm from "./halaqa-grade-form";
 import WeeklyPlanPanel from "./weekly-plan-panel";
 
-export default function HalaqaPlanSection({
-  studentId,
-  weekStart,
-  grade,
-  plan,
-  planPreviewUrl,
-  planDownloadUrl,
-  status
-}: {
+type HalaqaPlanSectionProps = {
   studentId: string;
   weekStart: string;
   grade: HalaqaGrade | null;
@@ -23,10 +16,23 @@ export default function HalaqaPlanSection({
   planPreviewUrl: string | null;
   planDownloadUrl: string | null;
   status?: string;
-}) {
+};
+
+function HalaqaPlanTaskSurface({
+  studentId,
+  weekStart,
+  grade,
+  plan,
+  planPreviewUrl,
+  planDownloadUrl,
+  status
+}: HalaqaPlanSectionProps) {
   const [gradeTotal, setGradeTotal] = useState(
     grade ? Number(grade.attendance_points) + Number(grade.recitation_points) : 0
   );
+  const gradeRevision = grade
+    ? `${grade.id}:${grade.updated_at ?? grade.graded_at}`
+    : "not-graded";
 
   return (
     <section className="py-8" aria-labelledby="halaqa-plan-title">
@@ -59,6 +65,7 @@ export default function HalaqaPlanSection({
           <p className="mt-1 text-sm text-stone-600">Saturday grade for {formatWeekRange(weekStart)}</p>
           <HalaqaGradeForm
             grade={grade}
+            key={`${studentId}:${weekStart}:${gradeRevision}:${status ?? ""}`}
             onSummaryChange={setGradeTotal}
             redirectView="halaqa-plan"
             resultStatus={status}
@@ -78,5 +85,14 @@ export default function HalaqaPlanSection({
         </section>
       </div>
     </section>
+  );
+}
+
+export default function HalaqaPlanSection(props: HalaqaPlanSectionProps) {
+  return (
+    <HalaqaPlanTaskSurface
+      {...props}
+      key={adminStudentHalaqaPlanContextKey(props.studentId, props.weekStart)}
+    />
   );
 }
