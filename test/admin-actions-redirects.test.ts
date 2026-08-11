@@ -71,6 +71,22 @@ function makeSupabase(input?: { correctionError?: boolean; studentName?: string 
   };
 }
 
+function makePartnerSupabase(input?: { existingRounds?: string[]; mutationError?: boolean }) {
+  const existingRounds = input?.existingRounds ?? [];
+  const query: Record<string, ReturnType<typeof vi.fn>> = {};
+  for (const method of ["select", "eq", "delete", "in"]) query[method] = vi.fn(() => query);
+  query.returns = vi.fn().mockResolvedValue({
+    data: existingRounds.map((round) => ({ round })),
+    error: null
+  });
+  return {
+    from: vi.fn(() => query),
+    rpc: vi.fn(),
+    upsert: vi.fn().mockResolvedValue({ data: null, error: input?.mutationError ? { message: "failed" } : null }),
+    query
+  };
+}
+
 function form(fields: Record<string, string>) {
   const result = new FormData();
   for (const [key, value] of Object.entries(fields)) result.set(key, value);
@@ -134,6 +150,69 @@ describe("admin student mutation redirect contracts", () => {
     }))).rejects.toMatchObject({
       location: `/admin/students/${studentId}?status=correction-error&week=${weekStart}&view=corrections`
     });
+  });
+
+  it("preserves week and section after a successful daily correction", async () => {
+    const supabase = makeSupabase();
+    canAdminManageStudentForWeekMock.mockResolvedValue(true);
+    requireProfileMock.mockResolvedValueOnce({ supabase, profile: adminProfile, user: { id: adminProfile.id } });
+
+    await expect(correctCheckIn(form({
+      student_id: studentId,
+      date: weekStart,
+      status: "submitted",
+      redirect_week: weekStart,
+      redirect_view: "corrections"
+    }))).rejects.toMatchObject({
+      location: `/admin/students/${studentId}?status=corrected&week=${weekStart}&view=corrections`
+    });
+  });
+
+  it("rejects a daily correction outside the selected week before checking a different scope", async () => {
+    const supabase = makeSupabase();
+    canAdminManageStudentForWeekMock.mockResolvedValue(true);
+    requireProfileMock.mockResolvedValueOnce({ supabase, profile: adminProfile, user: { id: adminProfile.id } });
+
+    await expect(correctCheckIn(form({
+      student_id: studentId,
+      date: "2026-07-26",
+      status: "submitted",
+      redirect_week: weekStart,
+      redirect_view: "corrections"
+    }))).rejects.toMatchObject({
+      location: `/admin/students/${studentId}?status=correction-outside-week&week=${weekStart}&view=corrections`
+    });
+    expect(canAdminManageStudentForWeekMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves week and section for invalid partner rounds", async () => {
+    const supabase = makeSupabase();
+    requireProfileMock.mockResolvedValueOnce({ supabase, profile: adminProfile, user: { id: adminProfile.id } });
+    await expect(correctPartnerRecitations(form({
+      student_id: studentId,
+      week_start: weekStart,
+      completed_rounds: "round_3",
+      redirect_week: weekStart,
+      redirect_view: "corrections"
+    }))).rejects.toMatchObject({
+      location: `/admin/students/${studentId}?status=partner-correction-invalid&week=${weekStart}&view=corrections`
+    });
+  });
+
+  it("preserves week and section after an independent partner correction", async () => {
+    const supabase = makePartnerSupabase({ existingRounds: ["round_1"] });
+    canAdminManageStudentForWeekMock.mockResolvedValue(true);
+    requireProfileMock.mockResolvedValueOnce({ supabase, profile: adminProfile, user: { id: adminProfile.id } });
+    await expect(correctPartnerRecitations(form({
+      student_id: studentId,
+      week_start: weekStart,
+      completed_rounds: "round_1",
+      redirect_week: weekStart,
+      redirect_view: "corrections"
+    }))).rejects.toMatchObject({
+      location: `/admin/students/${studentId}?status=partner-corrected&week=${weekStart}&view=corrections`
+    });
+    expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
   it("preserves week and section for ordinary deletion validation errors", async () => {

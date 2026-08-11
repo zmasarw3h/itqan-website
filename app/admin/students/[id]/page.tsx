@@ -21,7 +21,8 @@ type AdminStudentSearchParams = {
   view?: string;
 };
 
-function WorkspaceStatusNotice({ status }: { status?: string }) {
+function WorkspaceStatusNotice({ status, view }: { status?: string; view: string }) {
+  if (view === "corrections" && ["corrected", "partner-corrected", "correction-error", "correction-future-date", "correction-outside-week", "partner-correction-invalid", "partner-correction-error"].includes(status ?? "")) return null;
   const successMessages: Record<string, string> = {
     corrected: "Correction saved.",
     "partner-corrected": "Partner recitation correction saved.",
@@ -96,10 +97,10 @@ export default async function AdminStudentPage({
       <AppNav activeHref="/admin" name={profile.name} role={profile.role} variant="workspace" />
       <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-8 md:py-8">
         <WorkspaceShell shell={shell} view={view} />
-        <WorkspaceStatusNotice status={query.status} />
+        <WorkspaceStatusNotice status={query.status} view={view} />
         {view === "overview" && overview
           ? <OverviewSection overview={overview} shell={shell} />
-          : <PreservedSection shell={shell} supabase={supabase} view={view as Exclude<typeof view, "overview">} />}
+          : <PreservedSection shell={shell} status={query.status} supabase={supabase} view={view as Exclude<typeof view, "overview">} />}
       </main>
     </>
   );

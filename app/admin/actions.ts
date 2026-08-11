@@ -429,6 +429,13 @@ export async function correctCheckIn(formData: FormData) {
   }
 
   const correctionWeekStart = weekStartForDate(date);
+  if (
+    isValidDateString(redirectWeek)
+    && weekStartForDate(redirectWeek) === redirectWeek
+    && correctionWeekStart !== redirectWeek
+  ) {
+    redirect(adminStudentStatusPath(studentId, "correction-outside-week", redirectWeek, redirectView));
+  }
   const canManageStudent = await canAdminManageStudentForWeek(supabase, studentId, correctionWeekStart);
 
   if (!canManageStudent) {
