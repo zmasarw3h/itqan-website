@@ -3828,6 +3828,76 @@ async function runAssertions(ids: SeedIds) {
     .from("weekly-plans")
     .createSignedUrl(`${ids.users.studentB}/${ids.weekStart}/plan.pdf`, 60);
   assert.ok(crossSigned.error, "cross-student weekly-plan signing should be denied");
+  const adminCurrentPlanPath = `${ids.users.studentA}/${ids.weekStart}/plan.pdf`;
+  const { data: adminPathAllowed, error: adminPathAllowedError } = await adminA.rpc(
+    "can_admin_read_weekly_plan_path",
+    { input_file_path: adminCurrentPlanPath }
+  );
+  assert.equal(adminPathAllowedError, null, adminPathAllowedError?.message);
+  assert.equal(adminPathAllowed, true, "scoped admin exact weekly-plan path should be readable");
+
+  for (const malformedPath of [
+    `${ids.users.studentA}/${ids.weekStart}/../plan.pdf`,
+    `${ids.users.studentA}/${ids.weekStart}/nested/plan.pdf`,
+    `${ids.users.studentA}/${midweek}/plan.pdf`,
+    `${ids.users.studentA}/${ids.weekStart}/orphan.pdf`
+  ]) {
+    const { data, error } = await adminA.rpc("can_admin_read_weekly_plan_path", {
+      input_file_path: malformedPath
+    });
+    assert.equal(error, null, error?.message);
+    assert.equal(data, false, `malformed or orphan admin weekly-plan path was allowed: ${malformedPath}`);
+  }
+
+  const { data: adminCrossPathAllowed, error: adminCrossPathError } = await adminA.rpc(
+    "can_admin_read_weekly_plan_path",
+    { input_file_path: `${ids.users.studentB}/${ids.weekStart}/plan.pdf` }
+  );
+  assert.equal(adminCrossPathError, null, adminCrossPathError?.message);
+  assert.equal(adminCrossPathAllowed, false, "scoped admin received a cross-masjid weekly-plan path");
+
+  const deactivatePlanTarget = await service
+    .from("profiles")
+    .update({ active: false })
+    .eq("id", ids.users.studentA);
+  assert.equal(deactivatePlanTarget.error, null, deactivatePlanTarget.error?.message);
+  const { data: inactiveTargetAllowed, error: inactiveTargetError } = await adminA.rpc(
+    "can_admin_read_weekly_plan_path",
+    { input_file_path: adminCurrentPlanPath }
+  );
+  assert.equal(inactiveTargetError, null, inactiveTargetError?.message);
+  assert.equal(inactiveTargetAllowed, false, "inactive student weekly-plan path crossed the admin storage boundary");
+  const restorePlanTarget = await service
+    .from("profiles")
+    .update({ active: true })
+    .eq("id", ids.users.studentA);
+  assert.equal(restorePlanTarget.error, null, restorePlanTarget.error?.message);
+
+  const unsupportedPlanType = await service
+    .from("weekly_plans")
+    .update({ file_type: "image/gif" })
+    .eq("id", ids.planA);
+  assert.equal(unsupportedPlanType.error, null, unsupportedPlanType.error?.message);
+  const { data: unsupportedPathAllowed, error: unsupportedPathError } = await adminA.rpc(
+    "can_admin_read_weekly_plan_path",
+    { input_file_path: adminCurrentPlanPath }
+  );
+  assert.equal(unsupportedPathError, null, unsupportedPathError?.message);
+  assert.equal(unsupportedPathAllowed, false, "unsupported weekly-plan type crossed the admin storage boundary");
+  const restorePlanType = await service
+    .from("weekly_plans")
+    .update({ file_type: "application/pdf" })
+    .eq("id", ids.planA);
+  assert.equal(restorePlanType.error, null, restorePlanType.error?.message);
+
+  for (const [name, client] of [["expired admin", expiredAdmin], ["inactive admin", inactiveAdmin]] as const) {
+    const { data, error } = await client.rpc("can_admin_read_weekly_plan_path", {
+      input_file_path: adminCurrentPlanPath
+    });
+    assert.equal(error, null, `${name} exact weekly-plan helper error: ${error?.message}`);
+    assert.equal(data, false, `${name} received a stale weekly-plan path`);
+  }
+
   const adminOwnSigned = await adminA.storage
     .from("weekly-plans")
     .createSignedUrl(`${ids.users.studentA}/${ids.weekStart}/plan.pdf`, 60);

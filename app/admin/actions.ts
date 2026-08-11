@@ -34,6 +34,7 @@ import { PARTNER_RECITATION_ROUNDS, parsePartnerRecitationRounds, partnerRecitat
 import { HALAQA_ATTENDANCE_POINTS } from "@/lib/scoring";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
+import { isAdminStudentWorkspaceView } from "@/lib/admin-student-workspace";
 import {
   createScopedUserTransactionally,
   scopedUserSetupAuthMetadata,
@@ -47,11 +48,15 @@ import { WEEKLY_PLAN_BUCKET, weeklyPlanPathBelongsToStudent } from "@/lib/weekly
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function adminStudentStatusPath(studentId: string, status: string, weekStart?: string) {
+function adminStudentStatusPath(studentId: string, status: string, weekStart?: string, view?: string) {
   const params = new URLSearchParams({ status });
 
-  if (weekStart) {
+  if (weekStart && isValidDateString(weekStart) && weekStartForDate(weekStart) === weekStart) {
     params.set("week", weekStart);
+  }
+
+  if (isAdminStudentWorkspaceView(view)) {
+    params.set("view", view);
   }
 
   return `/admin/students/${studentId}?${params.toString()}`;
@@ -407,6 +412,7 @@ export async function correctCheckIn(formData: FormData) {
   const date = String(formData.get("date") ?? "");
   const status = String(formData.get("status") ?? "submitted");
   const redirectWeek = String(formData.get("redirect_week") ?? "");
+  const redirectView = String(formData.get("redirect_view") ?? "");
   const note = normalizeNote(formData.get("note"));
   const completedTaskKeys = formData.getAll("task_keys").filter((value): value is string => typeof value === "string");
 
@@ -419,7 +425,7 @@ export async function correctCheckIn(formData: FormData) {
   }
 
   if (date > checkInEffectiveDateString()) {
-    redirect(adminStudentStatusPath(studentId, "correction-future-date", redirectWeek));
+    redirect(adminStudentStatusPath(studentId, "correction-future-date", redirectWeek, redirectView));
   }
 
   const correctionWeekStart = weekStartForDate(date);
@@ -438,12 +444,12 @@ export async function correctCheckIn(formData: FormData) {
   });
 
   if (error) {
-    redirect(adminStudentStatusPath(studentId, "correction-error", redirectWeek));
+    redirect(adminStudentStatusPath(studentId, "correction-error", redirectWeek, redirectView));
   }
 
   revalidatePath("/admin");
   revalidatePath(`/admin/students/${studentId}`);
-  redirect(adminStudentStatusPath(studentId, "corrected", redirectWeek));
+  redirect(adminStudentStatusPath(studentId, "corrected", redirectWeek, redirectView));
 }
 
 export async function correctPartnerRecitations(formData: FormData) {
@@ -451,6 +457,7 @@ export async function correctPartnerRecitations(formData: FormData) {
   const studentId = String(formData.get("student_id") ?? "");
   const weekStart = String(formData.get("week_start") ?? "");
   const redirectWeek = String(formData.get("redirect_week") ?? weekStart);
+  const redirectView = String(formData.get("redirect_view") ?? "");
 
   if (!studentId || !isValidDateString(weekStart) || weekStartForDate(weekStart) !== weekStart) {
     redirect("/admin?status=invalid-partner-correction");
@@ -461,7 +468,7 @@ export async function correctPartnerRecitations(formData: FormData) {
   try {
     completedRounds = parsePartnerRecitationRounds(formData.getAll("completed_rounds"));
   } catch {
-    redirect(adminStudentStatusPath(studentId, "partner-correction-invalid", redirectWeek || weekStart));
+    redirect(adminStudentStatusPath(studentId, "partner-correction-invalid", redirectWeek || weekStart, redirectView));
   }
 
   const canManageStudent = await canAdminManageStudentForWeek(supabase, studentId, weekStart);
@@ -478,7 +485,7 @@ export async function correctPartnerRecitations(formData: FormData) {
     .returns<Array<Pick<PartnerRecitation, "round">>>();
 
   if (existingError) {
-    redirect(adminStudentStatusPath(studentId, "partner-correction-error", redirectWeek || weekStart));
+    redirect(adminStudentStatusPath(studentId, "partner-correction-error", redirectWeek || weekStart, redirectView));
   }
 
   const completedRoundSet = new Set(completedRounds);
@@ -497,7 +504,7 @@ export async function correctPartnerRecitations(formData: FormData) {
       .in("round", roundsToDelete);
 
     if (error) {
-      redirect(adminStudentStatusPath(studentId, "partner-correction-error", redirectWeek || weekStart));
+      redirect(adminStudentStatusPath(studentId, "partner-correction-error", redirectWeek || weekStart, redirectView));
     }
   }
 
@@ -512,13 +519,13 @@ export async function correctPartnerRecitations(formData: FormData) {
     );
 
     if (error) {
-      redirect(adminStudentStatusPath(studentId, "partner-correction-error", redirectWeek || weekStart));
+      redirect(adminStudentStatusPath(studentId, "partner-correction-error", redirectWeek || weekStart, redirectView));
     }
   }
 
   revalidatePath("/admin");
   revalidatePath(`/admin/students/${studentId}`);
-  redirect(adminStudentStatusPath(studentId, "partner-corrected", redirectWeek || weekStart));
+  redirect(adminStudentStatusPath(studentId, "partner-corrected", redirectWeek || weekStart, redirectView));
 }
 
 export async function saveHalaqaGrade(formData: FormData) {
@@ -526,6 +533,7 @@ export async function saveHalaqaGrade(formData: FormData) {
   const studentId = String(formData.get("student_id") ?? "");
   const weekStart = String(formData.get("week_start") ?? "");
   const redirectWeek = String(formData.get("redirect_week") ?? "");
+  const redirectView = String(formData.get("redirect_view") ?? "");
   const attended = formData.get("attended") === "true";
   const recitationPointsValue = Number(formData.get("recitation_points") ?? 0);
   const notes = normalizeNote(formData.get("notes"));
@@ -541,7 +549,7 @@ export async function saveHalaqaGrade(formData: FormData) {
   }
 
   if (attended && (!Number.isFinite(recitationPointsValue) || recitationPointsValue < 10 || recitationPointsValue > 50)) {
-    redirect(adminStudentStatusPath(studentId, "grade-invalid", redirectWeek || weekStart));
+    redirect(adminStudentStatusPath(studentId, "grade-invalid", redirectWeek || weekStart, redirectView));
   }
 
   const grade = {
@@ -567,18 +575,20 @@ export async function saveHalaqaGrade(formData: FormData) {
   );
 
   if (error) {
-    redirect(adminStudentStatusPath(studentId, "grade-error", redirectWeek || weekStart));
+    redirect(adminStudentStatusPath(studentId, "grade-error", redirectWeek || weekStart, redirectView));
   }
 
   revalidatePath("/admin");
   revalidatePath(`/admin/students/${studentId}`);
-  redirect(adminStudentStatusPath(studentId, "grade-saved", redirectWeek || weekStart));
+  redirect(adminStudentStatusPath(studentId, "grade-saved", redirectWeek || weekStart, redirectView));
 }
 
 export async function deleteStudent(formData: FormData) {
   const { supabase } = await requireProfile(["admin"]);
   const studentId = String(formData.get("student_id") ?? "");
   const confirmationName = String(formData.get("confirmation_name") ?? "").trim();
+  const redirectWeek = String(formData.get("redirect_week") ?? "");
+  const redirectView = String(formData.get("redirect_view") ?? "");
 
   if (!studentId || !confirmationName) {
     redirect("/admin?status=invalid-delete");
@@ -596,7 +606,7 @@ export async function deleteStudent(formData: FormData) {
   }
 
   if (confirmationName !== student.name) {
-    redirect(`/admin/students/${student.id}?status=delete-name-mismatch`);
+    redirect(adminStudentStatusPath(student.id, "delete-name-mismatch", redirectWeek, redirectView));
   }
 
   const canManageStudent = await canAdminManageStudentForWeek(
@@ -621,7 +631,7 @@ export async function deleteStudent(formData: FormData) {
     .returns<Array<{ file_path: string; week_start: string }>>();
 
   if (weeklyPlansError) {
-    redirect(`/admin/students/${student.id}?status=student-delete-error`);
+    redirect(adminStudentStatusPath(student.id, "student-delete-error", redirectWeek, redirectView));
   }
 
   const hasUnsafeWeeklyPlanPath = (weeklyPlans ?? []).some(
@@ -629,7 +639,7 @@ export async function deleteStudent(formData: FormData) {
   );
 
   if (hasUnsafeWeeklyPlanPath) {
-    redirect(`/admin/students/${student.id}?status=student-delete-error`);
+    redirect(adminStudentStatusPath(student.id, "student-delete-error", redirectWeek, redirectView));
   }
 
   const weeklyPlanPaths = [
@@ -641,7 +651,7 @@ export async function deleteStudent(formData: FormData) {
   const { error } = await adminSupabase.auth.admin.deleteUser(student.id);
 
   if (error) {
-    redirect(`/admin/students/${student.id}?status=student-delete-error`);
+    redirect(adminStudentStatusPath(student.id, "student-delete-error", redirectWeek, redirectView));
   }
 
   // Delete Auth/profile data first. If a restrictive FK or a concurrent scope

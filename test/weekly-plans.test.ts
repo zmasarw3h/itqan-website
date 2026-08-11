@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+vi.mock("server-only", () => ({}));
+import { isCanonicalTrackerWeek, weeklyPlanPathMatchesExactContext } from "@/lib/admin-weekly-plan";
 import type { Profile } from "@/lib/types";
 import {
   canReadWeeklyPlan,
@@ -66,6 +68,21 @@ describe("weekly plan upload rules", () => {
     expect(weeklyPlanPathBelongsToStudent("student-1", "2026-05-10", "student-1/2026-05-10/plan.pdf")).toBe(true);
     expect(weeklyPlanPathBelongsToStudent("student-1", "2026-05-10", "student-2/2026-05-10/plan.pdf")).toBe(false);
     expect(weeklyPlanPathBelongsToStudent("student-1", "2026-05-10", "student-1/2026-05-10/../secret.pdf")).toBe(false);
+  });
+
+  it("validates the exact admin viewer path, student, week, and normalized filename", () => {
+    const studentId = "11111111-1111-4111-8111-111111111111";
+    const weekStart = "2026-07-19";
+    const exactPath = `${studentId}/${weekStart}/plan.pdf`;
+
+    expect(isCanonicalTrackerWeek(weekStart)).toBe(true);
+    expect(weeklyPlanPathMatchesExactContext(studentId, weekStart, exactPath, "plan.pdf")).toBe(true);
+    expect(weeklyPlanPathMatchesExactContext(studentId, weekStart, `${studentId}/${weekStart}/../plan.pdf`, "plan.pdf")).toBe(false);
+    expect(weeklyPlanPathMatchesExactContext(studentId, weekStart, `${studentId}/${weekStart}/nested/plan.pdf`, "plan.pdf")).toBe(false);
+    expect(weeklyPlanPathMatchesExactContext(studentId, weekStart, `22222222-2222-4222-8222-222222222222/${weekStart}/plan.pdf`, "plan.pdf")).toBe(false);
+    expect(weeklyPlanPathMatchesExactContext(studentId, "2026-07-20", exactPath, "plan.pdf")).toBe(false);
+    expect(weeklyPlanPathMatchesExactContext(studentId, weekStart, exactPath, "substituted.pdf")).toBe(false);
+    expect(weeklyPlanPathMatchesExactContext(studentId, weekStart, `${studentId}/${weekStart}/Plan.PDF`)).toBe(false);
   });
 });
 

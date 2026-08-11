@@ -7,11 +7,13 @@ import type { HalaqaGrade } from "@/lib/types";
 export default function HalaqaGradeForm({
   studentId,
   weekStart,
-  grade
+  grade,
+  redirectView
 }: {
   studentId: string;
   weekStart: string;
   grade: HalaqaGrade | null;
+  redirectView: string;
 }) {
   const [attended, setAttended] = useState(Boolean(grade?.attended));
   const [recitationPoints, setRecitationPoints] = useState(String(grade?.attended ? grade.recitation_points : 50));
@@ -30,6 +32,7 @@ export default function HalaqaGradeForm({
       <input name="student_id" type="hidden" value={studentId} />
       <input name="week_start" type="hidden" value={weekStart} />
       <input name="redirect_week" type="hidden" value={weekStart} />
+      <input name="redirect_view" type="hidden" value={redirectView} />
       <fieldset className="md:col-span-2">
         <legend className="text-sm font-medium text-ink">Attended Saturday halaqa?</legend>
         <div className="mt-2 flex gap-3">

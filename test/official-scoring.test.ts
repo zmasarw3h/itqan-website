@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  displayOfficialScoringBoundary,
   isCanonicalScoringSunday,
+  isLegacyOfficialScoringBoundary,
   officialScoringStatus,
   parseOfficialScoringChangePreview
 } from "@/lib/official-scoring";
@@ -16,6 +18,16 @@ describe("official scoring workflow", () => {
     expect(officialScoringStatus(null, "2026-07-19").state).toBe("orientation");
     expect(officialScoringStatus("2026-07-26", "2026-07-19").state).toBe("scheduled");
     expect(officialScoringStatus("2026-07-19", "2026-07-19").state).toBe("active");
+  });
+
+  it("treats the legacy 1900 boundary as a review-required value without displaying a false date", () => {
+    expect(isLegacyOfficialScoringBoundary("1900-01-07")).toBe(true);
+    expect(displayOfficialScoringBoundary("1900-01-07")).toBe("Legacy value — review required");
+    expect(officialScoringStatus("1900-01-07", "2026-07-19")).toMatchObject({
+      state: "legacy",
+      label: "Legacy boundary — review required"
+    });
+    expect(officialScoringStatus("1900-01-07", "2026-07-19").description).not.toContain("1900");
   });
 
   it("parses a bounded database preview", () => {

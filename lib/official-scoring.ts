@@ -2,6 +2,13 @@ import { isValidDateString, weekStartForDate } from "@/lib/dates";
 
 export type OfficialScoringChangeDirection = "activate" | "forward" | "backward" | "unchanged";
 
+// This value has appeared in deployed profile rows, but it is not an
+// application-defined default. The schema contract says null means
+// "not scorable yet" and every legitimate boundary must be an eligible
+// canonical Sunday. Keep the raw value for the guarded workflow, while making
+// the read/display contract explicit for admin surfaces.
+export const LEGACY_OFFICIAL_SCORING_SENTINEL = "1900-01-07";
+
 export type OfficialScoringChangePreview = {
   student_id: string;
   student_name: string;
@@ -23,6 +30,18 @@ export type OfficialScoringChangePreview = {
 
 export function isCanonicalScoringSunday(value: string | null | undefined): value is string {
   return Boolean(value && isValidDateString(value) && weekStartForDate(value) === value);
+}
+
+export function isLegacyOfficialScoringBoundary(
+  value: string | null | undefined
+): value is typeof LEGACY_OFFICIAL_SCORING_SENTINEL {
+  return value === LEGACY_OFFICIAL_SCORING_SENTINEL;
+}
+
+export function displayOfficialScoringBoundary(value: string | null | undefined) {
+  if (!value) return "Not scorable yet";
+  if (isLegacyOfficialScoringBoundary(value)) return "Legacy value — review required";
+  return value;
 }
 
 export function parseOfficialScoringChangePreview(value: unknown): OfficialScoringChangePreview | null {
@@ -71,6 +90,14 @@ export function officialScoringStatus(scoreStartsOn: string | null | undefined, 
       state: "orientation" as const,
       label: "Orientation",
       description: "Official scoring has not started."
+    };
+  }
+
+  if (isLegacyOfficialScoringBoundary(scoreStartsOn)) {
+    return {
+      state: "legacy" as const,
+      label: "Legacy boundary — review required",
+      description: "A legacy scoring boundary is stored. Treat its date as unknown until an administrator reviews it; saved activity is not changed by this display status."
     };
   }
 

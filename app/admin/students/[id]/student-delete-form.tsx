@@ -3,7 +3,17 @@
 import { useState } from "react";
 import { deleteStudent } from "@/app/admin/actions";
 
-export default function StudentDeleteForm({ studentId, studentName }: { studentId: string; studentName: string }) {
+export default function StudentDeleteForm({
+  studentId,
+  studentName,
+  redirectWeek,
+  redirectView
+}: {
+  studentId: string;
+  studentName: string;
+  redirectWeek: string;
+  redirectView: string;
+}) {
   const [confirmationName, setConfirmationName] = useState("");
   const [confirming, setConfirming] = useState(false);
   const confirmationMatches = confirmationName.trim() === studentName;
@@ -30,6 +40,8 @@ export default function StudentDeleteForm({ studentId, studentName }: { studentI
       {confirming ? (
         <form action={deleteStudent} className="mt-4 rounded-md border-2 border-red-600 bg-white p-4">
           <input name="student_id" type="hidden" value={studentId} />
+          <input name="redirect_week" type="hidden" value={redirectWeek} />
+          <input name="redirect_view" type="hidden" value={redirectView} />
           <p className="text-sm font-semibold text-red-900">Confirm permanent deletion</p>
           <p className="mt-1 text-sm text-stone-700">
             Type <span className="font-semibold text-ink">{studentName}</span> to enable deletion.

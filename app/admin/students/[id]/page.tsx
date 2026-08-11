@@ -25,18 +25,20 @@ import {
   type Below70StreakReadRow
 } from "@/lib/below70-streak";
 import { PARTNER_RECITATION_ROUNDS } from "@/lib/partner-recitations";
+import { normalizeAdminStudentWorkspaceView } from "@/lib/admin-student-workspace";
 import { officialScoringStatus } from "@/lib/official-scoring";
 import { calculateDailyScoreProgress, calculateWeeklyScore, formatScore } from "@/lib/scoring";
-import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import type { CheckIn, CheckInItem, HalaqaGrade, PartnerRecitation, Profile, WeeklyPlan } from "@/lib/types";
-import { WEEKLY_PLAN_BUCKET, weeklyPlanPathBelongsToStudent } from "@/lib/weekly-plans";
+import { adminWeeklyPlanUrl, weeklyPlanPathMatchesExactContext } from "@/lib/admin-weekly-plan";
+import { isAllowedWeeklyPlanType } from "@/lib/weekly-plans";
 
 export const dynamic = "force-dynamic";
 
 type AdminStudentSearchParams = {
   status?: string;
   week?: string;
+  view?: string;
 };
 
 type DayStatus = "submitted" | "missing" | "open" | "upcoming";
@@ -137,6 +139,7 @@ export default async function AdminStudentPage({
   const currentTrackerWeekStart = weekStartForDate(today);
   const latestCompletedWeekStart = latestCompletedTrackerWeekStart();
   const selectedWeekStart = validWeekStart(resolvedSearchParams.week, currentTrackerWeekStart);
+  const workspaceView = normalizeAdminStudentWorkspaceView(resolvedSearchParams.view);
   const selectedWeekDates = weekDatesFromStart(selectedWeekStart);
   const selectedWeekDateSet = new Set(selectedWeekDates);
   const selectedPlanWeekStart = selectedWeekStart;
@@ -179,8 +182,6 @@ export default async function AdminStudentPage({
       </>
     );
   }
-
-  const storageSupabase = createSupabaseAdminClient();
 
   const { data: student } = await supabase
     .from("profiles")
@@ -294,12 +295,15 @@ export default async function AdminStudentPage({
     .eq("student_id", student.id)
     .eq("week_start", selectedPlanWeekStart)
     .maybeSingle<WeeklyPlan>();
-  const weeklyPlanUrl = weeklyPlan && weeklyPlanPathBelongsToStudent(student.id, selectedPlanWeekStart, weeklyPlan.file_path)
-    ? (
-        await storageSupabase.storage
-          .from(WEEKLY_PLAN_BUCKET)
-          .createSignedUrl(weeklyPlan.file_path, 60 * 60, { download: weeklyPlan.file_name })
-      ).data?.signedUrl
+  const weeklyPlanUrl = weeklyPlan
+    && isAllowedWeeklyPlanType(weeklyPlan.file_type)
+    && weeklyPlanPathMatchesExactContext(
+      student.id,
+      selectedPlanWeekStart,
+      weeklyPlan.file_path,
+      weeklyPlan.file_name
+    )
+    ? adminWeeklyPlanUrl(student.id, selectedPlanWeekStart, "attachment")
     : null;
   const selectedWeekIsScorable = Boolean(
     student.score_starts_on && selectedWeekStart >= student.score_starts_on
@@ -393,6 +397,7 @@ export default async function AdminStudentPage({
               availableWeekStarts={availableWeekStarts}
               selectedWeekStart={selectedWeekStart}
               studentId={student.id}
+              view={workspaceView}
             />
           </div>
         </section>
@@ -406,7 +411,7 @@ export default async function AdminStudentPage({
             </div>
             <Link
               className="rounded-md bg-moss px-4 py-2.5 text-sm font-semibold text-white hover:bg-ink"
-              href={`/admin/students/${student.id}/official-scoring`}
+              href={`/admin/students/${student.id}/official-scoring?return_week=${encodeURIComponent(selectedWeekStart)}&return_view=${encodeURIComponent(workspaceView)}`}
               prefetch={false}
             >
               Review or change
@@ -571,6 +576,7 @@ export default async function AdminStudentPage({
             <input name="student_id" type="hidden" value={student.id} />
             <input name="week_start" type="hidden" value={selectedWeekStart} />
             <input name="redirect_week" type="hidden" value={selectedWeekStart} />
+            <input name="redirect_view" type="hidden" value={workspaceView} />
             <fieldset className="grid gap-3 md:grid-cols-2">
               <legend className="sr-only">Partner recitation completion status</legend>
               {PARTNER_RECITATION_ROUNDS.map((round) => {
@@ -615,6 +621,7 @@ export default async function AdminStudentPage({
               key={selectedWeekStart}
               studentId={student.id}
               weekStart={selectedWeekStart}
+              redirectView={workspaceView}
             />
           </div>
         </section>
@@ -655,6 +662,7 @@ export default async function AdminStudentPage({
             key={selectedWeekStart}
             maxDate={today}
             redirectWeek={selectedWeekStart}
+            redirectView={workspaceView}
             studentId={student.id}
           />
         </section>
@@ -662,7 +670,12 @@ export default async function AdminStudentPage({
         <section className="mt-8 rounded-lg border border-red-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-semibold text-red-900">Danger Zone</h2>
           <p className="mt-1 text-sm text-stone-600">Permanent account and student data actions.</p>
-          <StudentDeleteForm studentId={student.id} studentName={student.name} />
+          <StudentDeleteForm
+            redirectView={workspaceView}
+            redirectWeek={selectedWeekStart}
+            studentId={student.id}
+            studentName={student.name}
+          />
         </section>
       </main>
     </>

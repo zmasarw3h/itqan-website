@@ -26,12 +26,14 @@ export default function CorrectionForm({
   initialDate,
   maxDate,
   redirectWeek,
+  redirectView,
   existingCheckIns
 }: {
   studentId: string;
   initialDate: string;
   maxDate: string;
   redirectWeek: string;
+  redirectView: string;
   existingCheckIns: CorrectionFormCheckIn[];
 }) {
   const initialExisting = existingCheckIns.find((checkin) => checkin.date === initialDate);
@@ -70,6 +72,7 @@ export default function CorrectionForm({
     <form action={correctCheckIn} className="mt-4 grid gap-4 md:grid-cols-4">
       <input name="student_id" type="hidden" value={studentId} />
       <input name="redirect_week" type="hidden" value={redirectWeek} />
+      <input name="redirect_view" type="hidden" value={redirectView} />
       <label className="block">
         <span className="text-sm font-medium text-ink">Date</span>
         <input

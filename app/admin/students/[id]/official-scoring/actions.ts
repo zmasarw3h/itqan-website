@@ -2,9 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { isAdminStudentWorkspaceView, adminStudentWorkspaceHref } from "@/lib/admin-student-workspace";
 import { canAdminManageStudentForWeek, requireScopedAdmin } from "@/lib/admin-scope";
 import { isCanonicalScoringSunday, parseOfficialScoringChangePreview } from "@/lib/official-scoring";
-import { torontoCivilDateString, weekStartForDate } from "@/lib/dates";
+import { isValidDateString, torontoCivilDateString, weekStartForDate } from "@/lib/dates";
 import type { Profile } from "@/lib/types";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -14,12 +15,24 @@ function formString(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function workflowPath(studentId: string, input?: { proposed?: string; status?: string; returnTo?: string }) {
+function validReturnWeek(value: string) {
+  return isValidDateString(value) && weekStartForDate(value) === value ? value : null;
+}
+
+function workflowPath(studentId: string, input?: {
+  proposed?: string;
+  status?: string;
+  returnTo?: string;
+  returnWeek?: string;
+  returnView?: string;
+}) {
   const params = new URLSearchParams();
 
   if (input?.proposed) params.set("proposed", input.proposed);
   if (input?.status) params.set("status", input.status);
   if (input?.returnTo === "super_admin") params.set("return_to", "super_admin");
+  if (input?.returnWeek && validReturnWeek(input.returnWeek)) params.set("return_week", input.returnWeek);
+  if (isAdminStudentWorkspaceView(input?.returnView)) params.set("return_view", input.returnView);
 
   const query = params.toString();
   return `/admin/students/${studentId}/official-scoring${query ? `?${query}` : ""}`;
@@ -28,14 +41,16 @@ function workflowPath(studentId: string, input?: { proposed?: string; status?: s
 async function requireCurrentStudentScope(
   studentId: string,
   returnTo: string,
-  proposed?: string
+  proposed?: string,
+  returnWeek?: string,
+  returnView?: string
 ) {
   const auth = await requireScopedAdmin();
   const currentWeekStart = weekStartForDate(torontoCivilDateString());
   const canManage = await canAdminManageStudentForWeek(auth.supabase, studentId, currentWeekStart);
 
   if (!canManage) {
-    redirect(workflowPath(studentId, { proposed, status: "scope-denied", returnTo }));
+    redirect(workflowPath(studentId, { proposed, status: "scope-denied", returnTo, returnWeek, returnView }));
   }
 
   return auth;
@@ -45,12 +60,20 @@ export async function reviewOfficialScoringStart(formData: FormData) {
   const studentId = formString(formData, "student_id");
   const proposed = formString(formData, "score_starts_on");
   const returnTo = formString(formData, "return_to");
+  const returnWeek = formString(formData, "return_week");
+  const returnView = formString(formData, "return_view");
 
   if (!UUID_PATTERN.test(studentId) || !isCanonicalScoringSunday(proposed)) {
-    redirect(workflowPath(studentId, { status: "invalid-date", returnTo }));
+    redirect(workflowPath(studentId, { status: "invalid-date", returnTo, returnWeek, returnView }));
   }
 
-  const { adminSupabase, profile } = await requireCurrentStudentScope(studentId, returnTo, proposed);
+  const { adminSupabase, profile } = await requireCurrentStudentScope(
+    studentId,
+    returnTo,
+    proposed,
+    returnWeek,
+    returnView
+  );
   const { data, error } = await adminSupabase.rpc("preview_official_scoring_start_change", {
     input_actor_id: profile.id,
     input_student_id: studentId,
@@ -60,11 +83,13 @@ export async function reviewOfficialScoringStart(formData: FormData) {
   if (error || !parseOfficialScoringChangePreview(data)) {
     redirect(workflowPath(studentId, {
       status: error?.code === "42501" ? "scope-denied" : "invalid-date",
-      returnTo
+      returnTo,
+      returnWeek,
+      returnView
     }));
   }
 
-  redirect(workflowPath(studentId, { proposed, returnTo }));
+  redirect(workflowPath(studentId, { proposed, returnTo, returnWeek, returnView }));
 }
 
 export async function applyOfficialScoringStart(formData: FormData) {
@@ -76,6 +101,8 @@ export async function applyOfficialScoringStart(formData: FormData) {
   const reason = formString(formData, "reason");
   const confirmationName = formString(formData, "confirmation_name");
   const returnTo = formString(formData, "return_to");
+  const returnWeek = formString(formData, "return_week");
+  const returnView = formString(formData, "return_view");
 
   if (
     !UUID_PATTERN.test(studentId)
@@ -85,10 +112,16 @@ export async function applyOfficialScoringStart(formData: FormData) {
     || reason.length < 5
     || reason.length > 500
   ) {
-    redirect(workflowPath(studentId, { proposed, status: "invalid", returnTo }));
+    redirect(workflowPath(studentId, { proposed, status: "invalid", returnTo, returnWeek, returnView }));
   }
 
-  const { adminSupabase, profile } = await requireCurrentStudentScope(studentId, returnTo, proposed);
+  const { adminSupabase, profile } = await requireCurrentStudentScope(
+    studentId,
+    returnTo,
+    proposed,
+    returnWeek,
+    returnView
+  );
   const { data: student } = await adminSupabase
     .from("profiles")
     .select("id,name,role,score_starts_on")
@@ -96,11 +129,17 @@ export async function applyOfficialScoringStart(formData: FormData) {
     .single<Pick<Profile, "id" | "name" | "role" | "score_starts_on">>();
 
   if (!student || student.role !== "student") {
-    redirect(workflowPath(studentId, { proposed, status: "invalid", returnTo }));
+    redirect(workflowPath(studentId, { proposed, status: "invalid", returnTo, returnWeek, returnView }));
   }
 
   if (confirmationName !== student.name) {
-    redirect(workflowPath(studentId, { proposed, status: "confirmation-mismatch", returnTo }));
+    redirect(workflowPath(studentId, {
+      proposed,
+      status: "confirmation-mismatch",
+      returnTo,
+      returnWeek,
+      returnView
+    }));
   }
 
   const { error } = await adminSupabase.rpc("apply_official_scoring_start_change", {
@@ -118,7 +157,7 @@ export async function applyOfficialScoringStart(formData: FormData) {
       : error.code === "42501"
         ? "scope-denied"
         : "save-error";
-    redirect(workflowPath(studentId, { proposed, status, returnTo }));
+    redirect(workflowPath(studentId, { proposed, status, returnTo, returnWeek, returnView }));
   }
 
   revalidatePath(`/admin/students/${studentId}`);
@@ -127,8 +166,14 @@ export async function applyOfficialScoringStart(formData: FormData) {
   revalidatePath("/admin/leaderboard");
   revalidatePath("/admin/rewards");
 
+  const currentWeekStart = weekStartForDate(torontoCivilDateString());
   const destination = returnTo === "super_admin"
     ? `/super-admin/people/${studentId}?status=score-start-changed`
-    : `/admin/students/${studentId}?status=score-start-changed`;
+    : adminStudentWorkspaceHref({
+        studentId,
+        weekStart: validReturnWeek(returnWeek) ?? currentWeekStart,
+        view: returnView,
+        status: "score-start-changed"
+      });
   redirect(destination);
 }
