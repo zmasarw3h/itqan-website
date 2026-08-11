@@ -1,4 +1,3 @@
-import Link from "next/link";
 import {
   loadAdminStudentCorrections,
   loadAdminStudentHalaqaPlan,
@@ -13,17 +12,10 @@ import type { createServerSupabaseClient } from "@/lib/supabase-server";
 import { isAllowedWeeklyPlanType } from "@/lib/weekly-plans";
 import CorrectionsSection from "./corrections-section";
 import HalaqaPlanSection from "./halaqa-plan-section";
-import StudentDeleteForm from "./student-delete-form";
+import StudentSettingsSection from "./student-settings-section";
 import WeeklyActivitySection from "./weekly-activity-section";
 
 type SupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
-
-function sectionTitle(view: Exclude<AdminStudentWorkspaceView, "overview">) {
-  if (view === "activity") return "Weekly activity";
-  if (view === "halaqa-plan") return "Halaqa & plan";
-  if (view === "corrections") return "Corrections";
-  return "Student settings";
-}
 
 export default async function PreservedSection({
   supabase,
@@ -74,16 +66,5 @@ export default async function PreservedSection({
   }
 
   const settings = await loadAdminStudentSettings(supabase, shell);
-  return (
-    <section className="py-8">
-      <h2 className="text-2xl font-semibold text-ink">{sectionTitle(view)}</h2>
-      <div className="mt-5 rounded-lg border border-stone-200 bg-white p-5">
-        <h3 className="text-lg font-semibold text-ink">Official scoring</h3>
-        <p className="mt-1 text-sm text-stone-600">{settings.scoringStatus.description}</p>
-        <p className="mt-2 font-medium text-ink">{settings.scoringStatus.label}</p>
-        <Link className="mt-4 inline-flex min-h-11 items-center rounded-md border border-moss px-4 py-2.5 text-sm font-semibold text-moss hover:bg-green-50" href={`/admin/students/${shell.student.id}/official-scoring?return_week=${encodeURIComponent(shell.selectedWeekStart)}&return_view=settings`} prefetch={false}>Open scoring settings</Link>
-      </div>
-      {settings.canDeleteStudent ? <div className="mt-12 rounded-lg border border-red-200 bg-white p-5"><h3 className="text-lg font-semibold text-red-800">Danger zone</h3><StudentDeleteForm redirectView={view} redirectWeek={shell.selectedWeekStart} studentId={shell.student.id} studentName={shell.student.name} /></div> : null}
-    </section>
-  );
+  return <StudentSettingsSection settings={settings} shell={shell} />;
 }

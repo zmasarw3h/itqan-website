@@ -1,7 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import { useFormStatus } from "react-dom";
 import { deleteStudent } from "@/app/admin/actions";
+
+function DeleteSubmit({ enabled }: { enabled: boolean }) {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      className="min-h-11 w-full rounded-md bg-red-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:text-stone-600 sm:w-auto"
+      disabled={!enabled || pending}
+    >
+      {pending ? "Deleting…" : "Permanently delete"}
+    </button>
+  );
+}
 
 export default function StudentDeleteForm({
   studentId,
@@ -19,17 +32,14 @@ export default function StudentDeleteForm({
   const confirmationMatches = confirmationName.trim() === studentName;
 
   return (
-    <div className="mt-4 rounded-md border border-red-300 bg-red-50 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h3 className="font-semibold text-red-900">Delete this student</h3>
-          <p className="mt-1 text-sm text-red-800">
-            This removes the student account and cascades their database records, including check-ins, grades,
-            recitations, weekly plans, awards, and accountability obligations.
-          </p>
-        </div>
+    <div className="mt-5 sm:ml-[52px]">
+      <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <p className="max-w-2xl text-sm leading-6 text-stone-600">
+          Exact-name confirmation is required before the permanent delete action is enabled.
+        </p>
         <button
-          className="rounded-md bg-red-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-900"
+          aria-expanded={confirming}
+          className="min-h-11 w-full shrink-0 rounded-md border border-red-600 px-4 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 sm:w-auto"
           onClick={() => setConfirming(true)}
           type="button"
         >
@@ -38,33 +48,29 @@ export default function StudentDeleteForm({
       </div>
 
       {confirming ? (
-        <form action={deleteStudent} className="mt-4 rounded-md border-2 border-red-600 bg-white p-4">
+        <form action={deleteStudent} className="mt-5 rounded-lg border border-red-200 bg-red-50 p-4 sm:p-5">
           <input name="student_id" type="hidden" value={studentId} />
           <input name="redirect_week" type="hidden" value={redirectWeek} />
           <input name="redirect_view" type="hidden" value={redirectView} />
-          <p className="text-sm font-semibold text-red-900">Confirm permanent deletion</p>
-          <p className="mt-1 text-sm text-stone-700">
+          <fieldset>
+          <legend className="text-base font-semibold text-red-900">Confirm permanent deletion</legend>
+          <p className="mt-2 text-sm leading-6 text-stone-700">
             Type <span className="font-semibold text-ink">{studentName}</span> to enable deletion.
           </p>
           <label className="mt-3 block">
             <span className="text-sm font-medium text-ink">Student name</span>
             <input
               autoComplete="off"
-              className="mt-1 w-full rounded-md border border-red-300 px-3 py-2"
+              className="mt-1 min-h-11 w-full rounded-md border border-red-300 bg-white px-3 py-2 focus:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-200"
               name="confirmation_name"
               onChange={(event) => setConfirmationName(event.target.value)}
               value={confirmationName}
             />
           </label>
-          <div className="mt-4 flex flex-wrap gap-3">
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+            <DeleteSubmit enabled={confirmationMatches} />
             <button
-              className="rounded-md bg-red-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-900 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:text-stone-600"
-              disabled={!confirmationMatches}
-            >
-              Permanently delete
-            </button>
-            <button
-              className="rounded-md border border-stone-300 px-4 py-2.5 text-sm font-medium text-ink hover:bg-stone-50"
+              className="min-h-11 w-full rounded-md border border-stone-300 bg-white px-4 py-2.5 text-sm font-medium text-ink hover:bg-stone-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss sm:w-auto"
               onClick={() => {
                 setConfirming(false);
                 setConfirmationName("");
@@ -74,6 +80,7 @@ export default function StudentDeleteForm({
               Cancel
             </button>
           </div>
+          </fieldset>
         </form>
       ) : null}
     </div>
