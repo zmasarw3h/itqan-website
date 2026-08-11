@@ -6,6 +6,7 @@ import { formatDateTimeInAppTimeZone, formatWeekRange, friendlyDate } from "@/li
 import {
   buildWeeklyActivityDays,
   initialWeeklyActivityDate,
+  weeklyActivityDueSummary,
   type WeeklyActivityDay
 } from "@/lib/admin-student-workspace-sections";
 import type { CheckIn, CheckInItem } from "@/lib/types";
@@ -118,9 +119,7 @@ export default function WeeklyActivitySection({
   );
   const [selectedDate, setSelectedDate] = useState(() => initialWeeklyActivityDate(days, effectiveDate));
   const selectedDay = days.find((day) => day.date === selectedDate) ?? days[0];
-  const dueDays = days.filter((day) => day.date <= effectiveDate);
-  const savedDays = dueDays.filter((day) => day.state === "saved");
-  const earned = savedDays.reduce((total, day) => total + Number(day.checkin?.daily_score ?? 0), 0);
+  const dueSummary = weeklyActivityDueSummary(days, effectiveDate);
 
   return (
     <section className="py-8" aria-labelledby="weekly-activity-title">
@@ -130,8 +129,8 @@ export default function WeeklyActivitySection({
           <p className="mt-1 text-sm text-stone-600">Read-only daily check-in history for {formatWeekRange(weekStart)}.</p>
         </div>
         <div className="grid grid-cols-2 gap-x-6 gap-y-1 rounded-lg bg-stone-100 px-4 py-3 text-sm sm:flex sm:gap-6">
-          <p><strong className="text-ink">{savedDays.length}/{dueDays.length}</strong> <span className="text-stone-600">due days saved</span></p>
-          <p><strong className="text-ink">{Math.round(earned)}/{dueDays.length * 100}</strong> <span className="text-stone-600">due points</span></p>
+          <p><strong className="text-ink">{dueSummary.savedDays}/{dueSummary.dueDays}</strong> <span className="text-stone-600">due days saved</span></p>
+          <p><strong className="text-ink">{dueSummary.earnedPoints}/{dueSummary.possiblePoints}</strong> <span className="text-stone-600">due points</span></p>
         </div>
       </div>
 

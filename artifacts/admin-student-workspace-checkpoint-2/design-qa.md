@@ -19,7 +19,7 @@ Browser zoom was 100%. The browser reported `devicePixelRatio = 1` and
 
 | Section and state | CSS viewport | Root document geometry | Overflow scan |
 | --- | --- | --- | --- |
-| Activity, saved day expanded | 390 × 844 | `clientWidth 390`, `scrollWidth 390`, `scrollHeight 1853` | 0 boundary offenders |
+| Activity, saved day expanded; current day open | 390 × 844 | `clientWidth 390`, `scrollWidth 390`, `scrollHeight 1873` | 0 boundary offenders |
 | Activity, missing day expanded | 390 × 844 | `clientWidth 390`, `scrollWidth 390`, `scrollHeight 1493` | 0 boundary offenders |
 | Activity tablet | 768 × 900 | `clientWidth 768`, `scrollWidth 768`, `scrollHeight 1144` | 0 boundary offenders |
 | Activity desktop | 1440 × 1060 | `clientWidth 1440`, `scrollWidth 1440`, `scrollHeight 1060` | 0 boundary offenders |
@@ -34,6 +34,15 @@ Raw readings are in `geometry.json`.
 
 ## Weekly activity verification
 
+- Focused amendment evidence uses Sunday saved at 80, Monday missing, and the
+  Tuesday operational effective date still open. The rendered summary is
+  `1/2 due days saved` and `80/200 due points`: Monday remains accountable,
+  while unsaved Tuesday is excluded from both denominators. The prior ad hoc
+  calculation would have incorrectly rendered `1/3` and `80/300`.
+- The extracted section-model summary includes the effective date immediately
+  when it has a saved check-in. Focused tests also prove the handoff example:
+  Sunday 60 plus open Monday renders `1/1` and `60/100`; saving Monday at 50
+  changes it to `2/2` and `110/200`.
 - Desktop uses the approved seven-day list and selected-day detail layout.
 - Mobile uses a single-open accordion; it does not render the desktop columns.
 - Saved, missing, open-today, and upcoming states are derived from stored rows
@@ -48,6 +57,9 @@ Raw readings are in `geometry.json`.
 - Day expansion is local presentation state; the canonical `week` and `view`
   URL contract remains unchanged. Reload selects the latest saved day, so no
   additional day query parameter was needed.
+- The amendment capture retained the exact canonical URL
+  `?week=2026-08-09&view=activity`, exposed no correction mutation controls,
+  and reported no browser console errors or warnings.
 
 ## Corrections verification
 
@@ -108,8 +120,9 @@ comparisons resize each source proportionally and do not crop either panel.
 
 ## Checks
 
-- Focused: 5 test files, 51 tests passed; lint and typecheck passed.
-- Full: `npm run check` passed — lint, typecheck, 57 test files / 463 tests,
+- Amendment-focused: `test/admin-student-workspace-sections.test.ts`, 9 tests
+  passed; lint and typecheck passed.
+- Full: `npm run check` passed — lint, typecheck, 57 test files / 468 tests,
   and the optimized Next.js production build.
 - Production browser console: zero application errors or warnings during the
   final capture session.
@@ -118,6 +131,10 @@ comparisons resize each source proportionally and do not crop either panel.
 
 - The local student and group names are intentionally longer than canvas copy,
   so the shared approved header wraps and the mobile documents are taller.
+- The canonical canvas depicts Monday as the open operational day. The local
+  Toronto fixture was captured on Tuesday, August 11, so Monday correctly
+  appears missing and Tuesday appears `Open today`; this is why the evidence
+  denominator is 2 rather than the canvas's 1.
 - The implementation keeps 44px form actions and comfortable checklist rows;
   it does not shrink controls to match the denser illustrative raster.
 - At exactly 768 CSS px and DPR 1, the approved Checkpoint 1 `md` breakpoint

@@ -5,7 +5,8 @@ import {
   buildWeeklyActivityDays,
   correctionDatesForWeek,
   initialCorrectionDate,
-  validCompletedTaskKeysForCorrectionDate
+  validCompletedTaskKeysForCorrectionDate,
+  weeklyActivityDueSummary
 } from "@/lib/admin-student-workspace-sections";
 import WeeklyActivitySection from "@/app/admin/students/[id]/weekly-activity-section";
 import type { CheckIn, CheckInItem } from "@/lib/types";
@@ -35,6 +36,29 @@ const storedItem: CheckInItem = {
   completed: true,
   created_at: "2026-08-09T16:00:00.000Z"
 };
+
+function savedCheckin(date: string, score: number, idSuffix: string): CheckIn {
+  return {
+    ...checkin,
+    id: `22222222-2222-4222-8222-${idSuffix.padStart(12, "0")}`,
+    date,
+    daily_score: score
+  };
+}
+
+function dueSummary(input: {
+  weekStart?: string;
+  effectiveDate: string;
+  checkins?: CheckIn[];
+}) {
+  const days = buildWeeklyActivityDays({
+    weekStart: input.weekStart ?? "2026-08-09",
+    effectiveDate: input.effectiveDate,
+    checkins: input.checkins ?? [],
+    items: []
+  });
+  return weeklyActivityDueSummary(days, input.effectiveDate);
+}
 
 describe("admin student workspace section models", () => {
   it("uses stored historical task labels and weights without current-template recomputation", () => {
@@ -67,6 +91,73 @@ describe("admin student workspace section models", () => {
     }).map((day) => day.state)).toEqual([
       "saved", "missing", "open", "upcoming", "upcoming", "upcoming", "upcoming"
     ]);
+  });
+
+  it("excludes an open current day from due-day and due-points denominators", () => {
+    expect(dueSummary({
+      effectiveDate: "2026-08-10",
+      checkins: [savedCheckin("2026-08-09", 60, "1")]
+    })).toEqual({
+      dueDays: 1,
+      savedDays: 1,
+      earnedPoints: 60,
+      possiblePoints: 100
+    });
+  });
+
+  it("includes a saved current day in both due denominators", () => {
+    expect(dueSummary({
+      effectiveDate: "2026-08-10",
+      checkins: [
+        savedCheckin("2026-08-09", 60, "1"),
+        savedCheckin("2026-08-10", 50, "2")
+      ]
+    })).toEqual({
+      dueDays: 2,
+      savedDays: 2,
+      earnedPoints: 110,
+      possiblePoints: 200
+    });
+  });
+
+  it("counts a past missing day in the denominator", () => {
+    expect(dueSummary({
+      effectiveDate: "2026-08-11",
+      checkins: [savedCheckin("2026-08-09", 60, "1")]
+    })).toEqual({
+      dueDays: 2,
+      savedDays: 1,
+      earnedPoints: 60,
+      possiblePoints: 200
+    });
+  });
+
+  it("counts all seven days for a completed historical week", () => {
+    const checkins = Array.from({ length: 7 }, (_, offset) => (
+      savedCheckin(`2026-08-${String(2 + offset).padStart(2, "0")}`, 70, String(offset + 1))
+    ));
+    expect(dueSummary({
+      weekStart: "2026-08-02",
+      effectiveDate: "2026-08-11",
+      checkins
+    })).toEqual({
+      dueDays: 7,
+      savedDays: 7,
+      earnedPoints: 490,
+      possiblePoints: 700
+    });
+  });
+
+  it("excludes every future day from due totals", () => {
+    expect(dueSummary({
+      weekStart: "2026-08-16",
+      effectiveDate: "2026-08-11"
+    })).toEqual({
+      dueDays: 0,
+      savedDays: 0,
+      earnedPoints: 0,
+      possiblePoints: 0
+    });
   });
 
   it("constrains correction dates to the selected week and effective operational date", () => {

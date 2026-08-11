@@ -11,6 +11,13 @@ export type WeeklyActivityDay = {
   items: CheckInItem[];
 };
 
+export type WeeklyActivityDueSummary = {
+  dueDays: number;
+  savedDays: number;
+  earnedPoints: number;
+  possiblePoints: number;
+};
+
 export function buildWeeklyActivityDays(input: {
   weekStart: string;
   effectiveDate: string;
@@ -43,6 +50,26 @@ export function buildWeeklyActivityDays(input: {
       items: checkin?.completed ? itemsByCheckin.get(checkin.id) ?? [] : []
     };
   });
+}
+
+export function weeklyActivityDueSummary(
+  days: WeeklyActivityDay[],
+  effectiveDate: string
+): WeeklyActivityDueSummary {
+  const dueDays = days.filter((day) => (
+    day.date < effectiveDate || (day.date === effectiveDate && day.state === "saved")
+  ));
+  const savedDays = dueDays.filter((day) => day.state === "saved");
+
+  return {
+    dueDays: dueDays.length,
+    savedDays: savedDays.length,
+    earnedPoints: Math.round(savedDays.reduce(
+      (total, day) => total + Number(day.checkin?.daily_score ?? 0),
+      0
+    )),
+    possiblePoints: dueDays.length * 100
+  };
 }
 
 export function initialWeeklyActivityDate(days: WeeklyActivityDay[], effectiveDate: string) {
