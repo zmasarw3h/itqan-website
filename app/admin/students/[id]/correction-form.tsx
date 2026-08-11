@@ -6,6 +6,7 @@ import { correctCheckIn } from "@/app/admin/actions";
 import { validCompletedTaskKeysForCorrectionDate } from "@/lib/admin-student-workspace-sections";
 import { friendlyDate } from "@/lib/dates";
 import { tasksForDate } from "@/lib/scoring";
+import { useCorrectionDisplayDate } from "./correction-date-context";
 
 export type CorrectionFormCheckIn = {
   date: string;
@@ -50,7 +51,7 @@ export default function CorrectionForm({
   resultStatus?: string;
 }) {
   const initialExisting = existingCheckIns.find((checkin) => checkin.date === initialDate);
-  const [selectedDate, setSelectedDate] = useState(initialDate);
+  const { selectedDate, setSelectedDate } = useCorrectionDisplayDate();
   const [status, setStatus] = useState<"submitted" | "missing">(initialExisting?.status ?? "submitted");
   const [note, setNote] = useState(initialExisting?.note ?? "");
   const [completedTaskKeys, setCompletedTaskKeys] = useState<string[]>(completedKeysForDate(initialDate, initialExisting));
@@ -87,7 +88,7 @@ export default function CorrectionForm({
     } catch {
       sessionStorage.removeItem(draftKey);
     }
-  }, [availableDates, draftKey, resultStatus]);
+  }, [availableDates, draftKey, resultStatus, setSelectedDate]);
 
   function handleDateChange(date: string) {
     const existing = existingByDate.get(date);

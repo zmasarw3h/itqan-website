@@ -168,7 +168,7 @@ describe("admin student mutation redirect contracts", () => {
     });
   });
 
-  it("never adds a daily correction date to a partner success redirect", async () => {
+  it("preserves a validated daily display date through a partner success redirect", async () => {
     const supabase = makePartnerSupabase({ existingRounds: ["round_1"] });
     canAdminManageStudentForWeekMock.mockResolvedValue(true);
     requireProfileMock.mockResolvedValueOnce({ supabase, profile: adminProfile, user: { id: adminProfile.id } });
@@ -178,11 +178,32 @@ describe("admin student mutation redirect contracts", () => {
       completed_rounds: "round_1",
       redirect_week: weekStart,
       redirect_view: "corrections",
-      correction_date: "2026-07-19"
+      correction_date: weekStart
     }))).rejects.toMatchObject({
-      location: `/admin/students/${studentId}?status=partner-corrected&week=${weekStart}&view=corrections`
+      location: `/admin/students/${studentId}?status=partner-corrected&week=${weekStart}&view=corrections&correction_date=${weekStart}`
     });
+    expect(supabase.rpc).not.toHaveBeenCalled();
   });
+
+  it.each(["not-a-date", "2026-07-18", "2026-07-26", "2026-08-16"])(
+    "drops invalid partner display context %s without changing the partner mutation",
+    async (correctionDate) => {
+      const supabase = makePartnerSupabase({ existingRounds: ["round_1"] });
+      canAdminManageStudentForWeekMock.mockResolvedValue(true);
+      requireProfileMock.mockResolvedValueOnce({ supabase, profile: adminProfile, user: { id: adminProfile.id } });
+      await expect(correctPartnerRecitations(form({
+        student_id: studentId,
+        week_start: weekStart,
+        completed_rounds: "round_1",
+        redirect_week: weekStart,
+        redirect_view: "corrections",
+        correction_date: correctionDate
+      }))).rejects.toMatchObject({
+        location: `/admin/students/${studentId}?status=partner-corrected&week=${weekStart}&view=corrections`
+      });
+      expect(supabase.rpc).not.toHaveBeenCalled();
+    }
+  );
 
   it("rejects a daily correction outside the selected week before checking a different scope", async () => {
     const supabase = makeSupabase();

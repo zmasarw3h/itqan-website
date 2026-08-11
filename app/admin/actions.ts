@@ -81,6 +81,23 @@ function adminStudentCorrectionSuccessPath(
   return `${path}${separator}correction_date=${encodeURIComponent(correctionDate)}`;
 }
 
+function adminStudentPartnerSuccessPath(
+  studentId: string,
+  correctionDateCandidate: string,
+  weekStart: string,
+  view?: string
+) {
+  const path = adminStudentStatusPath(studentId, "partner-corrected", weekStart, view);
+  const correctionDate = validatedCorrectionDate({
+    candidate: correctionDateCandidate,
+    weekStart,
+    effectiveDate: checkInEffectiveDateString()
+  });
+  if (!correctionDate) return path;
+
+  return `${path}&correction_date=${encodeURIComponent(correctionDate)}`;
+}
+
 function formString(value: FormDataEntryValue | null) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -484,6 +501,7 @@ export async function correctPartnerRecitations(formData: FormData) {
   const weekStart = String(formData.get("week_start") ?? "");
   const redirectWeek = String(formData.get("redirect_week") ?? weekStart);
   const redirectView = String(formData.get("redirect_view") ?? "");
+  const correctionDate = String(formData.get("correction_date") ?? "");
 
   if (!studentId || !isValidDateString(weekStart) || weekStartForDate(weekStart) !== weekStart) {
     redirect("/admin?status=invalid-partner-correction");
@@ -551,7 +569,12 @@ export async function correctPartnerRecitations(formData: FormData) {
 
   revalidatePath("/admin");
   revalidatePath(`/admin/students/${studentId}`);
-  redirect(adminStudentStatusPath(studentId, "partner-corrected", redirectWeek || weekStart, redirectView));
+  redirect(adminStudentPartnerSuccessPath(
+    studentId,
+    correctionDate,
+    redirectWeek || weekStart,
+    redirectView
+  ));
 }
 
 export async function saveHalaqaGrade(formData: FormData) {

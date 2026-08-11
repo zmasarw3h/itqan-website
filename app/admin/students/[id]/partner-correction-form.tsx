@@ -5,6 +5,7 @@ import { useFormStatus } from "react-dom";
 import { correctPartnerRecitations } from "@/app/admin/actions";
 import { PARTNER_RECITATION_ROUNDS } from "@/lib/partner-recitations";
 import type { PartnerRecitation, PartnerRound } from "@/lib/types";
+import { useCorrectionDisplayDate } from "./correction-date-context";
 
 function roundLabel(round: PartnerRound) {
   return round === "round_1" ? "Round 1" : "Round 2";
@@ -33,6 +34,7 @@ export default function PartnerCorrectionForm({
   resultStatus?: string;
 }) {
   const [completedRounds, setCompletedRounds] = useState<PartnerRound[]>(() => recitations.map((row) => row.round));
+  const { selectedDate } = useCorrectionDisplayDate();
   const draftKey = `itqan:v1:admin-partner-correction:${studentId}:${weekStart}`;
 
   useEffect(() => {
@@ -69,6 +71,7 @@ export default function PartnerCorrectionForm({
       <input name="week_start" type="hidden" value={weekStart} />
       <input name="redirect_week" type="hidden" value={weekStart} />
       <input name="redirect_view" type="hidden" value={redirectView} />
+      <input name="correction_date" type="hidden" value={selectedDate} />
       <fieldset>
         <legend className="sr-only">Partner recitation completion</legend>
         <div className="space-y-3">

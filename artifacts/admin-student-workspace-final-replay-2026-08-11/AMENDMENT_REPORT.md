@@ -37,3 +37,16 @@ Baseline: `1ae70f7b310f429d3de16d18e7b35d188bc88d45`
 - Partner correction was not submitted.
 - Official scoring confirmation was not submitted and the boundary remained unchanged.
 - Student deletion was not exercised.
+
+## Partner-save correction-date follow-up
+
+- Baseline for this focused follow-up: `055336c162b72ac69c0a751e42246577de5f88d0`.
+- Desktop exact sequence at 1280 CSS px: opened the successful daily-correction URL for Sunday, August 9, 2026, then saved the unchanged partner correction. The partner success redirect retained `week=2026-08-09`, `view=corrections`, and `correction_date=2026-08-09`; the daily Date selector remained Sunday.
+- A second desktop pass changed only the daily Date selector from Sunday to Monday before submitting the unchanged partner form. The redirect retained `correction_date=2026-08-10`, and Monday remained selected after canonical server reload.
+- Mobile exact sequence at 390 x 844 CSS px produced the same Sunday retention. Root `clientWidth = scrollWidth = 390`; DPR 1; `visualViewport.scale = 1`.
+- In both partner-success replays, only `Partner recitation correction saved` was present. The daily success notice was absent, and no daily form fields or checklist values were submitted through the partner form.
+- The final browser console check reported zero errors and zero warnings. The desktop root measured `clientWidth = scrollWidth = 1280`.
+- Both partner saves reused the fixture's existing round selections. No daily correction or scoring boundary was mutated, so no fixture restoration was required.
+- Follow-up evidence:
+  - `partner-date-followup-desktop.png`
+  - `partner-date-followup-mobile-390.png`

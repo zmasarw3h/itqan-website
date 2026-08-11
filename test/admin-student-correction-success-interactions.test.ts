@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/app/admin/actions", () => ({ correctCheckIn: vi.fn() }));
 
 import CorrectionForm, { type CorrectionFormCheckIn } from "@/app/admin/students/[id]/correction-form";
+import { CorrectionDateProvider } from "@/app/admin/students/[id]/correction-date-context";
 
 const studentId = "11111111-1111-4111-8111-111111111111";
 const weekStart = "2026-08-09";
@@ -19,15 +20,19 @@ const existing: CorrectionFormCheckIn[] = [{
 }];
 
 function formElement(resultStatus: string, initialDate = "2026-08-09") {
-  return createElement(CorrectionForm, {
-    studentId,
-    initialDate,
-    availableDates: ["2026-08-09", "2026-08-10", "2026-08-11"],
-    redirectWeek: weekStart,
-    redirectView: "corrections",
-    existingCheckIns: existing,
-    resultStatus
-  });
+  return createElement(
+    CorrectionDateProvider,
+    { initialDate },
+    createElement(CorrectionForm, {
+      studentId,
+      initialDate,
+      availableDates: ["2026-08-09", "2026-08-10", "2026-08-11"],
+      redirectWeek: weekStart,
+      redirectView: "corrections",
+      existingCheckIns: existing,
+      resultStatus
+    })
+  );
 }
 
 describe("daily correction redirect state", () => {

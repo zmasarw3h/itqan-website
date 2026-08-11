@@ -9,6 +9,7 @@ import type { AdminStudentWorkspaceShell } from "@/lib/admin-student-workspace";
 import type { CheckIn, CheckInItem, PartnerRecitation } from "@/lib/types";
 import CorrectionForm, { type CorrectionFormCheckIn } from "./correction-form";
 import PartnerCorrectionForm from "./partner-correction-form";
+import { CorrectionDateProvider } from "./correction-date-context";
 
 function CorrectionStatus({ correctionDate, status, tool }: { correctionDate?: string | null; status?: string; tool: "daily" | "partner" }) {
   const isDaily = tool === "daily";
@@ -69,7 +70,7 @@ export default function CorrectionsSection({
     effectiveDate,
     savedDates: checkins.filter((checkin) => checkin.completed).map((checkin) => checkin.date)
   });
-  const successCorrectionDate = status === "corrected"
+  const successCorrectionDate = status === "corrected" || status === "partner-corrected"
     ? validatedCorrectionDate({
         candidate: correctionDate,
         weekStart: shell.selectedWeekStart,
@@ -87,36 +88,41 @@ export default function CorrectionsSection({
         <p>Corrections are for exceptions. Every save records an audited admin change; use the student’s reported information.</p>
       </div>
 
-      <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.8fr)]">
-        <div className="min-w-0 rounded-xl border border-stone-200 bg-stone-50 p-4 sm:p-6">
-          <h3 className="text-lg font-semibold text-ink">Daily check-in correction</h3>
-          <p className="mt-1 text-sm text-stone-600">Choose an eligible date to load its stored state and the checklist version effective on that date.</p>
-          <CorrectionStatus correctionDate={successCorrectionDate} status={status} tool="daily" />
-          <CorrectionForm
-            key={`daily:${shell.student.id}:${shell.selectedWeekStart}:${initialDate}:${status ?? "initial"}`}
-            availableDates={availableDates}
-            existingCheckIns={existingCheckIns}
-            initialDate={initialDate}
-            redirectWeek={shell.selectedWeekStart}
-            redirectView="corrections"
-            resultStatus={status}
-            studentId={shell.student.id}
-          />
-        </div>
+      <CorrectionDateProvider
+        initialDate={initialDate}
+        key={`correction-date:${shell.student.id}:${shell.selectedWeekStart}:${initialDate}:${status ?? "initial"}`}
+      >
+        <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.8fr)]">
+          <div className="min-w-0 rounded-xl border border-stone-200 bg-stone-50 p-4 sm:p-6">
+            <h3 className="text-lg font-semibold text-ink">Daily check-in correction</h3>
+            <p className="mt-1 text-sm text-stone-600">Choose an eligible date to load its stored state and the checklist version effective on that date.</p>
+            <CorrectionStatus correctionDate={successCorrectionDate} status={status} tool="daily" />
+            <CorrectionForm
+              key={`daily:${shell.student.id}:${shell.selectedWeekStart}:${initialDate}:${status ?? "initial"}`}
+              availableDates={availableDates}
+              existingCheckIns={existingCheckIns}
+              initialDate={initialDate}
+              redirectWeek={shell.selectedWeekStart}
+              redirectView="corrections"
+              resultStatus={status}
+              studentId={shell.student.id}
+            />
+          </div>
 
-        <div className="min-w-0 rounded-xl border border-stone-200 bg-stone-50 p-4 sm:p-6">
-          <h3 className="text-lg font-semibold text-ink">Partner recitation correction</h3>
-          <p className="mt-1 text-sm text-stone-600">Students normally record both rounds themselves. Admins should correct completion only when needed.</p>
-          <CorrectionStatus status={status} tool="partner" />
-          <PartnerCorrectionForm
-            recitations={partnerRecitations}
-            redirectView="corrections"
-            resultStatus={status}
-            studentId={shell.student.id}
-            weekStart={shell.selectedWeekStart}
-          />
+          <div className="min-w-0 rounded-xl border border-stone-200 bg-stone-50 p-4 sm:p-6">
+            <h3 className="text-lg font-semibold text-ink">Partner recitation correction</h3>
+            <p className="mt-1 text-sm text-stone-600">Students normally record both rounds themselves. Admins should correct completion only when needed.</p>
+            <CorrectionStatus status={status} tool="partner" />
+            <PartnerCorrectionForm
+              recitations={partnerRecitations}
+              redirectView="corrections"
+              resultStatus={status}
+              studentId={shell.student.id}
+              weekStart={shell.selectedWeekStart}
+            />
+          </div>
         </div>
-      </div>
+      </CorrectionDateProvider>
     </section>
   );
 }
