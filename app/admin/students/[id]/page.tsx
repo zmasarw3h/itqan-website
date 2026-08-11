@@ -9,6 +9,11 @@ import {
 import { canonicalAdminStudentWorkspaceState } from "@/lib/admin-student-workspace-state";
 import { checkInEffectiveDateString, weekStartForDate } from "@/lib/dates";
 import { requireProfile } from "@/lib/supabase-server";
+import {
+  createServerLoaderTiming,
+  measureServerLoaderPhase,
+  recordServerLoaderTiming
+} from "@/lib/server-loader-timing";
 import OverviewSection from "./overview-section";
 import PreservedSection from "./preserved-sections";
 import WorkspaceShell from "./workspace-shell";
@@ -80,30 +85,46 @@ export default async function AdminStudentPage({
     }));
   }
 
-  const { supabase, profile } = await requireProfile(["admin"]);
-  let shell: Awaited<ReturnType<typeof loadAdminStudentWorkspaceShell>>;
+  const timing = createServerLoaderTiming();
 
   try {
-    shell = await loadAdminStudentWorkspaceShell(supabase, { studentId, selectedWeekStart });
-  } catch (error) {
-    if (error instanceof AdminStudentWorkspaceError && ["scope-denied", "not-found", "invalid-context"].includes(error.code)) {
-      notFound();
+    const { supabase, profile } = await measureServerLoaderPhase(
+      timing,
+      "auth",
+      () => requireProfile(["admin"])
+    );
+    let shell: Awaited<ReturnType<typeof loadAdminStudentWorkspaceShell>>;
+
+    try {
+      shell = await measureServerLoaderPhase(timing, "shell", () =>
+        loadAdminStudentWorkspaceShell(supabase, { studentId, selectedWeekStart }, timing)
+      );
+    } catch (error) {
+      if (error instanceof AdminStudentWorkspaceError && ["scope-denied", "not-found", "invalid-context"].includes(error.code)) {
+        notFound();
+      }
+      throw error;
     }
-    throw error;
+
+    const overview = view === "overview"
+      ? await measureServerLoaderPhase(timing, "view_data", () =>
+        loadAdminStudentOverview(supabase, shell)
+      )
+      : null;
+
+    return (
+      <>
+        <AppNav activeHref="/admin" name={profile.name} role={profile.role} variant="workspace" />
+        <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-8 md:py-8">
+          <WorkspaceShell shell={shell} view={view} />
+          <WorkspaceStatusNotice status={query.status} view={view} />
+          {view === "overview" && overview
+            ? <OverviewSection overview={overview} shell={shell} />
+            : <PreservedSection correctionDate={query.correction_date} shell={shell} status={query.status} supabase={supabase} timing={timing} view={view as Exclude<typeof view, "overview">} />}
+        </main>
+      </>
+    );
+  } finally {
+    recordServerLoaderTiming("admin_student_workspace", timing);
   }
-
-  const overview = view === "overview" ? await loadAdminStudentOverview(supabase, shell) : null;
-
-  return (
-    <>
-      <AppNav activeHref="/admin" name={profile.name} role={profile.role} variant="workspace" />
-      <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-8 md:py-8">
-        <WorkspaceShell shell={shell} view={view} />
-        <WorkspaceStatusNotice status={query.status} view={view} />
-        {view === "overview" && overview
-          ? <OverviewSection overview={overview} shell={shell} />
-          : <PreservedSection correctionDate={query.correction_date} shell={shell} status={query.status} supabase={supabase} view={view as Exclude<typeof view, "overview">} />}
-      </main>
-    </>
-  );
 }

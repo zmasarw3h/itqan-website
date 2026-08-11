@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { calculateBelow70Streak, leaderboardRowsToCsv, type LeaderboardRow } from "@/lib/leaderboard";
+import {
+  buildLeaderboardRowsFromAggregates,
+  calculateBelow70Streak,
+  leaderboardRowsToCsv,
+  type LeaderboardAggregate,
+  type LeaderboardRow
+} from "@/lib/leaderboard";
 
 function leaderboardRow(overrides: Partial<LeaderboardRow> = {}): LeaderboardRow {
   return {
@@ -27,7 +33,73 @@ function leaderboardRow(overrides: Partial<LeaderboardRow> = {}): LeaderboardRow
   };
 }
 
+function leaderboardAggregate(overrides: Partial<LeaderboardAggregate> = {}): LeaderboardAggregate {
+  return {
+    student_id: "student-1",
+    student_name: "Student One",
+    student_email: "student@example.com",
+    student_phone: "+1 555 0101",
+    masjid_name: "Masjid A",
+    cohort_name: "Brothers",
+    group_name: "Group A",
+    can_view_current_contact: true,
+    can_open_current_profile: true,
+    score_starts_on: "2026-06-07",
+    daily_points: 500,
+    partner_points: 75,
+    halaqa_points: 100,
+    total_points: 675,
+    percentage: 67.5,
+    below70_streak: 2,
+    ...overrides
+  };
+}
+
 describe("leaderboard CSV export", () => {
+  it("preserves database score components, official-score boundaries, reset-aware streaks, and ranking", () => {
+    const rows = buildLeaderboardRowsFromAggregates({
+      aggregates: [
+        leaderboardAggregate({ student_id: "student-1", student_name: "Student One", below70_streak: 0 }),
+        leaderboardAggregate({
+          student_id: "student-2",
+          student_name: "Student Two",
+          total_points: 600,
+          percentage: 60,
+          below70_streak: 2,
+          masjid_name: "Masjid B",
+          cohort_name: "Sisters",
+          group_name: "Group B"
+        }),
+        leaderboardAggregate({
+          student_id: "orientation",
+          student_name: "Orientation",
+          score_starts_on: "2026-07-19"
+        })
+      ],
+      selectedWeekStart: "2026-07-12",
+      today: "2026-07-28",
+      below70Only: true
+    });
+
+    expect(rows.map((row) => row.studentId)).toEqual(["student-2", "student-1"]);
+    expect(rows.map((row) => row.rank)).toEqual([1, 2]);
+    expect(rows[0]).toMatchObject({
+      status: "below_70",
+      below70Streak: 2,
+      masjidName: "Masjid B",
+      cohortName: "Sisters",
+      groupName: "Group B",
+      score: {
+        daily_points: 500,
+        partner_points: 75,
+        halaqa_points: 100,
+        total_points: 600,
+        percentage: 60
+      }
+    });
+    expect(rows.some((row) => row.studentId === "orientation")).toBe(false);
+  });
+
   it("does not count below-70 streak weeks before the May 31-June 6, 2026 cutoff", () => {
     expect(
       calculateBelow70Streak({

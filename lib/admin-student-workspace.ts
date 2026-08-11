@@ -28,6 +28,11 @@ import { loadStudentScopeForWeek, type StudentWeekScope } from "@/lib/student-sc
 import type { createServerSupabaseClient } from "@/lib/supabase-server";
 import type { CheckIn, CheckInItem, HalaqaGrade, PartnerRecitation, Profile, WeeklyPlan } from "@/lib/types";
 import { officialScoringStatus } from "@/lib/official-scoring";
+import { loadAdminStudentAvailableWeekStarts } from "@/lib/admin-dashboard";
+import {
+  measureServerLoaderPhase,
+  type ServerLoaderTiming
+} from "@/lib/server-loader-timing";
 
 type SupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
 
@@ -89,51 +94,23 @@ function assertWorkspaceContext(studentId: string, weekStart: string) {
   }
 }
 
-function canonicalWeekFromDate(date: string) {
-  if (!isValidDateString(date)) return null;
-  return weekStartForDate(date);
-}
-
 async function loadAvailableWeekStarts(
   supabase: SupabaseClient,
   studentId: string,
   currentTrackerWeekStart: string,
-  selectedWeekStart: string
+  selectedWeekStart: string,
+  timing?: ServerLoaderTiming
 ) {
-  const [checkinRows, partnerRows, halaqaRows, planRows] = await Promise.all([
-    supabase
-      .from("checkins")
-      .select("date")
-      .eq("student_id", studentId)
-      .returns<Array<{ date: string }>>(),
-    supabase
-      .from("partner_recitations")
-      .select("week_start")
-      .eq("student_id", studentId)
-      .returns<Array<{ week_start: string }>>(),
-    supabase
-      .from("halaqa_grades")
-      .select("week_start")
-      .eq("student_id", studentId)
-      .returns<Array<{ week_start: string }>>(),
-    supabase
-      .from("weekly_plans")
-      .select("week_start")
-      .eq("student_id", studentId)
-      .returns<Array<{ week_start: string }>>()
-  ]);
-
-  if (checkinRows.error || partnerRows.error || halaqaRows.error || planRows.error) {
-    throw new AdminStudentWorkspaceError("load-error", "Unable to load student workspace week options.");
-  }
+  const evidenceWeekStarts = timing
+    ? await measureServerLoaderPhase(timing, "week_discovery", () =>
+      loadAdminStudentAvailableWeekStarts(supabase, studentId, selectedWeekStart)
+    )
+    : await loadAdminStudentAvailableWeekStarts(supabase, studentId, selectedWeekStart);
 
   const candidates = [
     currentTrackerWeekStart,
     selectedWeekStart,
-    ...(checkinRows.data ?? []).map((row) => canonicalWeekFromDate(row.date)).filter((week): week is string => Boolean(week)),
-    ...(partnerRows.data ?? []).map((row) => row.week_start),
-    ...(halaqaRows.data ?? []).map((row) => row.week_start),
-    ...(planRows.data ?? []).map((row) => row.week_start)
+    ...evidenceWeekStarts
   ];
 
   return [...new Set(candidates)].filter((weekStart) => {
@@ -154,12 +131,19 @@ async function loadAvailableWeekStarts(
  */
 export async function loadAdminStudentWorkspaceShell(
   supabase: SupabaseClient,
-  input: { studentId: string; selectedWeekStart: string }
+  input: { studentId: string; selectedWeekStart: string },
+  timing?: ServerLoaderTiming
 ): Promise<AdminStudentWorkspaceShell> {
   assertWorkspaceContext(input.studentId, input.selectedWeekStart);
   const currentTrackerWeekStart = weekStartForDate(checkInEffectiveDateString());
 
-  if (!(await canAdminManageStudentForWeek(supabase, input.studentId, input.selectedWeekStart))) {
+  const canManage = timing
+    ? await measureServerLoaderPhase(timing, "scope", () =>
+      canAdminManageStudentForWeek(supabase, input.studentId, input.selectedWeekStart)
+    )
+    : await canAdminManageStudentForWeek(supabase, input.studentId, input.selectedWeekStart);
+
+  if (!canManage) {
     throw new AdminStudentWorkspaceError("scope-denied", "The student is outside the admin scope for this week.");
   }
 
@@ -184,7 +168,8 @@ export async function loadAdminStudentWorkspaceShell(
         supabase,
         input.studentId,
         currentTrackerWeekStart,
-        input.selectedWeekStart
+        input.selectedWeekStart,
+        timing
       )
     ]);
   } catch (error) {

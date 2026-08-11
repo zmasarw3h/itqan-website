@@ -287,6 +287,64 @@ exception
 end;
 $$;
 
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"40000000-0000-0000-0000-000000000008","role":"authenticated"}',
+  true
+);
+do $$
+declare
+  dashboard jsonb;
+  dashboard_row jsonb;
+  workspace_weeks date[];
+begin
+  select public.admin_dashboard_leaderboard_for_week('2026-06-07'::date, false)
+  into dashboard;
+  if jsonb_array_length(dashboard -> 'rows') <> 2 then
+    raise exception 'bounded admin dashboard returned an unexpected scoped population: %', dashboard;
+  end if;
+
+  select row
+  into dashboard_row
+  from jsonb_array_elements(dashboard -> 'rows') as row
+  where row ->> 'student_id' = '40000000-0000-0000-0000-000000000001';
+  if dashboard_row is null
+    or dashboard_row ->> 'student_id' <> '40000000-0000-0000-0000-000000000001'
+    or dashboard_row ->> 'masjid_name' <> 'Attribution A'
+    or (dashboard_row ->> 'daily_points')::numeric <> 300
+    or (dashboard_row ->> 'partner_points')::numeric <> 150
+    or (dashboard_row ->> 'halaqa_points')::numeric <> 150
+    or (dashboard_row ->> 'total_points')::numeric <> 600
+    or (dashboard_row ->> 'percentage')::numeric <> 60
+    or dashboard_row ->> 'below70_streak' <> '1' then
+    raise exception 'bounded dashboard aggregation changed attribution, score, streak, or contact semantics: %', dashboard_row;
+  end if;
+
+  select public.admin_student_available_week_starts(
+    '40000000-0000-0000-0000-000000000001'::uuid,
+    '2026-06-07'::date
+  )
+  into workspace_weeks;
+  if not ('2026-06-07'::date = any(workspace_weeks)) then
+    raise exception 'bounded student workspace week contract omitted the evidence week: %', workspace_weeks;
+  end if;
+end;
+$$;
+
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"40000000-0000-0000-0000-000000000009","role":"authenticated"}',
+  true
+);
+do $$
+begin
+  perform public.admin_dashboard_available_weeks();
+  raise exception 'unrelated teacher executed admin dashboard week RPC';
+exception
+  when insufficient_privilege then null;
+end;
+$$;
+
 reset role;
 set local role anon;
 select set_config('request.jwt.claims', '{"role":"anon"}', true);

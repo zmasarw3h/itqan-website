@@ -3523,6 +3523,89 @@ async function runAssertions(ids: SeedIds) {
     "current operational profile visibility was not retained"
   );
 
+  const dashboardWeeks = await adminA.rpc("admin_dashboard_available_weeks");
+  assert.equal(dashboardWeeks.error, null, dashboardWeeks.error?.message);
+  assert.ok(
+    (dashboardWeeks.data ?? []).includes(ids.weekStart),
+    "admin dashboard did not return the available historical week"
+  );
+  const dashboard = await adminA.rpc("admin_dashboard_leaderboard_for_week", {
+    input_selected_week_start: ids.weekStart,
+    input_below70_only: false
+  });
+  assert.equal(dashboard.error, null, dashboard.error?.message);
+  const legacyDashboardParity = await studentA.rpc("student_cohort_leaderboard_for_week", {
+    input_week_start: ids.weekStart
+  });
+  assert.equal(legacyDashboardParity.error, null, legacyDashboardParity.error?.message);
+  const legacyStudentA = (legacyDashboardParity.data ?? []).find(
+    (row: { is_current_student?: boolean }) => row.is_current_student
+  ) as { total_points: number; score_percentage: number } | undefined;
+  const legacyDashboardStreak = await adminA.rpc("get_students_below70_streaks", {
+    input_student_ids: [ids.users.studentA],
+    input_through_week_start: ids.previousWeekStart
+  });
+  assert.equal(legacyDashboardStreak.error, null, legacyDashboardStreak.error?.message);
+  const legacyStreakLength = (legacyDashboardStreak.data ?? [])[0]?.active_streak_length;
+  const dashboardStudentA = (dashboard.data?.rows ?? []).find(
+    (row: { student_id: string }) => row.student_id === ids.users.studentA
+  ) as {
+    masjid_name: string;
+    cohort_name: string;
+    group_name: string;
+    total_points: number;
+    can_view_current_contact: boolean;
+    can_open_current_profile: boolean;
+    daily_points: number;
+    partner_points: number;
+    halaqa_points: number;
+    percentage: number;
+    below70_streak: number;
+  } | undefined;
+  assert.ok(dashboardStudentA, "bounded dashboard omitted the scoped student");
+  assert.deepEqual(
+    {
+      masjid_name: dashboardStudentA?.masjid_name,
+      cohort_name: dashboardStudentA?.cohort_name,
+      group_name: dashboardStudentA?.group_name,
+      can_view_current_contact: dashboardStudentA?.can_view_current_contact,
+      can_open_current_profile: dashboardStudentA?.can_open_current_profile
+    },
+    {
+      masjid_name: "RLS Masjid A",
+      cohort_name: "A Brothers",
+      group_name: "A Group",
+      can_view_current_contact: true,
+      can_open_current_profile: true
+    },
+    "bounded dashboard changed historical placement or current visibility semantics"
+  );
+  assert.equal(dashboardStudentA?.total_points, legacyStudentA?.total_points, "dashboard total changed");
+  assert.equal(dashboardStudentA?.percentage, legacyStudentA?.score_percentage, "dashboard percentage changed");
+  assert.equal(
+    dashboardStudentA?.daily_points + dashboardStudentA?.partner_points + dashboardStudentA?.halaqa_points,
+    dashboardStudentA?.total_points,
+    "dashboard score components do not sum to total"
+  );
+  assert.equal(
+    dashboardStudentA?.below70_streak,
+    legacyStreakLength,
+    "completed below-70 streak semantics changed"
+  );
+  const dashboardWeeksForStudentWorkspace = await adminA.rpc("admin_student_available_week_starts", {
+    input_student_id: ids.users.studentA,
+    input_selected_week_start: ids.weekStart
+  });
+  assert.equal(
+    dashboardWeeksForStudentWorkspace.error,
+    null,
+    dashboardWeeksForStudentWorkspace.error?.message
+  );
+  assert.ok(
+    (dashboardWeeksForStudentWorkspace.data ?? []).includes(ids.weekStart),
+    "student workspace did not return the selected evidence week"
+  );
+
   const transferredWeek = addDays(ids.startsOn, -28);
   const transferredScoreStart = await service
     .from("profiles")
@@ -3544,6 +3627,38 @@ async function runAssertions(ids: SeedIds) {
     input_week_starts: [transferredWeek]
   });
   assert.equal(adminBHistorical.error, null, adminBHistorical.error?.message);
+  const adminATransferredDashboard = await adminA.rpc("admin_dashboard_leaderboard_for_week", {
+    input_selected_week_start: transferredWeek,
+    input_below70_only: false
+  });
+  assert.ok(
+    adminATransferredDashboard.error,
+    "Admin A received a dashboard payload for a historically cross-masjid week"
+  );
+  const superAdminTransferredDashboard = await superAdmin.rpc("admin_dashboard_leaderboard_for_week", {
+    input_selected_week_start: transferredWeek,
+    input_below70_only: false
+  });
+  assert.equal(
+    superAdminTransferredDashboard.error,
+    null,
+    superAdminTransferredDashboard.error?.message
+  );
+  assert.ok(
+    (superAdminTransferredDashboard.data?.rows ?? []).some(
+      (row: { student_id: string; masjid_name: string }) =>
+        row.student_id === ids.users.studentA && row.masjid_name === "RLS Masjid B"
+    ),
+    "super admin did not receive the global historical dashboard placement"
+  );
+  const adminBStudentWorkspace = await adminB.rpc("admin_student_available_week_starts", {
+    input_student_id: ids.users.studentA,
+    input_selected_week_start: ids.weekStart
+  });
+  assert.ok(
+    adminBStudentWorkspace.error,
+    "Admin B received student workspace week options outside its masjid scope"
+  );
   const historicalStudentA = (adminBHistorical.data ?? []).find(
     (row: { student_id: string }) => row.student_id === ids.users.studentA
   ) as {

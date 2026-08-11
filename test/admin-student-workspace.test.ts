@@ -47,6 +47,8 @@ type FakeSupabaseOptions = {
   errors?: string[];
   streakData?: unknown[];
   streakError?: boolean;
+  availableWeekStarts?: string[];
+  availableWeeksError?: boolean;
 };
 
 const defaultProfile = {
@@ -173,6 +175,7 @@ function queryFor(
 
 function makeFakeSupabase(options: FakeSupabaseOptions = {}) {
   const calls: FakeCall[] = [];
+  const rpcCalls: Array<{ name: string; args?: unknown }> = [];
   const errors = new Set(options.errors ?? []);
   const profile = options.profile === undefined ? defaultProfile : options.profile;
   const scope = options.scope === undefined ? defaultScope : options.scope;
@@ -208,14 +211,24 @@ function makeFakeSupabase(options: FakeSupabaseOptions = {}) {
   }
 
   const from = vi.fn((table: string) => queryFor(table, (selected, terminal) => response(table, selected, terminal), calls));
-  const rpc = vi.fn((name: string) => ({
-    returns: vi.fn(async () => ({
-      data: options.streakData ?? [],
-      error: options.streakError ? { message: `Synthetic ${name} error` } : null
-    }))
-  }));
+  const rpc = vi.fn((name: string, args?: unknown) => {
+    rpcCalls.push({ name, args });
 
-  return { supabase: { from, rpc }, from, rpc, calls };
+    return {
+    returns: vi.fn(async () => ({
+      data: name === "admin_student_available_week_starts"
+        ? options.availableWeekStarts ?? [weekStart]
+        : options.streakData ?? [],
+      error: name === "admin_student_available_week_starts" && options.availableWeeksError
+        ? { message: `Synthetic ${name} error` }
+        : options.streakError
+          ? { message: `Synthetic ${name} error` }
+          : null
+    }))
+    };
+  });
+
+  return { supabase: { from, rpc }, from, rpc, calls, rpcCalls };
 }
 
 describe("admin student workspace URL contract", () => {
@@ -351,6 +364,14 @@ describe("admin student workspace server contracts", () => {
     expect(shell.student).toMatchObject({ id: studentId, role: "student", active: true });
     expect(shell.scope).toMatchObject({ masjidId, cohortId, groupId });
     expect(shell.availableWeekStarts).toContain(weekStart);
+    expect(fake.rpcCalls).toEqual([{
+      name: "admin_student_available_week_starts",
+      args: {
+        input_student_id: studentId,
+        input_selected_week_start: weekStart
+      }
+    }]);
+    expect(fake.calls.some((call) => ["checkins", "partner_recitations", "halaqa_grades", "weekly_plans"].includes(call.table))).toBe(false);
 
     fake.calls.length = 0;
     const overview = await loadAdminStudentOverview(fake.supabase as never, shell);

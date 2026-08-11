@@ -9,6 +9,10 @@ import {
 import { adminWeeklyPlanUrl, weeklyPlanPathMatchesExactContext } from "@/lib/admin-weekly-plan";
 import { checkInEffectiveDateString } from "@/lib/dates";
 import type { createServerSupabaseClient } from "@/lib/supabase-server";
+import {
+  measureServerLoaderPhase,
+  type ServerLoaderTiming
+} from "@/lib/server-loader-timing";
 import { isAllowedWeeklyPlanType } from "@/lib/weekly-plans";
 import CorrectionsSection from "./corrections-section";
 import HalaqaPlanSection from "./halaqa-plan-section";
@@ -22,21 +26,27 @@ export default async function PreservedSection({
   shell,
   view,
   status,
-  correctionDate
+  correctionDate,
+  timing
 }: {
   supabase: SupabaseClient;
   shell: AdminStudentWorkspaceShell;
   view: Exclude<AdminStudentWorkspaceView, "overview">;
   status?: string;
   correctionDate?: string;
+  timing: ServerLoaderTiming;
 }) {
   if (view === "activity") {
-    const data = await loadAdminStudentWeeklyActivity(supabase, shell);
+    const data = await measureServerLoaderPhase(timing, "view_data", () =>
+      loadAdminStudentWeeklyActivity(supabase, shell)
+    );
     return <WeeklyActivitySection checkins={data.checkins} effectiveDate={checkInEffectiveDateString()} items={data.items} weekStart={shell.selectedWeekStart} />;
   }
 
   if (view === "halaqa-plan") {
-    const data = await loadAdminStudentHalaqaPlan(supabase, shell);
+    const data = await measureServerLoaderPhase(timing, "view_data", () =>
+      loadAdminStudentHalaqaPlan(supabase, shell)
+    );
     const planHasExactPath = Boolean(data.weeklyPlan && weeklyPlanPathMatchesExactContext(
       shell.student.id,
       shell.selectedWeekStart,
@@ -63,10 +73,14 @@ export default async function PreservedSection({
   }
 
   if (view === "corrections") {
-    const data = await loadAdminStudentCorrections(supabase, shell);
+    const data = await measureServerLoaderPhase(timing, "view_data", () =>
+      loadAdminStudentCorrections(supabase, shell)
+    );
     return <CorrectionsSection checkins={data.checkins} correctionDate={correctionDate} effectiveDate={checkInEffectiveDateString()} items={data.items} partnerRecitations={data.partnerRecitations} shell={shell} status={status} />;
   }
 
-  const settings = await loadAdminStudentSettings(supabase, shell);
+  const settings = await measureServerLoaderPhase(timing, "view_data", () =>
+    loadAdminStudentSettings(supabase, shell)
+  );
   return <StudentSettingsSection settings={settings} shell={shell} />;
 }

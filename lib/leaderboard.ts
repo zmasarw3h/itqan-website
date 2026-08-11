@@ -33,6 +33,25 @@ type Student = {
   canOpenCurrentProfile: boolean;
 };
 
+export type LeaderboardAggregate = {
+  student_id: string;
+  student_name: string;
+  student_email: string | null;
+  student_phone: string | null;
+  masjid_name: string;
+  cohort_name: string;
+  group_name: string;
+  can_view_current_contact: boolean;
+  can_open_current_profile: boolean;
+  score_starts_on: string | null;
+  daily_points: number;
+  partner_points: number;
+  halaqa_points: number;
+  total_points: number;
+  percentage: number;
+  below70_streak: number;
+};
+
 function escapeCsv(value: string | number | boolean | null | undefined) {
   const text = value === null || value === undefined ? "" : String(value);
   const safeText = /^[=+\-@]/.test(text) ? `'${text}` : text;
@@ -202,6 +221,69 @@ export function buildLeaderboardRows(input: {
     }
 
     return b.score.percentage - a.score.percentage || a.studentName.localeCompare(b.studentName);
+  });
+
+  return visibleRows.map((row, index) => ({ ...row, rank: index + 1 }));
+}
+
+export function buildLeaderboardRowsFromAggregates(input: {
+  aggregates: LeaderboardAggregate[];
+  selectedWeekStart: string;
+  today: string;
+  below70Only: boolean;
+}) {
+  const selectedWeekComplete = weekIsComplete(input.selectedWeekStart, input.today);
+  const rows = input.aggregates.flatMap<LeaderboardRow>((aggregate) => {
+    if (!aggregate.score_starts_on || input.selectedWeekStart < aggregate.score_starts_on) {
+      return [];
+    }
+
+    const belowThreshold = aggregate.percentage < PASSING_PERCENTAGE;
+    const score: WeeklyScore = {
+      daily_points: aggregate.daily_points,
+      partner_points: aggregate.partner_points,
+      halaqa_points: aggregate.halaqa_points,
+      total_points: aggregate.total_points,
+      total_possible: 1000,
+      percentage: aggregate.percentage
+    };
+
+    return [{
+      rank: 0,
+      studentId: aggregate.student_id,
+      studentName: aggregate.student_name,
+      studentEmail: aggregate.student_email,
+      studentPhone: aggregate.student_phone,
+      masjidName: aggregate.masjid_name,
+      cohortName: aggregate.cohort_name,
+      groupName: aggregate.group_name,
+      canViewCurrentContact: aggregate.can_view_current_contact,
+      canOpenCurrentProfile: aggregate.can_open_current_profile,
+      score,
+      status: selectedWeekComplete
+        ? belowThreshold
+          ? "below_70"
+          : "passing"
+        : belowThreshold
+          ? "below_70_so_far"
+          : "in_progress",
+      below70Streak: aggregate.below70_streak
+    }];
+  });
+
+  const visibleRows = input.below70Only
+    ? rows.filter((row) => row.score.percentage < PASSING_PERCENTAGE)
+    : rows;
+
+  visibleRows.sort((a, b) => {
+    if (input.below70Only) {
+      return b.below70Streak - a.below70Streak
+        || a.score.percentage - b.score.percentage
+        || a.studentName.localeCompare(b.studentName);
+    }
+
+    return b.score.percentage - a.score.percentage
+      || a.studentName.localeCompare(b.studentName);
   });
 
   return visibleRows.map((row, index) => ({ ...row, rank: index + 1 }));
