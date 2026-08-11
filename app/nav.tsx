@@ -13,7 +13,7 @@ export default async function AppNav({
 }: {
   role: Role;
   name: string;
-  variant?: "default" | "rotation" | "teacher";
+  variant?: "default" | "rotation" | "teacher" | "workspace";
   activeHref?: string;
 }) {
   let hasTeacherCapability = role === "teacher";
@@ -26,16 +26,17 @@ export default async function AppNav({
   const links = navigationLinksForRole(role, hasTeacherCapability);
 
   const isTeacher = variant === "teacher";
-  const isDark = variant === "rotation" || variant === "teacher";
+  const isWorkspace = variant === "workspace";
+  const isDark = variant === "rotation" || isTeacher || isWorkspace;
 
   return (
     <header className={isDark ? "border-b border-moss bg-ink" : "border-b border-stone-200 bg-white"}>
-      <nav className={isTeacher
+      <nav className={isTeacher || isWorkspace
         ? "mx-auto flex min-h-16 max-w-[1440px] items-center justify-between gap-3 px-4 py-2 sm:min-h-[88px] sm:px-8 sm:py-3"
         : "mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3"}
       >
         <div className="min-w-0">
-          <p className={isTeacher ? "text-base font-bold tracking-wide text-gold sm:text-lg" : "text-sm font-semibold text-gold"}>ITQAN</p>
+          <p className={isTeacher || isWorkspace ? "text-base font-bold tracking-wide text-gold sm:text-lg" : "text-sm font-semibold text-gold"}>ITQAN</p>
           <p className={`mt-0.5 truncate text-sm ${isTeacher ? "hidden sm:block" : ""} ${isDark ? "text-stone-100" : "text-stone-600"}`}>{name}</p>
         </div>
         <div className="hidden items-center gap-2 md:flex">
@@ -44,7 +45,7 @@ export default async function AppNav({
             return (
               <Link
                 className={isDark
-                  ? `border-b-2 text-sm font-medium ${isTeacher ? "px-4 py-5" : "px-3 py-2"} ${
+                  ? `border-b-2 text-sm font-medium ${isTeacher || isWorkspace ? "px-4 py-5" : "px-3 py-2"} ${
                     link.href === activeHref
                       ? "border-gold text-white"
                       : "border-transparent text-stone-100 hover:border-stone-500 hover:text-white"
@@ -60,7 +61,7 @@ export default async function AppNav({
           })}
           <form action={signOut}>
             <button className={isDark
-              ? `${isTeacher ? "min-h-11 px-4 font-semibold" : "px-3 font-medium"} rounded-md border border-stone-500 py-2 text-sm text-white hover:bg-moss`
+              ? `${isTeacher || isWorkspace ? "min-h-11 px-4 font-semibold" : "px-3 font-medium"} rounded-md border border-stone-500 py-2 text-sm text-white hover:bg-moss`
               : "rounded-md border border-stone-300 px-3 py-2 text-sm font-medium text-ink hover:bg-stone-100"}
             >
               Sign out

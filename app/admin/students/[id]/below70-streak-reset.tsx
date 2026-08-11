@@ -26,11 +26,13 @@ function activeStreakClass(streakLength: number) {
 export default function Below70StreakReset({
   initialStreak,
   initialLoadError,
-  studentId
+  studentId,
+  workspace = false
 }: {
   initialStreak: Below70StreakReadRow | null;
   initialLoadError: boolean;
   studentId: string;
+  workspace?: boolean;
 }) {
   const router = useRouter();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -144,7 +146,7 @@ export default function Below70StreakReset({
 
   if (initialLoadError && !streak) {
     return (
-      <section className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-5 shadow-sm" aria-live="polite">
+      <section className={workspace ? "border-b border-amber-200 bg-amber-50 py-6 md:mt-4 md:rounded-lg md:border md:p-6" : "mt-6 rounded-lg border border-amber-200 bg-amber-50 p-5 shadow-sm"} aria-live="polite">
         <h2 className="text-lg font-semibold text-ink">Below-70% streak</h2>
         <p className="mt-1 text-sm text-amber-900">The current streak status is unavailable right now. Refresh the page to try again.</p>
       </section>
@@ -159,8 +161,8 @@ export default function Below70StreakReset({
     : null;
 
   return (
-    <section className="mt-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <section className={workspace ? "border-b border-stone-200 py-6 md:mt-4 md:min-h-[360px] md:rounded-lg md:border md:bg-white md:p-6" : "mt-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm"}>
+      <div className={workspace ? "flex flex-col gap-4" : "flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"}>
         <div>
           <h2 className="text-lg font-semibold text-ink">Below-70% streak</h2>
           <p className="mt-1 text-sm text-stone-600">Consecutive completed tracker weeks below 70%.</p>
@@ -171,18 +173,18 @@ export default function Below70StreakReset({
             Active through {formatWeekRange(streak.streak_through_week_start)}
           </p>
         </div>
-        {status.canReset ? (
-          <button
-            className="min-h-11 w-full rounded-md bg-moss px-4 py-2.5 text-sm font-semibold text-white hover:bg-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss sm:w-auto"
-            onClick={openDialog}
-            ref={triggerRef}
-            type="button"
-          >
-            Reset streak
-          </button>
-        ) : null}
       </div>
       <p className="mt-4 rounded-md bg-stone-50 px-4 py-3 text-sm text-stone-700">{status.description}</p>
+      {status.canReset ? (
+        <button
+          className={`mt-4 min-h-11 rounded-md bg-moss px-4 py-2.5 text-sm font-semibold text-white hover:bg-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss ${workspace ? "w-full md:w-auto" : "w-full sm:w-auto"}`}
+          onClick={openDialog}
+          ref={triggerRef}
+          type="button"
+        >
+          Reset streak
+        </button>
+      ) : null}
       {latestReset ? (
         <div className="mt-4 rounded-md border border-stone-200 px-4 py-3 text-sm text-stone-700">
           <p className="font-medium text-ink">Latest reset</p>
