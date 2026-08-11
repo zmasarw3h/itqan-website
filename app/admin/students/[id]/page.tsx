@@ -3,12 +3,11 @@ import AppNav from "@/app/nav";
 import {
   AdminStudentWorkspaceError,
   adminStudentWorkspaceHref,
-  isAdminStudentWorkspaceView,
   loadAdminStudentOverview,
-  loadAdminStudentWorkspaceShell,
-  normalizeAdminStudentWorkspaceView
+  loadAdminStudentWorkspaceShell
 } from "@/lib/admin-student-workspace";
-import { checkInEffectiveDateString, isValidDateString, weekStartForDate } from "@/lib/dates";
+import { canonicalAdminStudentWorkspaceState } from "@/lib/admin-student-workspace-state";
+import { checkInEffectiveDateString, weekStartForDate } from "@/lib/dates";
 import { requireProfile } from "@/lib/supabase-server";
 import OverviewSection from "./overview-section";
 import PreservedSection from "./preserved-sections";
@@ -21,11 +20,6 @@ type AdminStudentSearchParams = {
   week?: string;
   view?: string;
 };
-
-function canonicalWeek(value: string | undefined, fallback: string) {
-  if (!value || !isValidDateString(value)) return fallback;
-  return weekStartForDate(value) === value ? value : fallback;
-}
 
 function WorkspaceStatusNotice({ status }: { status?: string }) {
   const successMessages: Record<string, string> = {
@@ -66,11 +60,21 @@ export default async function AdminStudentPage({
 }) {
   const [{ id: studentId }, query] = await Promise.all([params, searchParams]);
   const currentWeek = weekStartForDate(checkInEffectiveDateString());
-  const selectedWeekStart = canonicalWeek(query.week, currentWeek);
-  const view = normalizeAdminStudentWorkspaceView(query.view);
+  const canonicalState = canonicalAdminStudentWorkspaceState({
+    week: query.week,
+    view: query.view,
+    currentWeekStart: currentWeek
+  });
+  const selectedWeekStart = canonicalState.weekStart;
+  const view = canonicalState.view;
 
-  if (query.week !== selectedWeekStart || (query.view !== undefined && !isAdminStudentWorkspaceView(query.view))) {
-    redirect(adminStudentWorkspaceHref({ studentId, weekStart: selectedWeekStart, view }));
+  if (canonicalState.shouldRedirect) {
+    redirect(adminStudentWorkspaceHref({
+      studentId,
+      weekStart: selectedWeekStart,
+      view,
+      status: query.status
+    }));
   }
 
   const { supabase, profile } = await requireProfile(["admin"]);

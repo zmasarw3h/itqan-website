@@ -2,13 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import type { AdminStudentWorkspaceView } from "@/lib/admin-student-workspace";
+import { adminStudentWorkspaceHref } from "@/lib/admin-student-workspace-state";
 import { formatWeekRange } from "@/lib/dates";
 import { WORKSPACE_SECTIONS } from "./workspace-sections";
-
-function workspaceUrl(studentId: string, weekStart: string, view: AdminStudentWorkspaceView) {
-  const params = new URLSearchParams({ week: weekStart, view });
-  return `/admin/students/${encodeURIComponent(studentId)}?${params.toString()}`;
-}
 
 export function WorkspaceSelectors({
   studentId,
@@ -30,7 +26,11 @@ export function WorkspaceSelectors({
         <select
           aria-label="Tracker week"
           className="mt-2 min-h-12 w-full rounded-md border border-stone-300 bg-white px-4 py-3 text-base text-ink"
-          onChange={(event) => router.push(workspaceUrl(studentId, event.target.value, view))}
+          onChange={(event) => router.push(adminStudentWorkspaceHref({
+            studentId,
+            weekStart: event.target.value,
+            view
+          }))}
           value={selectedWeekStart}
         >
           {availableWeekStarts.map((weekStart) => (
@@ -46,11 +46,11 @@ export function WorkspaceSelectors({
         <select
           aria-label="Workspace section"
           className="mt-2 min-h-12 w-full rounded-md border border-stone-300 bg-white px-4 py-3 text-base text-ink"
-          onChange={(event) => router.push(workspaceUrl(
+          onChange={(event) => router.push(adminStudentWorkspaceHref({
             studentId,
-            selectedWeekStart,
-            event.target.value as AdminStudentWorkspaceView
-          ))}
+            weekStart: selectedWeekStart,
+            view: event.target.value as AdminStudentWorkspaceView
+          }))}
           value={view}
         >
           {WORKSPACE_SECTIONS.map((section) => (

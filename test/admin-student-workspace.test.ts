@@ -22,6 +22,10 @@ import {
   isAdminStudentWorkspaceView,
   normalizeAdminStudentWorkspaceView
 } from "@/lib/admin-student-workspace";
+import {
+  ADMIN_STUDENT_WORKSPACE_SECTIONS,
+  canonicalAdminStudentWorkspaceState
+} from "@/lib/admin-student-workspace-state";
 import type { CheckIn, CheckInItem, HalaqaGrade, PartnerRecitation, WeeklyPlan } from "@/lib/types";
 
 const studentId = "11111111-1111-4111-8111-111111111111";
@@ -221,6 +225,50 @@ describe("admin student workspace URL contract", () => {
     expect(isAdminStudentWorkspaceView("not-a-section")).toBe(false);
     expect(normalizeAdminStudentWorkspaceView(undefined)).toBe("overview");
     expect(normalizeAdminStudentWorkspaceView("not-a-section")).toBe("overview");
+  });
+
+  it("exposes the complete approved section options in canonical order", () => {
+    expect(ADMIN_STUDENT_WORKSPACE_SECTIONS).toEqual([
+      { value: "overview", label: "Overview" },
+      { value: "activity", label: "Weekly activity" },
+      { value: "halaqa-plan", label: "Halaqa & plan" },
+      { value: "corrections", label: "Corrections" },
+      { value: "settings", label: "Student settings" }
+    ]);
+  });
+
+  it("canonicalizes missing or invalid week and view query state", () => {
+    expect(canonicalAdminStudentWorkspaceState({ currentWeekStart: weekStart })).toEqual({
+      weekStart,
+      view: "overview",
+      shouldRedirect: true
+    });
+    expect(canonicalAdminStudentWorkspaceState({
+      week: "2026-07-20",
+      view: "unknown",
+      currentWeekStart: weekStart
+    })).toEqual({ weekStart, view: "overview", shouldRedirect: true });
+    expect(canonicalAdminStudentWorkspaceState({
+      week: weekStart,
+      view: "overview",
+      currentWeekStart: "2026-08-09"
+    })).toEqual({ weekStart, view: "overview", shouldRedirect: false });
+  });
+
+  it("preserves the canonical week when switching sections", () => {
+    expect(adminStudentWorkspaceHref({
+      studentId,
+      weekStart,
+      view: "halaqa-plan"
+    })).toContain("week=2026-07-19&view=halaqa-plan");
+  });
+
+  it("preserves the active section when switching weeks", () => {
+    expect(adminStudentWorkspaceHref({
+      studentId,
+      weekStart: "2026-08-09",
+      view: "corrections"
+    })).toContain("week=2026-08-09&view=corrections");
   });
 
   it("keeps the canonical week, section, and mutation status together", () => {

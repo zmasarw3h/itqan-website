@@ -1,12 +1,8 @@
 import Link from "next/link";
 import type { AdminStudentWorkspaceShell, AdminStudentWorkspaceView } from "@/lib/admin-student-workspace";
+import { adminStudentWorkspaceHref } from "@/lib/admin-student-workspace-state";
 import { WorkspaceSelectors } from "./workspace-navigation";
 import { WORKSPACE_SECTIONS } from "./workspace-sections";
-
-function sectionHref(studentId: string, weekStart: string, view: AdminStudentWorkspaceView) {
-  const params = new URLSearchParams({ week: weekStart, view });
-  return `/admin/students/${encodeURIComponent(studentId)}?${params.toString()}`;
-}
 
 export default function WorkspaceShell({
   shell,
@@ -33,7 +29,7 @@ export default function WorkspaceShell({
             {shell.student.name}
           </h1>
           <p className="mt-1 break-words text-base text-ink">{identity}</p>
-          <p className="mt-1 text-base text-stone-600">
+          <p className="mt-1 break-words text-base text-stone-600 [overflow-wrap:anywhere]" data-qa="student-scope-context">
             {shell.scope.cohortName} cohort · {shell.scope.groupName}
           </p>
         </div>
@@ -58,7 +54,11 @@ export default function WorkspaceShell({
                       ? "border-gold text-moss"
                       : "border-transparent text-ink hover:border-stone-300 hover:text-moss"
                   }`}
-                  href={sectionHref(shell.student.id, shell.selectedWeekStart, section.value)}
+                  href={adminStudentWorkspaceHref({
+                    studentId: shell.student.id,
+                    weekStart: shell.selectedWeekStart,
+                    view: section.value
+                  })}
                   prefetch={false}
                 >
                   {section.label}

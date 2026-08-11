@@ -55,7 +55,7 @@ export default function OverviewSection({
 
   return (
     <div className="py-6 md:py-8">
-      <section className="border-b border-stone-200 pb-6 md:min-h-[225px] md:rounded-lg md:border md:bg-white md:p-6">
+      <section className="border-b border-stone-200 pb-6 md:min-h-[225px] md:rounded-lg md:border md:bg-white md:p-6" data-qa="score-summary">
         <div className="grid gap-7 md:grid-cols-[1.05fr_2fr] md:items-center">
           <div>
             <p className="text-base font-medium text-ink">{status.heading}</p>
@@ -65,7 +65,7 @@ export default function OverviewSection({
             </div>
             <p className="mt-2 text-base text-stone-600">Week of {formatWeekRange(shell.selectedWeekStart)}</p>
           </div>
-          <dl className="grid grid-cols-3 divide-x divide-stone-200 text-center md:text-left">
+          <dl className="grid grid-cols-3 divide-x divide-stone-200 text-center md:text-left" data-qa="score-breakdown">
             {[
               ["Daily", overview.weeklyScore.daily_points, 700],
               ["Partner", overview.weeklyScore.partner_points, 150],
@@ -85,12 +85,12 @@ export default function OverviewSection({
           </p>
         ) : null}
 
-        <div className="mt-5 grid min-h-12 grid-cols-2 items-center divide-x divide-stone-200 rounded-md border border-stone-200 text-center text-sm text-ink md:flex md:justify-start md:text-left">
-          <p className="flex items-center justify-center gap-3 px-4 py-3 md:justify-start">
+        <div className="mt-5 grid min-h-12 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-stretch divide-x divide-stone-200 rounded-md border border-stone-200 text-center text-sm text-ink md:flex md:justify-start md:text-left" data-qa="due-day-summary">
+          <p className="flex min-w-0 items-center justify-center gap-3 px-3 py-3 sm:px-4 md:justify-start">
             <CheckCircle aria-hidden="true" className="shrink-0 text-green-800" size={20} weight="fill" />
             <span><strong>{overview.dailyProgress.submitted_days} / {overview.dailyProgress.due_days}</strong> due days saved</span>
           </p>
-          <p className="px-4 py-3 text-stone-700 md:px-8">
+          <p className="flex min-w-0 items-center justify-center break-words px-3 py-3 text-stone-700 sm:px-4 md:px-8">
             {missingDates.length ? `${missingDates.length} missing due ${missingDates.length === 1 ? "day" : "days"}` : "No missing due days"}
           </p>
         </div>
@@ -104,7 +104,7 @@ export default function OverviewSection({
           workspace
         />
 
-        <section className="border-b border-stone-200 py-6 md:mt-4 md:min-h-[360px] md:rounded-lg md:border md:bg-white md:p-6">
+        <section className="border-b border-stone-200 py-6 md:mt-4 md:min-h-[360px] md:rounded-lg md:border md:bg-white md:p-6" data-qa="recent-week-activity">
           <h2 className="text-xl font-semibold text-ink">Recent week activity</h2>
           <div className="mt-4 overflow-hidden rounded-md border border-stone-200">
             {visibleDays.map((date) => {

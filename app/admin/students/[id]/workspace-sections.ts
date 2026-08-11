@@ -1,9 +1,1 @@
-import type { AdminStudentWorkspaceView } from "@/lib/admin-student-workspace";
-
-export const WORKSPACE_SECTIONS: Array<{ value: AdminStudentWorkspaceView; label: string }> = [
-  { value: "overview", label: "Overview" },
-  { value: "activity", label: "Weekly activity" },
-  { value: "halaqa-plan", label: "Halaqa & plan" },
-  { value: "corrections", label: "Corrections" },
-  { value: "settings", label: "Student settings" }
-];
+export { ADMIN_STUDENT_WORKSPACE_SECTIONS as WORKSPACE_SECTIONS } from "@/lib/admin-student-workspace-state";
