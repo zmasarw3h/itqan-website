@@ -215,6 +215,23 @@ describe("admin student mutation redirect contracts", () => {
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
+  it("preserves the Halaqa section and week when a Yes-state score is invalid", async () => {
+    const supabase = makeSupabase();
+    canAdminManageStudentForWeekMock.mockResolvedValue(true);
+    requireProfileMock.mockResolvedValueOnce({ supabase, profile: adminProfile, user: { id: adminProfile.id } });
+
+    await expect(saveHalaqaGrade(form({
+      student_id: studentId,
+      week_start: weekStart,
+      attended: "true",
+      recitation_points: "40.5",
+      redirect_week: weekStart,
+      redirect_view: "halaqa-plan"
+    }))).rejects.toMatchObject({
+      location: `/admin/students/${studentId}?status=grade-invalid&week=${weekStart}&view=halaqa-plan`
+    });
+  });
+
   it("preserves week and section for ordinary deletion validation errors", async () => {
     const supabase = makeSupabase();
     requireProfileMock.mockResolvedValueOnce({ supabase, profile: adminProfile, user: { id: adminProfile.id } });

@@ -555,7 +555,7 @@ export async function saveHalaqaGrade(formData: FormData) {
     redirect("/admin?status=student-scope-denied");
   }
 
-  if (attended && (!Number.isFinite(recitationPointsValue) || recitationPointsValue < 10 || recitationPointsValue > 50)) {
+  if (attended && (!Number.isInteger(recitationPointsValue) || recitationPointsValue < 10 || recitationPointsValue > 50)) {
     redirect(adminStudentStatusPath(studentId, "grade-invalid", redirectWeek || weekStart, redirectView));
   }
 

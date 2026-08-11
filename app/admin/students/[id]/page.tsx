@@ -23,6 +23,7 @@ type AdminStudentSearchParams = {
 
 function WorkspaceStatusNotice({ status, view }: { status?: string; view: string }) {
   if (view === "corrections" && ["corrected", "partner-corrected", "correction-error", "correction-future-date", "correction-outside-week", "partner-correction-invalid", "partner-correction-error"].includes(status ?? "")) return null;
+  if (view === "halaqa-plan" && ["grade-saved", "grade-invalid", "grade-error"].includes(status ?? "")) return null;
   const successMessages: Record<string, string> = {
     corrected: "Correction saved.",
     "partner-corrected": "Partner recitation correction saved.",
