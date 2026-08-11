@@ -1,6 +1,13 @@
 import "server-only";
 
 import { canAdminDeleteStudent, canAdminManageStudentForWeek } from "@/lib/admin-scope";
+export {
+  ADMIN_STUDENT_WORKSPACE_VIEWS,
+  adminStudentWorkspaceHref,
+  isAdminStudentWorkspaceView,
+  normalizeAdminStudentWorkspaceView
+} from "@/lib/admin-student-workspace-state";
+export type { AdminStudentWorkspaceView } from "@/lib/admin-student-workspace-state";
 import {
   latestCompletedTrackerWeekStart,
   parseBelow70StreakReadRows,
@@ -25,16 +32,6 @@ import { officialScoringStatus } from "@/lib/official-scoring";
 type SupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-export const ADMIN_STUDENT_WORKSPACE_VIEWS = [
-  "overview",
-  "activity",
-  "halaqa-plan",
-  "corrections",
-  "settings"
-] as const;
-
-export type AdminStudentWorkspaceView = (typeof ADMIN_STUDENT_WORKSPACE_VIEWS)[number];
 
 export type AdminStudentWorkspaceStudent = Pick<
   Profile,
@@ -84,30 +81,6 @@ export class AdminStudentWorkspaceError extends Error {
     super(message);
     this.name = "AdminStudentWorkspaceError";
   }
-}
-
-export function isAdminStudentWorkspaceView(value: string | null | undefined): value is AdminStudentWorkspaceView {
-  return ADMIN_STUDENT_WORKSPACE_VIEWS.includes(value as AdminStudentWorkspaceView);
-}
-
-export function normalizeAdminStudentWorkspaceView(value: string | null | undefined): AdminStudentWorkspaceView {
-  return isAdminStudentWorkspaceView(value) ? value : "overview";
-}
-
-export function adminStudentWorkspaceHref(input: {
-  studentId: string;
-  weekStart: string;
-  view?: string | null;
-  status?: string | null;
-}) {
-  const params = new URLSearchParams({
-    week: input.weekStart,
-    view: normalizeAdminStudentWorkspaceView(input.view)
-  });
-
-  if (input.status) params.set("status", input.status);
-
-  return `/admin/students/${encodeURIComponent(input.studentId)}?${params.toString()}`;
 }
 
 function assertWorkspaceContext(studentId: string, weekStart: string) {

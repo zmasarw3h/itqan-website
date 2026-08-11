@@ -35,6 +35,7 @@ import { HALAQA_ATTENDANCE_POINTS } from "@/lib/scoring";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import { isAdminStudentWorkspaceView } from "@/lib/admin-student-workspace";
+import { validatedCorrectionDate } from "@/lib/admin-student-workspace-sections";
 import {
   createScopedUserTransactionally,
   scopedUserSetupAuthMetadata,
@@ -60,6 +61,41 @@ function adminStudentStatusPath(studentId: string, status: string, weekStart?: s
   }
 
   return `/admin/students/${studentId}?${params.toString()}`;
+}
+
+function adminStudentCorrectionSuccessPath(
+  studentId: string,
+  date: string,
+  weekStart?: string,
+  view?: string
+) {
+  const path = adminStudentStatusPath(studentId, "corrected", weekStart, view);
+  const correctionDate = validatedCorrectionDate({
+    candidate: date,
+    weekStart: weekStart ?? "",
+    effectiveDate: checkInEffectiveDateString()
+  });
+  if (!correctionDate) return path;
+
+  const separator = path.includes("?") ? "&" : "?";
+  return `${path}${separator}correction_date=${encodeURIComponent(correctionDate)}`;
+}
+
+function adminStudentPartnerSuccessPath(
+  studentId: string,
+  correctionDateCandidate: string,
+  weekStart: string,
+  view?: string
+) {
+  const path = adminStudentStatusPath(studentId, "partner-corrected", weekStart, view);
+  const correctionDate = validatedCorrectionDate({
+    candidate: correctionDateCandidate,
+    weekStart,
+    effectiveDate: checkInEffectiveDateString()
+  });
+  if (!correctionDate) return path;
+
+  return `${path}&correction_date=${encodeURIComponent(correctionDate)}`;
 }
 
 function formString(value: FormDataEntryValue | null) {
@@ -429,6 +465,13 @@ export async function correctCheckIn(formData: FormData) {
   }
 
   const correctionWeekStart = weekStartForDate(date);
+  if (
+    isValidDateString(redirectWeek)
+    && weekStartForDate(redirectWeek) === redirectWeek
+    && correctionWeekStart !== redirectWeek
+  ) {
+    redirect(adminStudentStatusPath(studentId, "correction-outside-week", redirectWeek, redirectView));
+  }
   const canManageStudent = await canAdminManageStudentForWeek(supabase, studentId, correctionWeekStart);
 
   if (!canManageStudent) {
@@ -449,7 +492,7 @@ export async function correctCheckIn(formData: FormData) {
 
   revalidatePath("/admin");
   revalidatePath(`/admin/students/${studentId}`);
-  redirect(adminStudentStatusPath(studentId, "corrected", redirectWeek, redirectView));
+  redirect(adminStudentCorrectionSuccessPath(studentId, date, redirectWeek, redirectView));
 }
 
 export async function correctPartnerRecitations(formData: FormData) {
@@ -458,6 +501,7 @@ export async function correctPartnerRecitations(formData: FormData) {
   const weekStart = String(formData.get("week_start") ?? "");
   const redirectWeek = String(formData.get("redirect_week") ?? weekStart);
   const redirectView = String(formData.get("redirect_view") ?? "");
+  const correctionDate = String(formData.get("correction_date") ?? "");
 
   if (!studentId || !isValidDateString(weekStart) || weekStartForDate(weekStart) !== weekStart) {
     redirect("/admin?status=invalid-partner-correction");
@@ -525,7 +569,12 @@ export async function correctPartnerRecitations(formData: FormData) {
 
   revalidatePath("/admin");
   revalidatePath(`/admin/students/${studentId}`);
-  redirect(adminStudentStatusPath(studentId, "partner-corrected", redirectWeek || weekStart, redirectView));
+  redirect(adminStudentPartnerSuccessPath(
+    studentId,
+    correctionDate,
+    redirectWeek || weekStart,
+    redirectView
+  ));
 }
 
 export async function saveHalaqaGrade(formData: FormData) {
@@ -548,7 +597,7 @@ export async function saveHalaqaGrade(formData: FormData) {
     redirect("/admin?status=student-scope-denied");
   }
 
-  if (attended && (!Number.isFinite(recitationPointsValue) || recitationPointsValue < 10 || recitationPointsValue > 50)) {
+  if (attended && (!Number.isInteger(recitationPointsValue) || recitationPointsValue < 10 || recitationPointsValue > 50)) {
     redirect(adminStudentStatusPath(studentId, "grade-invalid", redirectWeek || weekStart, redirectView));
   }
 

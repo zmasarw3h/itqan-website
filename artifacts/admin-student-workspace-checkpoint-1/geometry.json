@@ -1,0 +1,265 @@
+{
+  "browserZoomReset": "Command+0; visualViewport.scale=1",
+  "mobile390": {
+    "appHeader": {
+      "bottom": 64.54861450195312,
+      "clientWidth": 390,
+      "height": 64.54861450195312,
+      "right": 390.0000305175781,
+      "scrollWidth": 390,
+      "width": 390.0000305175781,
+      "x": 0,
+      "y": 0
+    },
+    "breakdown": {
+      "bottom": 793.0035171508789,
+      "clientWidth": 358,
+      "height": 55.998268127441406,
+      "right": 374.0017433166504,
+      "scrollWidth": 358,
+      "width": 358.00347900390625,
+      "x": 15.99826431274414,
+      "y": 737.0052490234375
+    },
+    "context": {
+      "bottom": 324.51391220092773,
+      "clientWidth": 358,
+      "height": 48.003475189208984,
+      "right": 374.0017433166504,
+      "scrollWidth": 358,
+      "width": 358.00347900390625,
+      "x": 15.99826431274414,
+      "y": 276.51043701171875
+    },
+    "due": {
+      "bottom": 878.1077117919922,
+      "clientWidth": 357,
+      "height": 65.10417175292969,
+      "right": 374.0017433166504,
+      "scrollWidth": 357,
+      "width": 358.00347900390625,
+      "x": 15.99826431274414,
+      "y": 813.0035400390625
+    },
+    "horizontalOffenders": 0,
+    "menu": {
+      "bottom": 53.99305725097656,
+      "clientWidth": 61,
+      "height": 43.99305725097656,
+      "right": 374.00174713134766,
+      "scrollWidth": 61,
+      "width": 61.779518127441406,
+      "x": 312.22222900390625,
+      "y": 10
+    },
+    "recent": {
+      "bottom": 1580.7987060546875,
+      "clientWidth": 358,
+      "height": 341.6319580078125,
+      "right": 374.0017433166504,
+      "scrollWidth": 358,
+      "width": 358.00347900390625,
+      "x": 15.99826431274414,
+      "y": 1239.166748046875
+    },
+    "score": {
+      "bottom": 902.6562805175781,
+      "clientWidth": 358,
+      "height": 305.6423645019531,
+      "right": 374.0017433166504,
+      "scrollWidth": 358,
+      "width": 358.00347900390625,
+      "x": 15.99826431274414,
+      "y": 597.013916015625
+    },
+    "scoreParts": [
+      {
+        "bottom": 793.0035171508789,
+        "clientWidth": 119,
+        "height": 55.998268127441406,
+        "label": "Daily",
+        "right": 135.3298683166504,
+        "scrollWidth": 119,
+        "width": 119.33160400390625,
+        "x": 15.99826431274414,
+        "y": 737.0052490234375
+      },
+      {
+        "bottom": 793.0035171508789,
+        "clientWidth": 119,
+        "height": 55.998268127441406,
+        "label": "Partner",
+        "right": 254.66146850585938,
+        "scrollWidth": 119,
+        "width": 119.33160400390625,
+        "x": 135.32986450195312,
+        "y": 737.0052490234375
+      },
+      {
+        "bottom": 793.0035171508789,
+        "clientWidth": 119,
+        "height": 55.998268127441406,
+        "label": "Halaqa",
+        "right": 373.9930725097656,
+        "scrollWidth": 119,
+        "width": 119.33160400390625,
+        "x": 254.66146850585938,
+        "y": 737.0052490234375
+      }
+    ],
+    "viewport": {
+      "clientWidth": 390,
+      "innerHeight": 844,
+      "innerWidth": 390,
+      "scrollHeight": 1629,
+      "scrollWidth": 390,
+      "visualViewportHeight": 844.4444580078125,
+      "visualViewportWidth": 390
+    },
+    "workspaceHeader": {
+      "bottom": 573.0208587646484,
+      "clientWidth": 358,
+      "height": 484.47918701171875,
+      "right": 374.0017433166504,
+      "scrollWidth": 358,
+      "width": 358.00347900390625,
+      "x": 15.99826431274414,
+      "y": 88.54167175292969
+    },
+    "zoom": {
+      "devicePixelRatio": 0.8999999761581421,
+      "visualViewportScale": 1
+    }
+  },
+  "mobile390Full": {
+    "clientWidth": 390,
+    "innerHeight": 1630,
+    "innerWidth": 390,
+    "recentBottom": 1580.7987060546875,
+    "scrollHeight": 1630,
+    "scrollWidth": 390,
+    "visualViewportHeight": 1630,
+    "visualViewportWidth": 390
+  },
+  "mobileMenu": {
+    "clientWidth": 390,
+    "links": [
+      "Admin",
+      "Rotation",
+      "Incentives",
+      "Rewards",
+      "Add User",
+      "Password"
+    ],
+    "open": true,
+    "panelBounds": {
+      "bottom": 395.5816307067871,
+      "left": 118.00347900390625,
+      "right": 374.0017547607422,
+      "top": 61.987850189208984
+    },
+    "scrollWidth": 390,
+    "signOutVisible": true,
+    "visualViewportWidth": 390
+  },
+  "tablet768": {
+    "desktopTabsVisible": false,
+    "horizontalOffenders": 0,
+    "menuVisible": true,
+    "sectionSelectorVisible": true,
+    "viewport": {
+      "clientWidth": 768,
+      "innerHeight": 900,
+      "innerWidth": 768,
+      "scrollHeight": 1499,
+      "scrollWidth": 768,
+      "visualViewportWidth": 767.7777709960938
+    },
+    "zoom": {
+      "devicePixelRatio": 0.8999999761581421,
+      "visualViewportScale": 1
+    }
+  },
+  "desktop1440": {
+    "context": {
+      "bottom": 267.5347423553467,
+      "clientWidth": 1032,
+      "height": 24.001737594604492,
+      "right": 1064.0104446411133,
+      "scrollWidth": 1032,
+      "width": 1032.013916015625,
+      "x": 31.99652862548828,
+      "y": 243.5330047607422
+    },
+    "due": {
+      "bottom": 595.6337089538574,
+      "clientWidth": 1326,
+      "height": 47.99479293823242,
+      "right": 1383.454933166504,
+      "scrollWidth": 1326,
+      "width": 1326.9097900390625,
+      "x": 56.545143127441406,
+      "y": 547.638916015625
+    },
+    "horizontalOffenders": 0,
+    "links": [
+      "Admin",
+      "Rotation",
+      "Incentives",
+      "Rewards",
+      "Add User",
+      "Password"
+    ],
+    "nav": {
+      "bottom": 87.99479675292969,
+      "clientWidth": 1440,
+      "height": 87.99479675292969,
+      "right": 1440.0001220703125,
+      "scrollWidth": 1440,
+      "width": 1440.0001220703125,
+      "x": 0,
+      "y": 0
+    },
+    "recent": {
+      "bottom": 996.1806335449219,
+      "clientWidth": 747,
+      "height": 360.0000305175781,
+      "right": 1408.0035400390625,
+      "scrollWidth": 747,
+      "width": 748.01220703125,
+      "x": 659.9913330078125,
+      "y": 636.1806030273438
+    },
+    "score": {
+      "bottom": 620.1823272705078,
+      "clientWidth": 1375,
+      "height": 229.0885467529297,
+      "right": 1408.0034866333008,
+      "scrollWidth": 1375,
+      "width": 1376.0069580078125,
+      "x": 31.99652862548828,
+      "y": 391.0937805175781
+    },
+    "signOutVisible": true,
+    "viewport": {
+      "clientWidth": 1440,
+      "innerHeight": 1060,
+      "innerWidth": 1440,
+      "scrollHeight": 1060,
+      "scrollWidth": 1440,
+      "visualViewportHeight": 1060,
+      "visualViewportWidth": 1440
+    },
+    "workspaceTabs": [
+      "Overview",
+      "Weekly activity",
+      "Halaqa & plan",
+      "Corrections",
+      "Student settings"
+    ],
+    "zoom": {
+      "devicePixelRatio": 0.8999999761581421,
+      "visualViewportScale": 1
+    }
+  }
+}

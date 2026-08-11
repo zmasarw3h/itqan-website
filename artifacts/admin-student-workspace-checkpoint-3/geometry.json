@@ -1,0 +1,42 @@
+{
+  "capturedAt": "2026-08-11",
+  "browserZoomPercent": 100,
+  "content": {
+    "desktop": {
+      "viewportCssPixels": { "width": 1440, "height": 1060 },
+      "devicePixelRatio": 1,
+      "visualViewportScale": 1,
+      "innerWidth": 1440,
+      "visualViewportWidth": 1440,
+      "rootClientWidth": 1440,
+      "rootScrollWidth": 1440,
+      "noStateDocumentHeight": 1167,
+      "yesStateDocumentHeight": 1162
+    },
+    "tablet": {
+      "viewportCssPixels": { "width": 768, "height": 900 },
+      "devicePixelRatio": 1,
+      "visualViewportScale": 1,
+      "innerWidth": 768,
+      "visualViewportWidth": 768,
+      "rootClientWidth": 768,
+      "rootScrollWidth": 768,
+      "documentHeight": 1598
+    },
+    "mobile": {
+      "viewportCssPixels": { "width": 390, "height": 844 },
+      "devicePixelRatio": 1,
+      "visualViewportScale": 1,
+      "innerWidth": 390,
+      "visualViewportWidth": 390,
+      "rootClientWidth": 390,
+      "rootScrollWidth": 390,
+      "noStateDocumentHeight": 1811,
+      "yesStateDocumentHeight": 1772
+    }
+  },
+  "viewer": {
+    "desktopDialogBoundsCssPixels": { "x": 208, "y": 80, "width": 1024, "height": 900 },
+    "mobileDialogBoundsCssPixels": { "x": 0, "y": 0, "width": 390, "height": 844 }
+  }
+}

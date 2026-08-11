@@ -1,6 +1,6 @@
 export default function AdminLoading() {
   return (
-    <div aria-busy="true" aria-label="Loading admin page" className="min-h-dvh animate-pulse bg-paper">
+    <div aria-busy="true" aria-label="Loading admin page" className="min-h-dvh animate-pulse bg-paper motion-reduce:animate-none">
       <header className="border-b border-stone-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
           <div className="space-y-2">

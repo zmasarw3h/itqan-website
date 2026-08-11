@@ -71,6 +71,22 @@ function makeSupabase(input?: { correctionError?: boolean; studentName?: string 
   };
 }
 
+function makePartnerSupabase(input?: { existingRounds?: string[]; mutationError?: boolean }) {
+  const existingRounds = input?.existingRounds ?? [];
+  const query: Record<string, ReturnType<typeof vi.fn>> = {};
+  for (const method of ["select", "eq", "delete", "in"]) query[method] = vi.fn(() => query);
+  query.returns = vi.fn().mockResolvedValue({
+    data: existingRounds.map((round) => ({ round })),
+    error: null
+  });
+  return {
+    from: vi.fn(() => query),
+    rpc: vi.fn(),
+    upsert: vi.fn().mockResolvedValue({ data: null, error: input?.mutationError ? { message: "failed" } : null }),
+    query
+  };
+}
+
 function form(fields: Record<string, string>) {
   const result = new FormData();
   for (const [key, value] of Object.entries(fields)) result.set(key, value);
@@ -133,6 +149,123 @@ describe("admin student mutation redirect contracts", () => {
       redirect_view: "corrections"
     }))).rejects.toMatchObject({
       location: `/admin/students/${studentId}?status=correction-error&week=${weekStart}&view=corrections`
+    });
+  });
+
+  it("preserves week and section after a successful daily correction", async () => {
+    const supabase = makeSupabase();
+    canAdminManageStudentForWeekMock.mockResolvedValue(true);
+    requireProfileMock.mockResolvedValueOnce({ supabase, profile: adminProfile, user: { id: adminProfile.id } });
+
+    await expect(correctCheckIn(form({
+      student_id: studentId,
+      date: weekStart,
+      status: "submitted",
+      redirect_week: weekStart,
+      redirect_view: "corrections"
+    }))).rejects.toMatchObject({
+      location: `/admin/students/${studentId}?status=corrected&week=${weekStart}&view=corrections&correction_date=${weekStart}`
+    });
+  });
+
+  it("preserves a validated daily display date through a partner success redirect", async () => {
+    const supabase = makePartnerSupabase({ existingRounds: ["round_1"] });
+    canAdminManageStudentForWeekMock.mockResolvedValue(true);
+    requireProfileMock.mockResolvedValueOnce({ supabase, profile: adminProfile, user: { id: adminProfile.id } });
+    await expect(correctPartnerRecitations(form({
+      student_id: studentId,
+      week_start: weekStart,
+      completed_rounds: "round_1",
+      redirect_week: weekStart,
+      redirect_view: "corrections",
+      correction_date: weekStart
+    }))).rejects.toMatchObject({
+      location: `/admin/students/${studentId}?status=partner-corrected&week=${weekStart}&view=corrections&correction_date=${weekStart}`
+    });
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it.each(["not-a-date", "2026-07-18", "2026-07-26", "2026-08-16"])(
+    "drops invalid partner display context %s without changing the partner mutation",
+    async (correctionDate) => {
+      const supabase = makePartnerSupabase({ existingRounds: ["round_1"] });
+      canAdminManageStudentForWeekMock.mockResolvedValue(true);
+      requireProfileMock.mockResolvedValueOnce({ supabase, profile: adminProfile, user: { id: adminProfile.id } });
+      await expect(correctPartnerRecitations(form({
+        student_id: studentId,
+        week_start: weekStart,
+        completed_rounds: "round_1",
+        redirect_week: weekStart,
+        redirect_view: "corrections",
+        correction_date: correctionDate
+      }))).rejects.toMatchObject({
+        location: `/admin/students/${studentId}?status=partner-corrected&week=${weekStart}&view=corrections`
+      });
+      expect(supabase.rpc).not.toHaveBeenCalled();
+    }
+  );
+
+  it("rejects a daily correction outside the selected week before checking a different scope", async () => {
+    const supabase = makeSupabase();
+    canAdminManageStudentForWeekMock.mockResolvedValue(true);
+    requireProfileMock.mockResolvedValueOnce({ supabase, profile: adminProfile, user: { id: adminProfile.id } });
+
+    await expect(correctCheckIn(form({
+      student_id: studentId,
+      date: "2026-07-26",
+      status: "submitted",
+      redirect_week: weekStart,
+      redirect_view: "corrections"
+    }))).rejects.toMatchObject({
+      location: `/admin/students/${studentId}?status=correction-outside-week&week=${weekStart}&view=corrections`
+    });
+    expect(canAdminManageStudentForWeekMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves week and section for invalid partner rounds", async () => {
+    const supabase = makeSupabase();
+    requireProfileMock.mockResolvedValueOnce({ supabase, profile: adminProfile, user: { id: adminProfile.id } });
+    await expect(correctPartnerRecitations(form({
+      student_id: studentId,
+      week_start: weekStart,
+      completed_rounds: "round_3",
+      redirect_week: weekStart,
+      redirect_view: "corrections"
+    }))).rejects.toMatchObject({
+      location: `/admin/students/${studentId}?status=partner-correction-invalid&week=${weekStart}&view=corrections`
+    });
+  });
+
+  it("preserves week and section after an independent partner correction", async () => {
+    const supabase = makePartnerSupabase({ existingRounds: ["round_1"] });
+    canAdminManageStudentForWeekMock.mockResolvedValue(true);
+    requireProfileMock.mockResolvedValueOnce({ supabase, profile: adminProfile, user: { id: adminProfile.id } });
+    await expect(correctPartnerRecitations(form({
+      student_id: studentId,
+      week_start: weekStart,
+      completed_rounds: "round_1",
+      redirect_week: weekStart,
+      redirect_view: "corrections"
+    }))).rejects.toMatchObject({
+      location: `/admin/students/${studentId}?status=partner-corrected&week=${weekStart}&view=corrections`
+    });
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it("preserves the Halaqa section and week when a Yes-state score is invalid", async () => {
+    const supabase = makeSupabase();
+    canAdminManageStudentForWeekMock.mockResolvedValue(true);
+    requireProfileMock.mockResolvedValueOnce({ supabase, profile: adminProfile, user: { id: adminProfile.id } });
+
+    await expect(saveHalaqaGrade(form({
+      student_id: studentId,
+      week_start: weekStart,
+      attended: "true",
+      recitation_points: "40.5",
+      redirect_week: weekStart,
+      redirect_view: "halaqa-plan"
+    }))).rejects.toMatchObject({
+      location: `/admin/students/${studentId}?status=grade-invalid&week=${weekStart}&view=halaqa-plan`
     });
   });
 

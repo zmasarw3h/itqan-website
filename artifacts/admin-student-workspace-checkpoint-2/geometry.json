@@ -1,0 +1,97 @@
+{
+  "captureRuntime": "optimized production build",
+  "browserZoom": "100%",
+  "devicePixelRatio": 1,
+  "weeklyActivity": {
+    "mobile390Saved": {
+      "innerWidth": 390,
+      "innerHeight": 844,
+      "visualViewportWidth": 390,
+      "visualViewportScale": 1,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "scrollHeight": 1873,
+      "horizontalBoundaryOffenders": 0,
+      "expandedDay": "2026-08-09",
+      "effectiveDay": "2026-08-11",
+      "effectiveDayState": "open",
+      "summary": "1/2 due days saved; 80/200 due points"
+    },
+    "mobile390Missing": {
+      "innerWidth": 390,
+      "innerHeight": 844,
+      "visualViewportWidth": 390,
+      "visualViewportScale": 1,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "scrollHeight": 1493,
+      "horizontalBoundaryOffenders": 0,
+      "expandedDay": "2026-08-10"
+    },
+    "tablet768": {
+      "innerWidth": 768,
+      "innerHeight": 900,
+      "visualViewportWidth": 768,
+      "visualViewportScale": 1,
+      "clientWidth": 768,
+      "scrollWidth": 768,
+      "scrollHeight": 1144,
+      "horizontalBoundaryOffenders": 0
+    },
+    "desktop1440": {
+      "innerWidth": 1440,
+      "innerHeight": 1060,
+      "visualViewportWidth": 1440,
+      "visualViewportScale": 1,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "scrollHeight": 1060,
+      "horizontalBoundaryOffenders": 0,
+      "effectiveDay": "2026-08-11",
+      "effectiveDayState": "open",
+      "summary": "1/2 due days saved; 80/200 due points"
+    }
+  },
+  "corrections": {
+    "mobile390": {
+      "innerWidth": 390,
+      "innerHeight": 844,
+      "visualViewportWidth": 390,
+      "visualViewportScale": 1,
+      "clientWidth": 390,
+      "scrollWidth": 390,
+      "scrollHeight": 2194,
+      "horizontalBoundaryOffenders": 0,
+      "dailyFormBounds": { "x": 33, "right": 357, "width": 324, "height": 822 },
+      "partnerFormBounds": { "x": 33, "right": 357, "width": 324, "height": 264 },
+      "submitTargets": [
+        { "label": "Save daily correction", "width": 324, "height": 44 },
+        { "label": "Save partner correction", "width": 324, "height": 44 }
+      ]
+    },
+    "tablet768": {
+      "innerWidth": 768,
+      "innerHeight": 900,
+      "visualViewportWidth": 768,
+      "visualViewportScale": 1,
+      "clientWidth": 768,
+      "scrollWidth": 768,
+      "scrollHeight": 1968,
+      "horizontalBoundaryOffenders": 0,
+      "dailyFormBounds": { "x": 57, "right": 711, "width": 654, "height": 704 },
+      "partnerFormBounds": { "x": 57, "right": 711, "width": 654, "height": 236 }
+    },
+    "desktop1440": {
+      "innerWidth": 1440,
+      "innerHeight": 1060,
+      "visualViewportWidth": 1440,
+      "visualViewportScale": 1,
+      "clientWidth": 1440,
+      "scrollWidth": 1440,
+      "scrollHeight": 1430,
+      "horizontalBoundaryOffenders": 0,
+      "dailyFormBounds": { "x": 57, "right": 878.28125, "width": 821.28125, "height": 704 },
+      "partnerFormBounds": { "x": 952.28125, "right": 1383, "width": 430.71875, "height": 252 }
+    }
+  }
+}

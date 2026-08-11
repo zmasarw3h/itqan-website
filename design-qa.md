@@ -1,5 +1,7 @@
 # Teacher screens design QA
 
+> Checkpoint 4 evidence for the admin student workspace is recorded in `artifacts/admin-student-workspace-checkpoint-4/design-qa.md`. It covers the Student settings and official-scoring surfaces, direct comparisons to canvases 11–14, responsive geometry, interaction checks, and contract limitations. Final result: passed.
+
 ## Comparison target
 
 - Source visual truth:
