@@ -432,7 +432,7 @@ export async function correctCheckIn(formData: FormData) {
   const canManageStudent = await canAdminManageStudentForWeek(supabase, studentId, correctionWeekStart);
 
   if (!canManageStudent) {
-    redirect(adminStudentStatusPath(studentId, "student-scope-denied", redirectWeek, redirectView));
+    redirect("/admin?status=student-scope-denied");
   }
 
   const { error } = await supabase.rpc("apply_admin_checkin_correction", {
@@ -474,7 +474,7 @@ export async function correctPartnerRecitations(formData: FormData) {
   const canManageStudent = await canAdminManageStudentForWeek(supabase, studentId, weekStart);
 
   if (!canManageStudent) {
-    redirect(adminStudentStatusPath(studentId, "student-scope-denied", redirectWeek || weekStart, redirectView));
+    redirect("/admin?status=student-scope-denied");
   }
 
   const { data: existingRecitations, error: existingError } = await supabase
@@ -545,7 +545,7 @@ export async function saveHalaqaGrade(formData: FormData) {
   const canManageStudent = await canAdminManageStudentForWeek(supabase, studentId, weekStart);
 
   if (!canManageStudent) {
-    redirect(adminStudentStatusPath(studentId, "student-scope-denied", redirectWeek || weekStart, redirectView));
+    redirect("/admin?status=student-scope-denied");
   }
 
   if (attended && (!Number.isFinite(recitationPointsValue) || recitationPointsValue < 10 || recitationPointsValue > 50)) {
@@ -616,11 +616,11 @@ export async function deleteStudent(formData: FormData) {
   );
 
   if (!canManageStudent) {
-    redirect(adminStudentStatusPath(student.id, "student-scope-denied", redirectWeek, redirectView));
+    redirect("/admin?status=student-scope-denied");
   }
 
   if (!(await canAdminDeleteStudent(supabase, student.id))) {
-    redirect(adminStudentStatusPath(student.id, "student-scope-denied", redirectWeek, redirectView));
+    redirect("/admin?status=student-scope-denied");
   }
 
   const adminSupabase = createSupabaseAdminClient();

@@ -203,8 +203,9 @@ export async function loadAdminStudentWorkspaceShell(
         .from("profiles")
         .select("id,name,email,phone,role,active,score_starts_on,created_at")
         .eq("id", input.studentId)
-        .eq("role", "student")
-        .maybeSingle<AdminStudentWorkspaceStudent>(),
+      .eq("role", "student")
+      .eq("active", true)
+      .maybeSingle<AdminStudentWorkspaceStudent>(),
       loadStudentScopeForWeek(supabase, input.studentId, input.selectedWeekStart),
       loadAvailableWeekStarts(
         supabase,
@@ -224,7 +225,7 @@ export async function loadAdminStudentWorkspaceShell(
     throw new AdminStudentWorkspaceError("load-error", "Unable to load student identity.");
   }
 
-  if (!student) {
+  if (!student || student.role !== "student" || !student.active) {
     throw new AdminStudentWorkspaceError("not-found", "Student not found.");
   }
 
@@ -317,6 +318,44 @@ async function loadScoringInputs(
   };
 }
 
+async function loadPartnerRecitations(
+  supabase: SupabaseClient,
+  studentId: string,
+  weekStart: string
+) {
+  const { data, error } = await supabase
+    .from("partner_recitations")
+    .select("id,student_id,week_start,round,points,submitted_at,masjid_id,cohort_id,halaqa_group_id")
+    .eq("student_id", studentId)
+    .eq("week_start", weekStart)
+    .returns<PartnerRecitation[]>();
+
+  if (error) {
+    throw new AdminStudentWorkspaceError("load-error", "Unable to load partner recitations.");
+  }
+
+  return data ?? [];
+}
+
+async function loadHalaqaGrade(
+  supabase: SupabaseClient,
+  studentId: string,
+  weekStart: string
+) {
+  const { data, error } = await supabase
+    .from("halaqa_grades")
+    .select("id,student_id,week_start,attended,attendance_points,recitation_points,notes,graded_by,graded_at,updated_at,masjid_id,cohort_id,halaqa_group_id")
+    .eq("student_id", studentId)
+    .eq("week_start", weekStart)
+    .maybeSingle<HalaqaGrade>();
+
+  if (error) {
+    throw new AdminStudentWorkspaceError("load-error", "Unable to load the halaqa grade.");
+  }
+
+  return data ?? null;
+}
+
 async function loadPlanMetadata(
   supabase: SupabaseClient,
   studentId: string,
@@ -402,13 +441,13 @@ export async function loadAdminStudentHalaqaPlan(
   supabase: SupabaseClient,
   shell: AdminStudentWorkspaceShell
 ): Promise<Pick<AdminStudentWeeklyRequirements, "halaqaGrade" | "weeklyPlan">> {
-  const [scoringInputs, weeklyPlan] = await Promise.all([
-    loadScoringInputs(supabase, shell.student.id, shell.selectedWeekStart),
+  const [halaqaGrade, weeklyPlan] = await Promise.all([
+    loadHalaqaGrade(supabase, shell.student.id, shell.selectedWeekStart),
     loadPlanMetadata(supabase, shell.student.id, shell.selectedWeekStart)
   ]);
 
   return {
-    halaqaGrade: scoringInputs.halaqaGrade,
+    halaqaGrade,
     weeklyPlan
   };
 }
@@ -417,14 +456,14 @@ export async function loadAdminStudentCorrections(
   supabase: SupabaseClient,
   shell: AdminStudentWorkspaceShell
 ) {
-  const [dailyRecords, scoringInputs] = await Promise.all([
+  const [dailyRecords, partnerRecitations] = await Promise.all([
     loadAdminStudentDailyRecords(supabase, shell),
-    loadScoringInputs(supabase, shell.student.id, shell.selectedWeekStart)
+    loadPartnerRecitations(supabase, shell.student.id, shell.selectedWeekStart)
   ]);
 
   return {
     ...dailyRecords,
-    partnerRecitations: scoringInputs.partnerRecitations
+    partnerRecitations
   };
 }
 

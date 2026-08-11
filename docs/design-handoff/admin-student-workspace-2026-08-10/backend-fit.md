@@ -29,15 +29,17 @@ GET /admin/students/:studentId/weekly-plan/preview?week=YYYY-MM-DD
 GET /admin/students/:studentId/weekly-plan/download?week=YYYY-MM-DD
 ```
 
-The route rechecks `can_admin_manage_student_for_week` on every request, then
-resolves `student_group_for_week`, `student_cohort_for_week`, and
+The route first requires the requested target profile to be an active
+`student`, then rechecks `can_admin_manage_student_for_week` on every request,
+and resolves `student_group_for_week`, `student_cohort_for_week`, and
 `student_masjid_for_week`. It reads the exact student/week row through the
 request-bound Supabase client and requires all three stored scope snapshots to
 match. The row must have a supported type (`application/pdf`, `image/png`, or
-`image/jpeg`), a non-empty size from 1 through 3 MiB, and a normalized path in the exact
-`student UUID/canonical Sunday/safe filename` shape. The object is downloaded
-from the private bucket only after those checks succeed, and its byte length
-must equal the stored metadata size.
+`image/jpeg`), a non-empty size from 1 through 3 MiB, and a normalized path in
+the exact `student UUID/canonical Sunday/safe filename` shape. The object is
+downloaded from the private bucket only after those checks succeed, and its
+byte length must equal the stored metadata size. Inactive or non-student
+targets are denied before any service-role Storage client is created.
 
 Successful responses include:
 
@@ -105,7 +107,7 @@ Then load only the active section:
 | --- | --- | --- |
 | Overview | `loadAdminStudentOverview(supabase, shell)` | selected-week check-ins, partner rounds, halaqa grade, score totals, due-day progress, below-70 streak, and four recent week starts |
 | Weekly activity | `loadAdminStudentWeeklyActivity(supabase, shell)` | selected-week check-ins and stored checklist items, including historical labels and weights |
-| Halaqa & plan | `loadAdminStudentHalaqaPlan(supabase, shell)` | selected-week halaqa grade and weekly-plan metadata |
+| Halaqa & plan | `loadAdminStudentHalaqaPlan(supabase, shell)` | selected-week halaqa grade and weekly-plan metadata; it does not fetch partner rounds |
 | Corrections | `loadAdminStudentCorrections(supabase, shell)` | selected-week daily records/items and partner rounds |
 | Student settings | `loadAdminStudentSettings(supabase, shell)` | delete eligibility, scoring status, and raw score boundary |
 

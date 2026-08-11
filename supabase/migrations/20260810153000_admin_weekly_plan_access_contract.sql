@@ -33,8 +33,21 @@ begin
       return false;
   end;
 
-  if parsed_week_start <> public.week_start_for_date(parsed_week_start)
-    or not public.can_admin_manage_student_for_week(parsed_student_id, parsed_week_start) then
+  if parsed_week_start <> public.week_start_for_date(parsed_week_start) then
+    return false;
+  end if;
+
+  if not exists (
+    select 1
+    from public.profiles as students
+    where students.id = parsed_student_id
+      and students.role = 'student'
+      and students.active = true
+  ) then
+    return false;
+  end if;
+
+  if not public.can_admin_manage_student_for_week(parsed_student_id, parsed_week_start) then
     return false;
   end if;
 

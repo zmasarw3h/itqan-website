@@ -3856,6 +3856,23 @@ async function runAssertions(ids: SeedIds) {
   assert.equal(adminCrossPathError, null, adminCrossPathError?.message);
   assert.equal(adminCrossPathAllowed, false, "scoped admin received a cross-masjid weekly-plan path");
 
+  const deactivatePlanTarget = await service
+    .from("profiles")
+    .update({ active: false })
+    .eq("id", ids.users.studentA);
+  assert.equal(deactivatePlanTarget.error, null, deactivatePlanTarget.error?.message);
+  const { data: inactiveTargetAllowed, error: inactiveTargetError } = await adminA.rpc(
+    "can_admin_read_weekly_plan_path",
+    { input_file_path: adminCurrentPlanPath }
+  );
+  assert.equal(inactiveTargetError, null, inactiveTargetError?.message);
+  assert.equal(inactiveTargetAllowed, false, "inactive student weekly-plan path crossed the admin storage boundary");
+  const restorePlanTarget = await service
+    .from("profiles")
+    .update({ active: true })
+    .eq("id", ids.users.studentA);
+  assert.equal(restorePlanTarget.error, null, restorePlanTarget.error?.message);
+
   const unsupportedPlanType = await service
     .from("weekly_plans")
     .update({ file_type: "image/gif" })

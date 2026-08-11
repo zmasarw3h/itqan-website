@@ -130,6 +130,26 @@ describe("admin weekly-plan preview and download routes", () => {
     expect(dependencies.createSupabaseAdminClient).not.toHaveBeenCalled();
   });
 
+  it("returns unauthorized before authorizer or service-role storage for an unauthenticated request", async () => {
+    const dependencies = makeDependencies();
+    dependencies.getCurrentProfile.mockResolvedValueOnce({
+      user: null,
+      profile: null,
+      supabase: {}
+    });
+
+    const response = await handleAdminWeeklyPlanRoute(
+      request(`/admin/students/${studentId}/weekly-plan/preview?week=${weekStart}`),
+      Promise.resolve({ id: studentId }),
+      "inline",
+      dependencies.deps
+    );
+
+    expect(response.status).toBe(401);
+    expect(dependencies.authorizeAdminWeeklyPlan).not.toHaveBeenCalled();
+    expect(dependencies.createSupabaseAdminClient).not.toHaveBeenCalled();
+  });
+
   it("rejects malformed or missing tracker context before reading metadata", async () => {
     const dependencies = makeDependencies();
     const response = await handleAdminWeeklyPlanRoute(

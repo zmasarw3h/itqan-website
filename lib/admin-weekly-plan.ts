@@ -123,11 +123,23 @@ export async function authorizeAdminWeeklyPlan(
     return { status: "not-found" };
   }
 
+  const { data: student, error: studentError } = await supabase
+    .from("profiles")
+    .select("id,role,active")
+    .eq("id", input.studentId)
+    .eq("role", "student")
+    .eq("active", true)
+    .maybeSingle<{ id: string; role: "student"; active: boolean }>();
+
+  if (studentError || !student || student.role !== "student" || !student.active) {
+    return { status: "forbidden" };
+  }
+
   if (!(await canAdminManageStudentForWeek(supabase, input.studentId, input.weekStart))) {
     return { status: "forbidden" };
   }
 
-  const [groupResult, cohortResult, masjidResult, studentResult] = await Promise.all([
+  const [groupResult, cohortResult, masjidResult] = await Promise.all([
     supabase.rpc("student_group_for_week", {
       input_student_id: input.studentId,
       input_week_start: input.weekStart
@@ -139,13 +151,7 @@ export async function authorizeAdminWeeklyPlan(
     supabase.rpc("student_masjid_for_week", {
       input_student_id: input.studentId,
       input_week_start: input.weekStart
-    }),
-    supabase
-      .from("profiles")
-      .select("id")
-      .eq("id", input.studentId)
-      .eq("role", "student")
-      .maybeSingle<{ id: string }>()
+    })
   ]);
 
   const groupId = scopeRpcValue(groupResult.data);
@@ -156,11 +162,9 @@ export async function authorizeAdminWeeklyPlan(
     groupResult.error
     || cohortResult.error
     || masjidResult.error
-    || studentResult.error
     || !groupId
     || !cohortId
     || !masjidId
-    || !studentResult.data
   ) {
     return { status: "forbidden" };
   }
