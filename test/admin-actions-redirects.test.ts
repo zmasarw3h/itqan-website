@@ -164,7 +164,23 @@ describe("admin student mutation redirect contracts", () => {
       redirect_week: weekStart,
       redirect_view: "corrections"
     }))).rejects.toMatchObject({
-      location: `/admin/students/${studentId}?status=corrected&week=${weekStart}&view=corrections`
+      location: `/admin/students/${studentId}?status=corrected&week=${weekStart}&view=corrections&correction_date=${weekStart}`
+    });
+  });
+
+  it("never adds a daily correction date to a partner success redirect", async () => {
+    const supabase = makePartnerSupabase({ existingRounds: ["round_1"] });
+    canAdminManageStudentForWeekMock.mockResolvedValue(true);
+    requireProfileMock.mockResolvedValueOnce({ supabase, profile: adminProfile, user: { id: adminProfile.id } });
+    await expect(correctPartnerRecitations(form({
+      student_id: studentId,
+      week_start: weekStart,
+      completed_rounds: "round_1",
+      redirect_week: weekStart,
+      redirect_view: "corrections",
+      correction_date: "2026-07-19"
+    }))).rejects.toMatchObject({
+      location: `/admin/students/${studentId}?status=partner-corrected&week=${weekStart}&view=corrections`
     });
   });
 

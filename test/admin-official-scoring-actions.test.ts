@@ -103,6 +103,13 @@ describe("official scoring guarded workflow", () => {
     expect(requireAdmin).not.toHaveBeenCalled();
   });
 
+  it.each(["     ", "x".repeat(501)])("rejects a crafted invalid reason server-side", async (reason) => {
+    await expect(applyOfficialScoringStart(form({ student_id: studentId, request_id: requestId, score_starts_on: proposed, expected_score_starts_on: "2026-01-04", reason, confirmation_name: "Student One", ...returnFields }))).rejects.toMatchObject({
+      location: `/admin/students/${studentId}/official-scoring?proposed=${proposed}&status=invalid&return_week=${returnWeek}&return_view=settings`
+    });
+    expect(requireAdmin).not.toHaveBeenCalled();
+  });
+
   it("requires exact-name confirmation", async () => {
     await expect(applyOfficialScoringStart(form({ student_id: studentId, request_id: requestId, score_starts_on: proposed, expected_score_starts_on: "2026-01-04", reason: "Approved boundary change", confirmation_name: "Wrong", ...returnFields }))).rejects.toMatchObject({
       location: expect.stringContaining("status=confirmation-mismatch")

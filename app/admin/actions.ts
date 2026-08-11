@@ -35,6 +35,7 @@ import { HALAQA_ATTENDANCE_POINTS } from "@/lib/scoring";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import { isAdminStudentWorkspaceView } from "@/lib/admin-student-workspace";
+import { validatedCorrectionDate } from "@/lib/admin-student-workspace-sections";
 import {
   createScopedUserTransactionally,
   scopedUserSetupAuthMetadata,
@@ -60,6 +61,24 @@ function adminStudentStatusPath(studentId: string, status: string, weekStart?: s
   }
 
   return `/admin/students/${studentId}?${params.toString()}`;
+}
+
+function adminStudentCorrectionSuccessPath(
+  studentId: string,
+  date: string,
+  weekStart?: string,
+  view?: string
+) {
+  const path = adminStudentStatusPath(studentId, "corrected", weekStart, view);
+  const correctionDate = validatedCorrectionDate({
+    candidate: date,
+    weekStart: weekStart ?? "",
+    effectiveDate: checkInEffectiveDateString()
+  });
+  if (!correctionDate) return path;
+
+  const separator = path.includes("?") ? "&" : "?";
+  return `${path}${separator}correction_date=${encodeURIComponent(correctionDate)}`;
 }
 
 function formString(value: FormDataEntryValue | null) {
@@ -456,7 +475,7 @@ export async function correctCheckIn(formData: FormData) {
 
   revalidatePath("/admin");
   revalidatePath(`/admin/students/${studentId}`);
-  redirect(adminStudentStatusPath(studentId, "corrected", redirectWeek, redirectView));
+  redirect(adminStudentCorrectionSuccessPath(studentId, date, redirectWeek, redirectView));
 }
 
 export async function correctPartnerRecitations(formData: FormData) {

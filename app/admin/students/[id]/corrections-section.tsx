@@ -1,15 +1,16 @@
 import { WarningCircle } from "@phosphor-icons/react/dist/ssr";
 import {
   correctionDatesForWeek,
-  initialCorrectionDate
+  initialCorrectionDate,
+  validatedCorrectionDate
 } from "@/lib/admin-student-workspace-sections";
-import { formatWeekRange } from "@/lib/dates";
+import { formatWeekRange, friendlyDate } from "@/lib/dates";
 import type { AdminStudentWorkspaceShell } from "@/lib/admin-student-workspace";
 import type { CheckIn, CheckInItem, PartnerRecitation } from "@/lib/types";
 import CorrectionForm, { type CorrectionFormCheckIn } from "./correction-form";
 import PartnerCorrectionForm from "./partner-correction-form";
 
-function CorrectionStatus({ status, tool }: { status?: string; tool: "daily" | "partner" }) {
+function CorrectionStatus({ correctionDate, status, tool }: { correctionDate?: string | null; status?: string; tool: "daily" | "partner" }) {
   const isDaily = tool === "daily";
   const success = isDaily ? status === "corrected" : status === "partner-corrected";
   const error = isDaily
@@ -19,7 +20,9 @@ function CorrectionStatus({ status, tool }: { status?: string; tool: "daily" | "
   if (!success && !error) return null;
 
   const message = success
-    ? isDaily ? "Daily correction saved." : "Partner recitation correction saved."
+    ? isDaily
+      ? `Daily correction saved.${correctionDate ? ` Stored state for ${friendlyDate(correctionDate)} is shown below.` : ""}`
+      : "Partner recitation correction saved."
     : status === "correction-future-date"
       ? "Correction dates cannot be later than the operational date."
       : status === "correction-outside-week"
@@ -41,7 +44,8 @@ export default function CorrectionsSection({
   checkins,
   items,
   partnerRecitations,
-  status
+  status,
+  correctionDate
 }: {
   shell: AdminStudentWorkspaceShell;
   effectiveDate: string;
@@ -49,6 +53,7 @@ export default function CorrectionsSection({
   items: CheckInItem[];
   partnerRecitations: PartnerRecitation[];
   status?: string;
+  correctionDate?: string;
 }) {
   const itemsByCheckin = new Map<string, CheckInItem[]>();
   for (const item of items) itemsByCheckin.set(item.checkin_id, [...(itemsByCheckin.get(item.checkin_id) ?? []), item]);
@@ -59,11 +64,19 @@ export default function CorrectionsSection({
     completedTaskKeys: (itemsByCheckin.get(checkin.id) ?? []).filter((item) => item.completed).map((item) => item.task_key)
   }));
   const availableDates = correctionDatesForWeek(shell.selectedWeekStart, effectiveDate);
-  const initialDate = initialCorrectionDate({
+  const fallbackInitialDate = initialCorrectionDate({
     weekStart: shell.selectedWeekStart,
     effectiveDate,
     savedDates: checkins.filter((checkin) => checkin.completed).map((checkin) => checkin.date)
   });
+  const successCorrectionDate = status === "corrected"
+    ? validatedCorrectionDate({
+        candidate: correctionDate,
+        weekStart: shell.selectedWeekStart,
+        effectiveDate
+      })
+    : null;
+  const initialDate = successCorrectionDate ?? fallbackInitialDate;
 
   return (
     <section className="py-8" aria-labelledby="corrections-title">
@@ -78,8 +91,9 @@ export default function CorrectionsSection({
         <div className="min-w-0 rounded-xl border border-stone-200 bg-stone-50 p-4 sm:p-6">
           <h3 className="text-lg font-semibold text-ink">Daily check-in correction</h3>
           <p className="mt-1 text-sm text-stone-600">Choose an eligible date to load its stored state and the checklist version effective on that date.</p>
-          <CorrectionStatus status={status} tool="daily" />
+          <CorrectionStatus correctionDate={successCorrectionDate} status={status} tool="daily" />
           <CorrectionForm
+            key={`daily:${shell.student.id}:${shell.selectedWeekStart}:${initialDate}:${status ?? "initial"}`}
             availableDates={availableDates}
             existingCheckIns={existingCheckIns}
             initialDate={initialDate}

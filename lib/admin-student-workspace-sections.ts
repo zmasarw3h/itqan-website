@@ -1,4 +1,4 @@
-import { addDays, weekDatesFromStart } from "@/lib/dates";
+import { addDays, isValidDateString, weekDatesFromStart, weekStartForDate } from "@/lib/dates";
 import { tasksForDate } from "@/lib/scoring";
 import type { CheckIn, CheckInItem } from "@/lib/types";
 
@@ -81,6 +81,25 @@ export function initialWeeklyActivityDate(days: WeeklyActivityDay[], effectiveDa
 
 export function correctionDatesForWeek(weekStart: string, effectiveDate: string) {
   return weekDatesFromStart(weekStart).filter((date) => date <= effectiveDate);
+}
+
+export function validatedCorrectionDate(input: {
+  candidate?: string | null;
+  weekStart: string;
+  effectiveDate: string;
+}) {
+  if (
+    !input.candidate
+    || !isValidDateString(input.candidate)
+    || !isValidDateString(input.weekStart)
+    || weekStartForDate(input.weekStart) !== input.weekStart
+    || weekStartForDate(input.candidate) !== input.weekStart
+    || input.candidate > input.effectiveDate
+  ) {
+    return null;
+  }
+
+  return input.candidate;
 }
 
 export function validCompletedTaskKeysForCorrectionDate(date: string, completedTaskKeys: string[]) {

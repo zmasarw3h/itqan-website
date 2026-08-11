@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, CalendarBlank, ChartBar, CheckCircle, Fire, Gift, Info, LockKey } from "@phosphor-icons/react/dist/ssr";
 import AppNav from "@/app/nav";
-import { applyOfficialScoringStart, reviewOfficialScoringStart } from "./actions";
+import { reviewOfficialScoringStart } from "./actions";
 import { isAdminStudentWorkspaceView } from "@/lib/admin-student-workspace";
 import { canAdminManageStudentForWeek, requireScopedAdmin } from "@/lib/admin-scope";
 import { addDays, formatWeekRange, isValidDateString, torontoCivilDateString, weekStartForDate } from "@/lib/dates";
@@ -15,7 +15,7 @@ import {
   parseOfficialScoringChangePreview
 } from "@/lib/official-scoring";
 import type { Profile } from "@/lib/types";
-import { ConfirmScoringButton, ReviewImpactButton } from "./submit-buttons";
+import { OfficialScoringConfirmationForm, ReviewImpactButton } from "./submit-buttons";
 
 export const dynamic = "force-dynamic";
 
@@ -240,38 +240,17 @@ export default async function OfficialScoringPage({
             ) : null}
 
             {preview.direction !== "unchanged" ? (
-              <form action={applyOfficialScoringStart} className="mt-5 grid gap-3 border-t border-amber-200 pt-5">
-                <input name="student_id" type="hidden" value={student.id} />
-                <input name="request_id" type="hidden" value={randomUUID()} />
-                <input name="score_starts_on" type="hidden" value={preview.new_score_starts_on} />
-                <input name="expected_score_starts_on" type="hidden" value={preview.old_score_starts_on ?? ""} />
-                {returnTo ? <input name="return_to" type="hidden" value={returnTo} /> : null}
-                <input name="return_week" type="hidden" value={returnWeek} />
-                <input name="return_view" type="hidden" value={returnView} />
-                <label>
-                  <span className="text-sm font-medium text-ink">Reason for change</span>
-                  <textarea
-                    className="mt-1 min-h-24 w-full rounded-md border border-stone-300 px-3 py-2"
-                    maxLength={500}
-                    minLength={5}
-                    name="reason"
-                    required
-                  />
-                </label>
-                <label>
-                  <span className="text-sm font-medium text-ink">Type {student.name} to confirm</span>
-                  <input
-                    autoComplete="off"
-                    className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2"
-                    name="confirmation_name"
-                    required
-                  />
-                </label>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <ConfirmScoringButton />
-                  <Link className="inline-flex min-h-11 items-center justify-center rounded-md border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-ink hover:bg-stone-50" href={backHref} prefetch={false}>Cancel</Link>
-                </div>
-              </form>
+              <OfficialScoringConfirmationForm
+                cancelHref={backHref}
+                expectedScoreStartsOn={preview.old_score_starts_on ?? ""}
+                requestId={randomUUID()}
+                returnTo={returnTo}
+                returnView={returnView}
+                returnWeek={returnWeek}
+                scoreStartsOn={preview.new_score_starts_on}
+                studentId={student.id}
+                studentName={student.name}
+              />
             ) : (
               <p className="mt-4 text-sm text-stone-700">Choose a different Sunday to make a change.</p>
             )}

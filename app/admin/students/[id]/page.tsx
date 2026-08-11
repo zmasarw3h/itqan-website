@@ -16,6 +16,7 @@ import WorkspaceShell from "./workspace-shell";
 export const dynamic = "force-dynamic";
 
 type AdminStudentSearchParams = {
+  correction_date?: string;
   status?: string;
   week?: string;
   view?: string;
@@ -101,7 +102,7 @@ export default async function AdminStudentPage({
         <WorkspaceStatusNotice status={query.status} view={view} />
         {view === "overview" && overview
           ? <OverviewSection overview={overview} shell={shell} />
-          : <PreservedSection shell={shell} status={query.status} supabase={supabase} view={view as Exclude<typeof view, "overview">} />}
+          : <PreservedSection correctionDate={query.correction_date} shell={shell} status={query.status} supabase={supabase} view={view as Exclude<typeof view, "overview">} />}
       </main>
     </>
   );

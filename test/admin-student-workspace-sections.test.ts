@@ -5,6 +5,7 @@ import {
   buildWeeklyActivityDays,
   correctionDatesForWeek,
   initialCorrectionDate,
+  validatedCorrectionDate,
   validCompletedTaskKeysForCorrectionDate,
   weeklyActivityDueSummary
 } from "@/lib/admin-student-workspace-sections";
@@ -166,6 +167,14 @@ describe("admin student workspace section models", () => {
     ]);
     expect(correctionDatesForWeek("2026-08-02", "2026-08-11")).toHaveLength(7);
     expect(correctionDatesForWeek("2026-08-16", "2026-08-11")).toEqual([]);
+  });
+
+  it("accepts only an opened date inside the canonical correction week", () => {
+    expect(validatedCorrectionDate({ candidate: "2026-08-09", weekStart: "2026-08-09", effectiveDate: "2026-08-11" })).toBe("2026-08-09");
+    for (const candidate of ["invalid", "2026-08-12", "2026-08-08", "2026-08-16"]) {
+      expect(validatedCorrectionDate({ candidate, weekStart: "2026-08-09", effectiveDate: "2026-08-11" })).toBeNull();
+    }
+    expect(validatedCorrectionDate({ candidate: "2026-08-09", weekStart: "2026-08-10", effectiveDate: "2026-08-11" })).toBeNull();
   });
 
   it("selects an eligible initial date and the effective checklist version for each correction date", () => {

@@ -21,12 +21,14 @@ export default async function PreservedSection({
   supabase,
   shell,
   view,
-  status
+  status,
+  correctionDate
 }: {
   supabase: SupabaseClient;
   shell: AdminStudentWorkspaceShell;
   view: Exclude<AdminStudentWorkspaceView, "overview">;
   status?: string;
+  correctionDate?: string;
 }) {
   if (view === "activity") {
     const data = await loadAdminStudentWeeklyActivity(supabase, shell);
@@ -62,7 +64,7 @@ export default async function PreservedSection({
 
   if (view === "corrections") {
     const data = await loadAdminStudentCorrections(supabase, shell);
-    return <CorrectionsSection checkins={data.checkins} effectiveDate={checkInEffectiveDateString()} items={data.items} partnerRecitations={data.partnerRecitations} shell={shell} status={status} />;
+    return <CorrectionsSection checkins={data.checkins} correctionDate={correctionDate} effectiveDate={checkInEffectiveDateString()} items={data.items} partnerRecitations={data.partnerRecitations} shell={shell} status={status} />;
   }
 
   const settings = await loadAdminStudentSettings(supabase, shell);
