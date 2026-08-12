@@ -52,7 +52,7 @@ export async function loadLeaderboardData(
 ): Promise<LeaderboardData> {
   const today = checkInEffectiveDateString();
   const currentWeekStart = weekStartForDate(today);
-  const below70Only = searchParams.below70 === "1";
+  const below70Only = false;
   const reportWeekStarts = timing
     ? await measureServerLoaderPhase(timing, "week_discovery", () =>
       loadAdminDashboardAvailableWeeks(supabase)

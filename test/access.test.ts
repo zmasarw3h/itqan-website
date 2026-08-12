@@ -117,8 +117,12 @@ describe("access rules", () => {
     expect(adminLink("/admin")?.prefetch).toBe(false);
     expect(adminLink("/teacher")?.prefetch).toBe(false);
     expect(adminLink("/admin/rotation")?.prefetch).toBe(false);
-    expect(adminLink("/admin/incentives")?.prefetch).toBe(false);
-    expect(adminLink("/admin/rewards")?.prefetch).toBe(false);
+    expect(adminLink("/admin/reports")?.prefetch).toBe(false);
+    expect(adminLinks.filter((link) => link.label === "Reports")).toEqual([
+      { href: "/admin/reports", label: "Reports", prefetch: false }
+    ]);
+    expect(adminLink("/admin/incentives")).toBeUndefined();
+    expect(adminLink("/admin/rewards")).toBeUndefined();
     expect(adminLink("/admin/students/new")?.prefetch).toBeUndefined();
     expect(adminLink("/account/change-password")?.prefetch).toBeUndefined();
     expect(navigationLinksForRole("teacher").find((link) => link.href === "/teacher")?.prefetch).toBe(false);

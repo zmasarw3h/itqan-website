@@ -1,7 +1,5 @@
-import Link from "next/link";
 import AppNav from "@/app/nav";
-import LeaderboardTable from "@/app/admin/leaderboard-table";
-import LeaderboardFilters from "@/app/admin/leaderboard/leaderboard-filters";
+import AdminDashboard from "@/app/admin/admin-dashboard";
 import { requireProfile } from "@/lib/supabase-server";
 import {
   createServerLoaderTiming,
@@ -12,13 +10,8 @@ import { loadLeaderboardData, type LeaderboardSearchParams } from "./leaderboard
 
 export const dynamic = "force-dynamic";
 
-function leaderboardExportHref(weekStart: string, below70Only: boolean) {
+function leaderboardExportHref(weekStart: string) {
   const params = new URLSearchParams({ week: weekStart });
-
-  if (below70Only) {
-    params.set("below70", "1");
-  }
-
   return `/admin/export?${params.toString()}`;
 }
 
@@ -36,8 +29,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
 
     return (
       <>
-        <AppNav role={profile.role} name={profile.name} />
-        <main className="mx-auto max-w-6xl px-4 py-8">
+        <AppNav activeHref="/admin" role={profile.role} name={profile.name} />
+        <main className="mx-auto max-w-[1440px] px-5 py-8 sm:px-8 lg:px-10">
           {resolvedSearchParams.status === "student-deleted" ? (
             <p className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">Student deleted.</p>
           ) : null}
@@ -57,29 +50,14 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
               You do not have access to that student for the selected week.
             </p>
           ) : null}
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-semibold text-ink">Admin Dashboard</h1>
-              <p className="mt-1 text-sm text-stone-600">
-                Weekly percentages are ranked for {data.selectedWeekLabel}.
-              </p>
-            </div>
-            <Link
-              className="rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink"
-              href={leaderboardExportHref(data.selectedWeekStart, data.below70Only)}
-              prefetch={false}
-            >
-              Export CSV
-            </Link>
-          </div>
-
-          <LeaderboardFilters
+          <AdminDashboard
             availableWeekStarts={data.availableWeekStarts}
-            below70Only={data.below70Only}
+            exportHref={leaderboardExportHref(data.selectedWeekStart)}
+            initialFilter={resolvedSearchParams.below70 === "1" ? "below70" : "all"}
+            rows={data.rows}
+            selectedWeekLabel={data.selectedWeekLabel}
             selectedWeekStart={data.selectedWeekStart}
           />
-
-          <LeaderboardTable rows={data.rows} />
         </main>
       </>
     );

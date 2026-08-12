@@ -126,11 +126,11 @@ export default async function NewStudentPage({
 
   return (
     <>
-      <AppNav role={profile.role} name={profile.name} />
-      <main className="mx-auto max-w-2xl px-4 py-8">
+      <AppNav activeHref="/admin/students/new" role={profile.role} name={profile.name} />
+      <main className="mx-auto max-w-[1440px] px-5 py-8 sm:px-8 lg:px-10">
         <div>
-          <h1 className="text-2xl font-semibold text-ink">Add User</h1>
-          <p className="mt-1 text-stone-600">Create a student or teacher login from a name and phone number.</p>
+          <h1 className="text-4xl font-semibold tracking-tight text-moss">Add User</h1>
+          <p className="mt-2 text-stone-600">Create a student or teacher login and assign the correct access.</p>
         </div>
 
         {message ? (

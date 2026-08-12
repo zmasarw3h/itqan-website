@@ -28,8 +28,7 @@ export function navigationLinksForRole(role: Role, hasTeacherCapability = false)
       { href: "/admin", label: "Admin", prefetch: false },
       ...(hasTeacherCapability ? [{ href: "/teacher", label: "Teaching", prefetch: false as const }] : []),
       { href: "/admin/rotation", label: "Rotation", prefetch: false },
-      { href: "/admin/incentives", label: "Incentives", prefetch: false },
-      { href: "/admin/rewards", label: "Rewards", prefetch: false },
+      { href: "/admin/reports", label: "Reports", prefetch: false },
       { href: "/admin/students/new", label: "Add User" },
       { href: "/account/change-password", label: "Password" }
     ];
