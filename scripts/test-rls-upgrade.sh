@@ -193,6 +193,9 @@ from unnest(array[
   'public.get_student_below70_streak(uuid,date)',
   'public.get_students_below70_streaks(uuid[],date)',
   'public.reset_student_below70_streak(uuid,uuid,boolean,text)',
+  'public.admin_dashboard_available_weeks()',
+  'public.admin_dashboard_leaderboard_for_week(date,boolean)',
+  'public.admin_student_available_week_starts(uuid,date)',
   'public.student_historical_reporting_scope_for_week(date)',
   'public.student_cohort_leaderboard_for_week(date)',
   'public.student_leaderboard_available_weeks()',
@@ -213,6 +216,8 @@ from unnest(array[
   'private.raw_historical_weekly_percentage(uuid,date)',
   'private.raw_below70_streak(uuid,date)',
   'private.raw_below70_streak_snapshot(uuid,date)',
+  'private.raw_admin_below70_streaks_for_students(uuid[],date)',
+  'private.raw_below70_streaks_for_students(uuid[],date)',
   'private.prevent_below70_streak_reset_mutation()',
   'private.rotation_publication_state(uuid,date)',
   'private.rotation_publication_normalize_assignments(jsonb,date)',
@@ -280,6 +285,9 @@ from unnest(array[
   'public.get_student_below70_streak(uuid,date)',
   'public.get_students_below70_streaks(uuid[],date)',
   'public.reset_student_below70_streak(uuid,uuid,boolean,text)',
+  'public.admin_dashboard_available_weeks()',
+  'public.admin_dashboard_leaderboard_for_week(date,boolean)',
+  'public.admin_student_available_week_starts(uuid,date)',
   'public.student_historical_reporting_scope_for_week(date)',
   'public.student_cohort_leaderboard_for_week(date)',
   'public.student_leaderboard_available_weeks()',
@@ -299,7 +307,9 @@ from unnest(array[
   'private.raw_student_reporting_week_is_allowed(uuid,date)',
   'private.raw_historical_weekly_percentage(uuid,date)',
   'private.raw_below70_streak(uuid,date)',
-  'private.raw_below70_streak_snapshot(uuid,date)'
+  'private.raw_below70_streak_snapshot(uuid,date)',
+  'private.raw_admin_below70_streaks_for_students(uuid[],date)',
+  'private.raw_below70_streaks_for_students(uuid[],date)'
 ]::text[]) as signatures(signature)
 join pg_proc as procedures on procedures.oid = to_regprocedure(signatures.signature)
 cross join lateral aclexplode(coalesce(procedures.proacl, acldefault('f', procedures.proowner))) as privileges
@@ -374,6 +384,9 @@ eval "$(cd "$upgrade_root" && "$supabase_cli" status -o env)"
     echo "Skipped legacy rollout compatibility fixture for a base that already contains Slice 4."
   fi
 )
+docker exec -i "$db_container" psql \
+  --set ON_ERROR_STOP=1 --username postgres --dbname postgres \
+  < "$repo_root/scripts/test-historical-report-attribution.sql"
 upgrade_snapshot="$temp_root/upgrade-schema.snapshot"
 capture_schema_snapshot "$upgrade_snapshot"
 historical_audit_output="$temp_root/historical-population-audit.txt"

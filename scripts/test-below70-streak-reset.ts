@@ -336,6 +336,18 @@ async function main() {
     })
   );
 
+  await requireData(
+    "insert dashboard week evidence",
+    service.from("checkins").insert({
+      student_id: students.exact3.id,
+      date: week3,
+      completed: true,
+      earned_weight: 0,
+      total_weight: 100,
+      daily_score: 0
+    }).select("id").single()
+  );
+
   const sentinelRecitation = await requireData<{ id: string }>(
     "insert immutable historical activity",
     service.from("partner_recitations").insert({
@@ -412,6 +424,24 @@ async function main() {
   assert.equal(twoReset.active_streak_length, 0);
   assertFullResetMetadata(await readStreak(adminA, students.two.id, latestCompletedWeek), twoReset, "two-week reset read");
 
+  const exactBeforeReset = await readStreak(adminA, students.exact3.id, latestCompletedWeek);
+  assert.equal(exactBeforeReset.active_streak_length, 3, "canonical single read lost the pre-reset three-week streak");
+  const exactBatchBeforeReset = await adminA.rpc("get_students_below70_streaks", {
+    input_student_ids: [students.exact3.id],
+    input_through_week_start: latestCompletedWeek
+  });
+  assert.equal(exactBatchBeforeReset.error, null, `batch read before reset: ${exactBatchBeforeReset.error?.message}`);
+  assert.equal((exactBatchBeforeReset.data as ReadRow[])[0]?.active_streak_length, 3, "canonical batch read lost the pre-reset streak");
+  const dashboardBeforeReset = await requireData<{ rows: Array<{ student_id: string; below70_streak: number }> }>(
+    "dashboard streak before reset",
+    adminA.rpc("admin_dashboard_leaderboard_for_week", {
+      input_selected_week_start: latestCompletedWeek,
+      input_below70_only: false
+    })
+  );
+  const dashboardExactBeforeReset = dashboardBeforeReset.rows.find((row) => row.student_id === students.exact3.id);
+  assert.equal(dashboardExactBeforeReset?.below70_streak, 3, "dashboard batch path lost the pre-reset streak");
+
   const exactRequestId = randomUUID();
   const exactReset = await requireData<ResetResult>(
     "reset exact three-week streak",
@@ -435,6 +465,21 @@ async function main() {
   assert.equal(exactRead.latest_reset_passed_test_confirmation, true);
   assert.equal(exactRead.latest_reset_admin_note, "Passed test");
   assertFullResetMetadata(exactRead, exactReset, "scoped admin single read");
+  const exactBatchAfterReset = await adminA.rpc("get_students_below70_streaks", {
+    input_student_ids: [students.exact3.id],
+    input_through_week_start: latestCompletedWeek
+  });
+  assert.equal(exactBatchAfterReset.error, null, `batch read after reset: ${exactBatchAfterReset.error?.message}`);
+  assert.equal((exactBatchAfterReset.data as ReadRow[])[0]?.active_streak_length, 0, "canonical batch read ignored the reset boundary");
+  const dashboardAfterReset = await requireData<{ rows: Array<{ student_id: string; below70_streak: number }> }>(
+    "dashboard streak after reset",
+    adminA.rpc("admin_dashboard_leaderboard_for_week", {
+      input_selected_week_start: latestCompletedWeek,
+      input_below70_only: false
+    })
+  );
+  const dashboardExactAfterReset = dashboardAfterReset.rows.find((row) => row.student_id === students.exact3.id);
+  assert.equal(dashboardExactAfterReset?.below70_streak, 0, "dashboard batch path ignored the reset boundary");
   const ownRead = await readStreak(exactStudentClient, students.exact3.id, latestCompletedWeek);
   assert.equal(ownRead.active_streak_length, 0);
   assertStudentMinimalProjection(ownRead, students.exact3.id, latestCompletedWeek);

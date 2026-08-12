@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import {
   canAccessTeacherExperience,
@@ -56,7 +57,7 @@ export async function requireTeacherExperience(requestedAssignmentWeek?: string)
   return { ...auth, assignments };
 }
 
-export async function loadTeacherAssignmentContexts(supabase: SupabaseClient) {
+export const loadTeacherAssignmentContexts = cache(async function loadTeacherAssignmentContexts(supabase: SupabaseClient) {
   const { data, error } = await supabase.rpc("teacher_assignment_contexts");
 
   if (error) {
@@ -71,7 +72,7 @@ export async function loadTeacherAssignmentContexts(supabase: SupabaseClient) {
     ...assignment,
     roster_count: assignment.roster_count === null ? null : Number(assignment.roster_count)
   }));
-}
+});
 
 export async function loadTeacherSessionAuthorizedScopes(
   supabase: SupabaseClient,

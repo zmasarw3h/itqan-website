@@ -18,6 +18,7 @@ import {
   loadAdminStudentOverview,
   loadAdminStudentSettings,
   loadAdminStudentWeeklyActivity,
+  loadAdminStudentWorkspaceSectionData,
   loadAdminStudentWorkspaceShell,
   isAdminStudentWorkspaceView,
   normalizeAdminStudentWorkspaceView
@@ -26,6 +27,10 @@ import {
   ADMIN_STUDENT_WORKSPACE_SECTIONS,
   canonicalAdminStudentWorkspaceState
 } from "@/lib/admin-student-workspace-state";
+import {
+  createServerLoaderTiming,
+  withServerLoaderTiming
+} from "@/lib/server-loader-timing";
 import type { CheckIn, CheckInItem, HalaqaGrade, PartnerRecitation, WeeklyPlan } from "@/lib/types";
 
 const studentId = "11111111-1111-4111-8111-111111111111";
@@ -47,6 +52,9 @@ type FakeSupabaseOptions = {
   errors?: string[];
   streakData?: unknown[];
   streakError?: boolean;
+  availableWeekStarts?: string[];
+  availableWeeksError?: boolean;
+  deferTable?: string;
 };
 
 const defaultProfile = {
@@ -151,7 +159,8 @@ const defaultPlan = {
 function queryFor(
   table: string,
   responseFor: (select: string, terminal: "returns" | "maybeSingle") => { data: unknown; error: { message: string } | null },
-  calls: FakeCall[]
+  calls: FakeCall[],
+  beforeResponse?: () => Promise<void>
 ) {
   let selected = "";
   const builder: Record<string, ReturnType<typeof vi.fn>> = {};
@@ -165,6 +174,7 @@ function queryFor(
   for (const terminal of ["returns", "maybeSingle"] as const) {
     builder[terminal] = vi.fn(async () => {
       calls.push({ table, select: selected, terminal });
+      await beforeResponse?.();
       return responseFor(selected, terminal);
     });
   }
@@ -173,6 +183,12 @@ function queryFor(
 
 function makeFakeSupabase(options: FakeSupabaseOptions = {}) {
   const calls: FakeCall[] = [];
+  const rpcCalls: Array<{ name: string; args?: unknown }> = [];
+  let releaseDeferredTable: (() => void) | null = null;
+  let deferredTableStartedResolve: (() => void) | null = null;
+  const deferredTableStarted = new Promise<void>((resolve) => {
+    deferredTableStartedResolve = resolve;
+  });
   const errors = new Set(options.errors ?? []);
   const profile = options.profile === undefined ? defaultProfile : options.profile;
   const scope = options.scope === undefined ? defaultScope : options.scope;
@@ -207,15 +223,45 @@ function makeFakeSupabase(options: FakeSupabaseOptions = {}) {
     return { data: null, error: { message: `Unexpected table: ${table}` } };
   }
 
-  const from = vi.fn((table: string) => queryFor(table, (selected, terminal) => response(table, selected, terminal), calls));
-  const rpc = vi.fn((name: string) => ({
-    returns: vi.fn(async () => ({
-      data: options.streakData ?? [],
-      error: options.streakError ? { message: `Synthetic ${name} error` } : null
-    }))
-  }));
+  const from = vi.fn((table: string) => queryFor(
+    table,
+    (selected, terminal) => response(table, selected, terminal),
+    calls,
+    options.deferTable === table
+      ? async () => {
+        deferredTableStartedResolve?.();
+        await new Promise<void>((resolve) => {
+          releaseDeferredTable = resolve;
+        });
+      }
+      : undefined
+  ));
+  const rpc = vi.fn((name: string, args?: unknown) => {
+    rpcCalls.push({ name, args });
 
-  return { supabase: { from, rpc }, from, rpc, calls };
+    return {
+    returns: vi.fn(async () => ({
+      data: name === "admin_student_available_week_starts"
+        ? options.availableWeekStarts ?? [weekStart]
+        : options.streakData ?? [],
+      error: name === "admin_student_available_week_starts" && options.availableWeeksError
+        ? { message: `Synthetic ${name} error` }
+        : options.streakError
+          ? { message: `Synthetic ${name} error` }
+          : null
+    }))
+    };
+  });
+
+  return {
+    supabase: { from, rpc },
+    from,
+    rpc,
+    calls,
+    rpcCalls,
+    deferredTableStarted,
+    releaseDeferredTable: () => releaseDeferredTable?.()
+  };
 }
 
 describe("admin student workspace URL contract", () => {
@@ -351,6 +397,14 @@ describe("admin student workspace server contracts", () => {
     expect(shell.student).toMatchObject({ id: studentId, role: "student", active: true });
     expect(shell.scope).toMatchObject({ masjidId, cohortId, groupId });
     expect(shell.availableWeekStarts).toContain(weekStart);
+    expect(fake.rpcCalls).toEqual([{
+      name: "admin_student_available_week_starts",
+      args: {
+        input_student_id: studentId,
+        input_selected_week_start: weekStart
+      }
+    }]);
+    expect(fake.calls.some((call) => ["checkins", "partner_recitations", "halaqa_grades", "weekly_plans"].includes(call.table))).toBe(false);
 
     fake.calls.length = 0;
     const overview = await loadAdminStudentOverview(fake.supabase as never, shell);
@@ -404,5 +458,35 @@ describe("admin student workspace server contracts", () => {
       makeFakeSupabase({ errors: ["partner_recitations:returns"] }).supabase as never,
       shell
     )).rejects.toMatchObject({ code: "load-error" });
+  });
+
+  it("records timing only after a deferred non-overview section finishes loading", async () => {
+    const shellFake = makeFakeSupabase();
+    const shell = await loadAdminStudentWorkspaceShell(shellFake.supabase as never, {
+      studentId,
+      selectedWeekStart: weekStart
+    });
+    const fake = makeFakeSupabase({ deferTable: "checkin_items" });
+    const timing = createServerLoaderTiming();
+    const log = vi.fn();
+
+    const sectionPromise = withServerLoaderTiming(
+      "admin_student_workspace",
+      timing,
+      () => loadAdminStudentWorkspaceSectionData(fake.supabase as never, shell, "activity", timing),
+      log
+    );
+
+    await fake.deferredTableStarted;
+    expect(log).not.toHaveBeenCalled();
+
+    fake.releaseDeferredTable();
+    await expect(sectionPromise).resolves.toMatchObject({ view: "activity" });
+    expect(log).toHaveBeenCalledTimes(1);
+
+    const timingRecord = JSON.parse(log.mock.calls[0][0] as string) as {
+      phases: { view_data_ms: number | null };
+    };
+    expect(timingRecord.phases.view_data_ms).toEqual(expect.any(Number));
   });
 });

@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerClient } from "@supabase/ssr";
+import { cache } from "react";
 import type { CookieOptions } from "@supabase/ssr";
 import { defaultPathForRole } from "@/lib/access";
 import { getSupabasePublicConfig } from "@/lib/config";
@@ -30,7 +31,7 @@ export async function createServerSupabaseClient() {
   });
 }
 
-export async function getCurrentProfile() {
+export const getCurrentProfile = cache(async function getCurrentProfile() {
   const supabase = await createServerSupabaseClient();
   const {
     data: { user }
@@ -52,7 +53,7 @@ export async function getCurrentProfile() {
   }
 
   return { supabase, user, profile };
-}
+});
 
 export async function requireProfile(allowedRoles?: Role[]) {
   const result = await getCurrentProfile();
