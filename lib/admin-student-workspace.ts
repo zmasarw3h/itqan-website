@@ -1,6 +1,7 @@
 import "server-only";
 
 import { canAdminDeleteStudent, canAdminManageStudentForWeek } from "@/lib/admin-scope";
+import type { AdminStudentWorkspaceView } from "@/lib/admin-student-workspace-state";
 export {
   ADMIN_STUDENT_WORKSPACE_VIEWS,
   adminStudentWorkspaceHref,
@@ -434,4 +435,54 @@ export async function loadAdminStudentSettings(
     scoringStatus: officialScoringStatus(shell.student.score_starts_on, shell.currentTrackerWeekStart),
     scoreStartsOn: shell.student.score_starts_on ?? null
   };
+}
+
+export type AdminStudentWorkspaceSectionData =
+  | {
+      view: "activity";
+      data: Awaited<ReturnType<typeof loadAdminStudentWeeklyActivity>>;
+    }
+  | {
+      view: "halaqa-plan";
+      data: Awaited<ReturnType<typeof loadAdminStudentHalaqaPlan>>;
+    }
+  | {
+      view: "corrections";
+      data: Awaited<ReturnType<typeof loadAdminStudentCorrections>>;
+    }
+  | {
+      view: "settings";
+      data: Awaited<ReturnType<typeof loadAdminStudentSettings>>;
+    };
+
+/**
+ * Parent-owned orchestration for non-overview section data. Keeping the
+ * selected section load here ensures the page's timing record cannot be
+ * emitted before an async server component starts or finishes its work.
+ */
+export async function loadAdminStudentWorkspaceSectionData(
+  supabase: SupabaseClient,
+  shell: AdminStudentWorkspaceShell,
+  view: Exclude<AdminStudentWorkspaceView, "overview">,
+  timing?: ServerLoaderTiming
+): Promise<AdminStudentWorkspaceSectionData> {
+  const loadData = async () => {
+    if (view === "activity") {
+      return { view, data: await loadAdminStudentWeeklyActivity(supabase, shell) } as const;
+    }
+
+    if (view === "halaqa-plan") {
+      return { view, data: await loadAdminStudentHalaqaPlan(supabase, shell) } as const;
+    }
+
+    if (view === "corrections") {
+      return { view, data: await loadAdminStudentCorrections(supabase, shell) } as const;
+    }
+
+    return { view: "settings", data: await loadAdminStudentSettings(supabase, shell) } as const;
+  };
+
+  return timing
+    ? measureServerLoaderPhase(timing, "view_data", loadData)
+    : loadData();
 }

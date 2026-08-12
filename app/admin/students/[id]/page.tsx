@@ -4,6 +4,7 @@ import {
   AdminStudentWorkspaceError,
   adminStudentWorkspaceHref,
   loadAdminStudentOverview,
+  loadAdminStudentWorkspaceSectionData,
   loadAdminStudentWorkspaceShell
 } from "@/lib/admin-student-workspace";
 import { canonicalAdminStudentWorkspaceState } from "@/lib/admin-student-workspace-state";
@@ -12,7 +13,7 @@ import { requireProfile } from "@/lib/supabase-server";
 import {
   createServerLoaderTiming,
   measureServerLoaderPhase,
-  recordServerLoaderTiming
+  withServerLoaderTiming
 } from "@/lib/server-loader-timing";
 import OverviewSection from "./overview-section";
 import PreservedSection from "./preserved-sections";
@@ -87,7 +88,7 @@ export default async function AdminStudentPage({
 
   const timing = createServerLoaderTiming();
 
-  try {
+  return withServerLoaderTiming("admin_student_workspace", timing, async () => {
     const { supabase, profile } = await measureServerLoaderPhase(
       timing,
       "auth",
@@ -111,6 +112,9 @@ export default async function AdminStudentPage({
         loadAdminStudentOverview(supabase, shell)
       )
       : null;
+    const sectionData = view === "overview"
+      ? null
+      : await loadAdminStudentWorkspaceSectionData(supabase, shell, view, timing);
 
     return (
       <>
@@ -120,11 +124,11 @@ export default async function AdminStudentPage({
           <WorkspaceStatusNotice status={query.status} view={view} />
           {view === "overview" && overview
             ? <OverviewSection overview={overview} shell={shell} />
-            : <PreservedSection correctionDate={query.correction_date} shell={shell} status={query.status} supabase={supabase} timing={timing} view={view as Exclude<typeof view, "overview">} />}
+            : sectionData
+              ? <PreservedSection correctionDate={query.correction_date} shell={shell} status={query.status} sectionData={sectionData} />
+              : null}
         </main>
       </>
     );
-  } finally {
-    recordServerLoaderTiming("admin_student_workspace", timing);
-  }
+  });
 }

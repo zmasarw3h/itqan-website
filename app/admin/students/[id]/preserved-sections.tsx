@@ -1,52 +1,33 @@
 import {
-  loadAdminStudentCorrections,
-  loadAdminStudentHalaqaPlan,
-  loadAdminStudentSettings,
-  loadAdminStudentWeeklyActivity,
+  type AdminStudentWorkspaceSectionData,
   type AdminStudentWorkspaceShell,
-  type AdminStudentWorkspaceView
 } from "@/lib/admin-student-workspace";
 import { adminWeeklyPlanUrl, weeklyPlanPathMatchesExactContext } from "@/lib/admin-weekly-plan";
 import { checkInEffectiveDateString } from "@/lib/dates";
-import type { createServerSupabaseClient } from "@/lib/supabase-server";
-import {
-  measureServerLoaderPhase,
-  type ServerLoaderTiming
-} from "@/lib/server-loader-timing";
 import { isAllowedWeeklyPlanType } from "@/lib/weekly-plans";
 import CorrectionsSection from "./corrections-section";
 import HalaqaPlanSection from "./halaqa-plan-section";
 import StudentSettingsSection from "./student-settings-section";
 import WeeklyActivitySection from "./weekly-activity-section";
 
-type SupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
-
-export default async function PreservedSection({
-  supabase,
+export default function PreservedSection({
   shell,
-  view,
   status,
   correctionDate,
-  timing
+  sectionData
 }: {
-  supabase: SupabaseClient;
   shell: AdminStudentWorkspaceShell;
-  view: Exclude<AdminStudentWorkspaceView, "overview">;
   status?: string;
   correctionDate?: string;
-  timing: ServerLoaderTiming;
+  sectionData: AdminStudentWorkspaceSectionData;
 }) {
-  if (view === "activity") {
-    const data = await measureServerLoaderPhase(timing, "view_data", () =>
-      loadAdminStudentWeeklyActivity(supabase, shell)
-    );
+  if (sectionData.view === "activity") {
+    const data = sectionData.data;
     return <WeeklyActivitySection checkins={data.checkins} effectiveDate={checkInEffectiveDateString()} items={data.items} weekStart={shell.selectedWeekStart} />;
   }
 
-  if (view === "halaqa-plan") {
-    const data = await measureServerLoaderPhase(timing, "view_data", () =>
-      loadAdminStudentHalaqaPlan(supabase, shell)
-    );
+  if (sectionData.view === "halaqa-plan") {
+    const data = sectionData.data;
     const planHasExactPath = Boolean(data.weeklyPlan && weeklyPlanPathMatchesExactContext(
       shell.student.id,
       shell.selectedWeekStart,
@@ -72,15 +53,11 @@ export default async function PreservedSection({
     );
   }
 
-  if (view === "corrections") {
-    const data = await measureServerLoaderPhase(timing, "view_data", () =>
-      loadAdminStudentCorrections(supabase, shell)
-    );
+  if (sectionData.view === "corrections") {
+    const data = sectionData.data;
     return <CorrectionsSection checkins={data.checkins} correctionDate={correctionDate} effectiveDate={checkInEffectiveDateString()} items={data.items} partnerRecitations={data.partnerRecitations} shell={shell} status={status} />;
   }
 
-  const settings = await measureServerLoaderPhase(timing, "view_data", () =>
-    loadAdminStudentSettings(supabase, shell)
-  );
+  const settings = sectionData.data;
   return <StudentSettingsSection settings={settings} shell={shell} />;
 }

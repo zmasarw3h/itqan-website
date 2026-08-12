@@ -16,7 +16,7 @@ insert into public.halaqa_groups (id, cohort_id, name, active, sort_order) value
   ('30000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000002', 'A cohort mismatch', true, 1),
   ('30000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000003', 'B cross masjid', true, 1);
 insert into public.profiles (id, name, email, role, active, score_starts_on) values
-  ('40000000-0000-0000-0000-000000000001', 'Attribution Student', 'attribution@local.invalid', 'student', true, '2026-06-07'),
+  ('40000000-0000-0000-0000-000000000001', 'Attribution Student', 'attribution@local.invalid', 'student', true, '2026-05-31'),
   ('40000000-0000-0000-0000-000000000002', 'No Membership', 'no-membership@local.invalid', 'student', true, '2026-06-07'),
   ('40000000-0000-0000-0000-000000000003', 'Not Scoring Yet', 'not-scoring@local.invalid', 'student', true, '2026-06-14'),
   ('40000000-0000-0000-0000-000000000004', 'Scope Evidence Student', 'scope-evidence@local.invalid', 'student', true, '2026-06-07'),
@@ -37,6 +37,13 @@ insert into public.checkins
   (id, student_id, date, completed, earned_weight, total_weight, daily_score, masjid_id, cohort_id, halaqa_group_id)
 values
   ('60000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', '2026-06-07', true, 100, 100, 100, '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001'),
+  ('60000000-0000-0000-0000-000000000020', '40000000-0000-0000-0000-000000000001', '2026-05-31', true, 100, 100, 100, '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001'),
+  ('60000000-0000-0000-0000-000000000021', '40000000-0000-0000-0000-000000000001', '2026-06-01', true, 100, 100, 100, '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001'),
+  ('60000000-0000-0000-0000-000000000022', '40000000-0000-0000-0000-000000000001', '2026-06-02', true, 100, 100, 100, '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001'),
+  ('60000000-0000-0000-0000-000000000023', '40000000-0000-0000-0000-000000000001', '2026-06-03', true, 100, 100, 100, '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001'),
+  ('60000000-0000-0000-0000-000000000024', '40000000-0000-0000-0000-000000000001', '2026-06-04', true, 100, 100, 100, '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001'),
+  ('60000000-0000-0000-0000-000000000025', '40000000-0000-0000-0000-000000000001', '2026-06-05', true, 100, 100, 100, '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001'),
+  ('60000000-0000-0000-0000-000000000026', '40000000-0000-0000-0000-000000000001', '2026-06-06', true, 100, 100, 100, '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001'),
   ('60000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000001', '2026-06-08', true, 100, 100, 100, '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002'),
   ('60000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000001', '2026-06-09', true, 100, 100, 100, null, null, null),
   ('60000000-0000-0000-0000-000000000004', '40000000-0000-0000-0000-000000000001', '2026-06-10', true, 100, 100, 100, '10000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000004'),
@@ -58,6 +65,12 @@ values
   ('80000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', '2026-06-07', true, 100, 50, '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002');
 
 do $$
+declare
+  single_streak integer;
+  canonical_streak integer;
+  batch_streak integer;
+  raw_single_definition text;
+  raw_batch_definition text;
 begin
   if not private.raw_historical_scope_matches('40000000-0000-0000-0000-000000000001', '2026-06-07',
       '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001') then
@@ -144,6 +157,64 @@ begin
   end if;
   if private.raw_historical_weekly_percentage('40000000-0000-0000-0000-000000000003', '2026-06-07') is not null then
     raise exception 'pre-score-start week produced a score';
+  end if;
+
+  select private.raw_below70_streak(
+    '40000000-0000-0000-0000-000000000001',
+    '2026-06-07'
+  )
+  into single_streak;
+  select streaks.active_streak_length
+  from private.raw_below70_streaks_for_students(
+    array['40000000-0000-0000-0000-000000000001'::uuid],
+    '2026-06-07'
+  ) as streaks
+  into canonical_streak;
+  select streaks.active_streak_length
+  from private.raw_admin_below70_streaks_for_students(
+    array['40000000-0000-0000-0000-000000000001'::uuid],
+    '2026-06-07'
+  ) as streaks
+  into batch_streak;
+  if single_streak <> 1 or canonical_streak <> 1 or batch_streak <> 1 then
+    raise exception 'passing-break streak parity failed: single %, canonical %, batch %', single_streak, canonical_streak, batch_streak;
+  end if;
+
+  if private.raw_below70_streak('40000000-0000-0000-0000-000000000002', '2026-06-07') <> 0
+    or (select streaks.active_streak_length
+        from private.raw_below70_streaks_for_students(
+          array['40000000-0000-0000-0000-000000000002'::uuid],
+          '2026-06-07'
+        ) as streaks) <> 0
+    or (select streaks.active_streak_length
+        from private.raw_admin_below70_streaks_for_students(
+          array['40000000-0000-0000-0000-000000000002'::uuid],
+          '2026-06-07'
+        ) as streaks) <> 0 then
+    raise exception 'missing-membership streak parity failed';
+  end if;
+
+  if private.raw_below70_streak('40000000-0000-0000-0000-000000000003', '2026-06-07') <> 0
+    or (select streaks.active_streak_length
+        from private.raw_below70_streaks_for_students(
+          array['40000000-0000-0000-0000-000000000003'::uuid],
+          '2026-06-07'
+        ) as streaks) <> 0
+    or (select streaks.active_streak_length
+        from private.raw_admin_below70_streaks_for_students(
+          array['40000000-0000-0000-0000-000000000003'::uuid],
+          '2026-06-07'
+        ) as streaks) <> 0 then
+    raise exception 'official-scoring-boundary streak parity failed';
+  end if;
+
+  select pg_get_functiondef('private.raw_below70_streak(uuid,date)'::regprocedure)
+  into raw_single_definition;
+  select pg_get_functiondef('private.raw_admin_below70_streaks_for_students(uuid[],date)'::regprocedure)
+  into raw_batch_definition;
+  if position('raw_below70_streaks_for_students' in raw_single_definition) = 0
+    or position('raw_below70_streaks_for_students' in raw_batch_definition) = 0 then
+    raise exception 'single and dashboard streak paths do not delegate to the canonical implementation';
   end if;
 end;
 $$;
@@ -297,6 +368,8 @@ declare
   dashboard jsonb;
   dashboard_row jsonb;
   workspace_weeks date[];
+  single_streak integer;
+  batch_streak integer;
 begin
   select public.admin_dashboard_leaderboard_for_week('2026-06-07'::date, false)
   into dashboard;
@@ -318,6 +391,24 @@ begin
     or (dashboard_row ->> 'percentage')::numeric <> 60
     or dashboard_row ->> 'below70_streak' <> '1' then
     raise exception 'bounded dashboard aggregation changed attribution, score, streak, or contact semantics: %', dashboard_row;
+  end if;
+
+  select streak.active_streak_length
+  from public.get_student_below70_streak(
+    '40000000-0000-0000-0000-000000000001'::uuid,
+    '2026-06-07'::date
+  ) as streak
+  into single_streak;
+  select streak.active_streak_length
+  from public.get_students_below70_streaks(
+    array['40000000-0000-0000-0000-000000000001'::uuid],
+    '2026-06-07'::date
+  ) as streak
+  into batch_streak;
+  if single_streak <> (dashboard_row ->> 'below70_streak')::integer
+    or batch_streak <> single_streak then
+    raise exception 'public single/batch/dashboard streak parity failed: single %, batch %, dashboard %',
+      single_streak, batch_streak, dashboard_row ->> 'below70_streak';
   end if;
 
   select public.admin_student_available_week_starts(
@@ -363,6 +454,10 @@ alter table public.student_group_memberships drop constraint student_group_membe
 insert into public.student_group_memberships (id, student_id, group_id, starts_on) values
   ('50000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002', '2026-06-07');
 do $$
+declare
+  single_streak integer;
+  canonical_streak integer;
+  batch_streak integer;
 begin
   if private.raw_historical_report_activity_is_attributable('40000000-0000-0000-0000-000000000001', '2026-06-07', null, null, null) then
     raise exception 'ambiguous membership attributed activity';
@@ -371,8 +466,60 @@ begin
       '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001') then
     raise exception 'ambiguous membership passed exact integrity';
   end if;
+
+  select private.raw_below70_streak(
+    '40000000-0000-0000-0000-000000000001',
+    '2026-06-07'
+  )
+  into single_streak;
+  select streaks.active_streak_length
+  from private.raw_below70_streaks_for_students(
+    array['40000000-0000-0000-0000-000000000001'::uuid],
+    '2026-06-07'
+  ) as streaks
+  into canonical_streak;
+  select streaks.active_streak_length
+  from private.raw_admin_below70_streaks_for_students(
+    array['40000000-0000-0000-0000-000000000001'::uuid],
+    '2026-06-07'
+  ) as streaks
+  into batch_streak;
+  if single_streak <> 0 or canonical_streak <> 0 or batch_streak <> 0 then
+    raise exception 'ambiguous-membership streak parity failed: single %, canonical %, batch %',
+      single_streak, canonical_streak, batch_streak;
+  end if;
 end;
 $$;
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"40000000-0000-0000-0000-000000000008","role":"authenticated"}',
+  true
+);
+do $$
+declare
+  single_streak integer;
+  batch_streak integer;
+begin
+  select streak.active_streak_length
+  from public.get_student_below70_streak(
+    '40000000-0000-0000-0000-000000000001'::uuid,
+    '2026-06-07'::date
+  ) as streak
+  into single_streak;
+  select streak.active_streak_length
+  from public.get_students_below70_streaks(
+    array['40000000-0000-0000-0000-000000000001'::uuid],
+    '2026-06-07'::date
+  ) as streak
+  into batch_streak;
+  if single_streak <> 0 or batch_streak <> 0 then
+    raise exception 'ambiguous-membership public streak parity failed: single %, batch %', single_streak, batch_streak;
+  end if;
+end;
+$$;
+reset role;
 
 rollback;
 select 'Historical report attribution SQL parity checks passed.' as result;

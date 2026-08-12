@@ -45,3 +45,16 @@ export function recordServerLoaderTiming(
     )
   }));
 }
+
+export async function withServerLoaderTiming<T>(
+  loader: "admin_dashboard" | "admin_student_workspace",
+  timing: ServerLoaderTiming,
+  operation: () => Promise<T>,
+  log: (message: string) => void = console.info
+) {
+  try {
+    return await operation();
+  } finally {
+    recordServerLoaderTiming(loader, timing, log);
+  }
+}
