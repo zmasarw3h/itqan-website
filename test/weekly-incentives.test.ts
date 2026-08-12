@@ -4,10 +4,14 @@ import {
   accountabilityGateIsActiveForDate,
   buildWeeklyIncentiveRows,
   buildWeeklyIncentiveReport,
+  buildWeeklyFollowUpReport,
   computedBadgeAwardFromRow,
-  type WeeklyIncentiveScoreRow
+  selectPendingAccountabilityRows,
+  type WeeklyIncentiveScoreRow,
+  type WeeklyPendingAccountabilityObligation
 } from "@/lib/weekly-incentives";
 import type { HistoricalReportingStudent } from "@/lib/reporting-population";
+import { chunksOf } from "@/lib/supabase-pagination";
 
 function populationFor(
   students: Array<{ id: string; name: string; email: string; phone: string | null; score_starts_on: string | null }>,
@@ -51,8 +55,26 @@ function row(overrides: Partial<WeeklyIncentiveScoreRow> = {}): WeeklyIncentiveS
     groupName: "Group A",
     weekStart: "2026-05-31",
     weeklyPercentage,
+    below70Streak: 0,
     badgesAwarded: weeklyPercentage > 90 ? Math.floor(weeklyPercentage) - 90 : 0,
     accountabilityAmountCents: weeklyPercentage < 70 ? Math.ceil((70 - weeklyPercentage) / 10) * 500 : 0,
+    ...overrides
+  };
+}
+
+function pendingObligation(
+  overrides: Partial<WeeklyPendingAccountabilityObligation> = {}
+): WeeklyPendingAccountabilityObligation {
+  return {
+    id: "obligation-a",
+    student_id: "student-a",
+    week_start: "2026-05-31",
+    weekly_percentage: 59,
+    amount_cents: 1000,
+    status: "pending",
+    masjid_id: "masjid-a",
+    cohort_id: "cohort-a",
+    halaqa_group_id: "group-a",
     ...overrides
   };
 }
@@ -105,6 +127,129 @@ describe("weekly incentive reports", () => {
     });
 
     expect(report.below70ThisWeek.map((studentRow) => studentRow.studentId)).toEqual(["student-a"]);
+  });
+
+  it("returns exactly the selected completed-week follow-up populations and current streak lengths", () => {
+    const report = buildWeeklyFollowUpReport({
+      selectedWeekStart: "2026-06-28",
+      completedWeekStartsDescending: ["2026-06-28", "2026-06-21"],
+      rows: [
+        row({ studentId: "student-zero", studentName: "Student Zero", weekStart: "2026-06-28", weeklyPercentage: 69, below70Streak: 0 }),
+        row({ studentId: "student-one", studentName: "Student One", weekStart: "2026-06-28", weeklyPercentage: 68, below70Streak: 1 }),
+        row({ studentId: "student-two", studentName: "Student Two", weekStart: "2026-06-28", weeklyPercentage: 67, below70Streak: 2 }),
+        row({ studentId: "student-three", studentName: "Student Three", weekStart: "2026-06-28", weeklyPercentage: 66, below70Streak: 3 }),
+        row({ studentId: "student-four", studentName: "Student Four", weekStart: "2026-06-28", weeklyPercentage: 65, below70Streak: 4 }),
+        row({ studentId: "student-previous", weekStart: "2026-06-21", weeklyPercentage: 10, below70Streak: 5 })
+      ]
+    });
+
+    expect(report.below70ThisWeek.map((studentRow) => studentRow.studentId)).toEqual([
+      "student-four",
+      "student-three",
+      "student-two",
+      "student-one",
+      "student-zero"
+    ]);
+    expect(report.below70ThreePlusWeeks.map((studentRow) => [studentRow.studentId, studentRow.below70Streak])).toEqual([
+      ["student-four", 4],
+      ["student-three", 3]
+    ]);
+    expect(report.rows.map((studentRow) => studentRow.studentId)).not.toContain("student-previous");
+  });
+
+  it("does not produce follow-up rows for an incomplete or current week", () => {
+    const report = buildWeeklyFollowUpReport({
+      selectedWeekStart: "2026-08-09",
+      completedWeekStartsDescending: ["2026-08-02"],
+      rows: [row({ weekStart: "2026-08-09", weeklyPercentage: 0, below70Streak: 4 })]
+    });
+
+    expect(report.rows).toEqual([]);
+    expect(report.below70ThisWeek).toEqual([]);
+    expect(report.pendingSadaqaRows).toEqual([]);
+    expect(report.below70ThreePlusWeeks).toEqual([]);
+  });
+
+  it("returns pending sadaqa rows only for pending obligations with exact historical scope", () => {
+    const population = populationFor([
+      { id: "student-a", name: "Student A", email: "a@itqan.local", phone: "+1 555 0101", score_starts_on: "2026-05-31" },
+      { id: "student-b", name: "Student B", email: "b@itqan.local", phone: "+1 555 0102", score_starts_on: "2026-05-31" }
+    ], ["2026-05-31"]);
+    const rows = [
+      row({ studentId: "student-a", studentName: "Student A", weeklyPercentage: 59, weekStart: "2026-05-31", below70Streak: 3 }),
+      row({
+        studentId: "student-b",
+        studentName: "Student B",
+        weeklyPercentage: 49,
+        weekStart: "2026-05-31",
+        below70Streak: 2,
+        studentEmail: null,
+        studentPhone: null,
+        canViewCurrentContact: false,
+        canOpenCurrentProfile: false
+      })
+    ];
+    const pending = selectPendingAccountabilityRows({
+      selectedWeekStart: "2026-05-31",
+      population,
+      selectedRows: rows,
+      obligations: [
+        pendingObligation({ amount_cents: 1500 }),
+        pendingObligation({ id: "paid-a", status: "attested_paid" }),
+        pendingObligation({
+          id: "wrong-cohort",
+          student_id: "student-b",
+          masjid_id: "masjid-a",
+          cohort_id: "cohort-other",
+          halaqa_group_id: "group-a"
+        }),
+        pendingObligation({
+          id: "pending-b",
+          student_id: "student-b",
+          amount_cents: 500
+        }),
+        pendingObligation({
+          id: "wrong-week",
+          student_id: "student-b",
+          week_start: "2026-06-07"
+        })
+      ]
+    });
+
+    expect(pending.map((studentRow) => studentRow.studentId)).toEqual(["student-b", "student-a"]);
+    expect(pending[0]).toMatchObject({
+      requiredSadaqaCents: 500,
+      accountabilityAmountCents: 500,
+      below70Streak: 2,
+      studentEmail: null,
+      studentPhone: null,
+      canViewCurrentContact: false,
+      canOpenCurrentProfile: false
+    });
+    expect(pending[1]).toMatchObject({ requiredSadaqaCents: 1500, accountabilityAmountCents: 1500 });
+    expect(
+      selectPendingAccountabilityRows({
+        selectedWeekStart: "2026-05-31",
+        population,
+        selectedRows: rows,
+        obligations: []
+      })
+    ).toEqual([]);
+  });
+
+  it("uses stable id tie-breakers and chunks large pending-student scopes", () => {
+    const report = buildWeeklyFollowUpReport({
+      selectedWeekStart: "2026-06-28",
+      completedWeekStartsDescending: ["2026-06-28"],
+      rows: [
+        row({ studentId: "student-b", studentName: "Same Name", weekStart: "2026-06-28", weeklyPercentage: 60 }),
+        row({ studentId: "student-a", studentName: "Same Name", weekStart: "2026-06-28", weeklyPercentage: 60 })
+      ]
+    });
+
+    expect(report.below70ThisWeek.map((studentRow) => studentRow.studentId)).toEqual(["student-a", "student-b"]);
+    const chunks = chunksOf(Array.from({ length: 201 }, (_, index) => `student-${index}`));
+    expect(chunks.map((chunk) => chunk.length)).toEqual([100, 100, 1]);
   });
 
   it("does not generate incentive rows before a student's score baseline", () => {

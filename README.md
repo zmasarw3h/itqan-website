@@ -266,7 +266,7 @@ Students use `Partner Recitation` to confirm the currently open round. The serve
 
 Admins enter halaqa grades from `/admin/students/[id]`. If a student did not attend, both attendance and recitation points are stored as 0. If they attended, recitation mark must be 2-10. Students use `Grades` to view attendance, recitation mark, stored recitation points, total halaqa points, and feedback entered in the grade notes field.
 
-Completed weeks below 70% create self-attested required sadaqa obligations when the student check-in gate evaluates prior scores; the app does not process payments, collect card details, or integrate with payment providers. Completed weeks above 90% count toward badge awards automatically. Students can view accumulated badges from `Rewards`, and admins can view weekly incentive reports plus a monthly badge leaderboard.
+Completed weeks below 70% create self-attested required sadaqa obligations when the student check-in gate evaluates prior scores; the app does not process payments, collect card details, or integrate with payment providers. Completed weeks above 90% count toward badge awards automatically. Students can view accumulated badges from `Rewards`, and admins can view the scoped Weekly follow-up populations plus the separate monthly Badge Rewards leaderboard. See [Historical reporting populations](docs/historical-reporting.md) for the exact follow-up contract and compatibility rollout note.
 
 Known multi-masjid limitation: `weekly_incentive_runs_week_start_key` is still globally unique by
 `week_start`, so only one masjid can own an incentive run for a given tracker week. Phase 1 deliberately
