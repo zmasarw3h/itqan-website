@@ -6,9 +6,13 @@ const config: Config = {
     extend: {
       colors: {
         ink: "#17211d",
+        forest: "#23362c",
+        action: "#294a39",
         moss: "#315747",
         gold: "#b58a3c",
-        paper: "#f8f7f2"
+        "gold-on-dark": "#d2aa5f",
+        paper: "#f8f7f2",
+        surface: "#ffffff"
       }
     }
   },

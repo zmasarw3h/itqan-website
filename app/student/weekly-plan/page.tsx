@@ -1,4 +1,5 @@
 import AppNav from "@/app/nav";
+import { StudentPage } from "@/app/student/student-ui";
 import { StudentSetupIncomplete, StudentWeekContextPanel } from "@/app/student/student-week-context";
 import WeeklyPlanUploadForm from "@/app/student/weekly-plan/weekly-plan-upload-form";
 import { formatDateTimeInAppTimeZone, formatWeekRange } from "@/lib/dates";
@@ -77,7 +78,7 @@ export default async function StudentWeeklyPlanPage({
   return (
     <>
       <AppNav role={profile.role} name={profile.name} />
-      <main className="mx-auto max-w-3xl px-4 py-8">
+      <StudentPage width="narrow">
         <section className="rounded-lg border border-stone-200 bg-white p-6 shadow-sm">
           <div>
             <h1 className="text-2xl font-semibold text-ink">Weekly Plan</h1>
@@ -109,7 +110,7 @@ export default async function StudentWeeklyPlanPage({
 
           <WeeklyPlanUploadForm />
         </section>
-      </main>
+      </StudentPage>
     </>
   );
 }
