@@ -1,5 +1,6 @@
 import AppNav from "@/app/nav";
 import AdminDashboard from "@/app/admin/admin-dashboard";
+import { loadAdminDashboardStudentPreview } from "@/lib/admin-dashboard-preview";
 import { requireProfile } from "@/lib/supabase-server";
 import {
   createServerLoaderTiming,
@@ -26,6 +27,13 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
       () => requireProfile(["admin", "super_admin"])
     );
     const data = await loadLeaderboardData(supabase, resolvedSearchParams, timing);
+    const initialPreviewRow = data.rows.find((row) => row.canOpenCurrentProfile);
+    const initialPreview = initialPreviewRow
+      ? await loadAdminDashboardStudentPreview(supabase, {
+          studentId: initialPreviewRow.studentId,
+          selectedWeekStart: data.selectedWeekStart
+        })
+      : null;
 
     return (
       <>
@@ -54,6 +62,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
             availableWeekStarts={data.availableWeekStarts}
             exportHref={leaderboardExportHref(data.selectedWeekStart)}
             initialFilter={resolvedSearchParams.below70 === "1" ? "below70" : "all"}
+            initialPreview={initialPreview}
             rows={data.rows}
             selectedWeekLabel={data.selectedWeekLabel}
             selectedWeekStart={data.selectedWeekStart}
