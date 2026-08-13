@@ -36,6 +36,18 @@ type WeeklyHalaqaGrade = Pick<
   HalaqaGrade,
   "student_id" | "week_start" | "attendance_points" | "recitation_points" | "masjid_id" | "cohort_id" | "halaqa_group_id"
 >;
+export type WeeklyPendingAccountabilityObligation = Pick<
+  AccountabilityObligation,
+  | "id"
+  | "student_id"
+  | "week_start"
+  | "weekly_percentage"
+  | "amount_cents"
+  | "status"
+  | "masjid_id"
+  | "cohort_id"
+  | "halaqa_group_id"
+>;
 
 export type ComputedBadgeAward = {
   id: string;
@@ -58,18 +70,39 @@ export type WeeklyIncentiveScoreRow = {
   groupName: string;
   weekStart: string;
   weeklyPercentage: number;
+  below70Streak: number;
   badgesAwarded: number;
   accountabilityAmountCents: number;
 };
 
-export type WeeklyIncentiveReport = {
+export type WeeklyFollowUpRow = WeeklyIncentiveScoreRow & {
+  requiredSadaqaCents: number;
+};
+
+export type WeeklyFollowUpReport = {
   selectedWeekStart: string;
   selectedWeekLabel: string;
+  /** Students below 70% in the selected completed week. */
+  below70ThisWeek: WeeklyFollowUpRow[];
+  /** Pending sadaqa obligations whose stored scope exactly matches the selected historical population. */
+  pendingSadaqaRows: WeeklyFollowUpRow[];
+  /** Students whose current below-70 streak ending at the selected week is at least three. */
+  below70ThreePlusWeeks: WeeklyFollowUpRow[];
+  rows: WeeklyFollowUpRow[];
+};
+
+/**
+ * The legacy report shape is retained only while the existing incentives page
+ * is rolled forward to the Reports > Weekly follow-up contract. New callers
+ * should consume WeeklyFollowUpReport fields and keep badge rewards separate.
+ */
+export type WeeklyIncentiveReport = WeeklyFollowUpReport & {
+  /** @deprecated Use the separate Badge Rewards report. */
   mostBadgesThisWeek: WeeklyIncentiveScoreRow[];
-  below70ThisWeek: WeeklyIncentiveScoreRow[];
+  /** @deprecated Use pendingSadaqaRows and below70ThreePlusWeeks. */
   below70TwoWeeksStraight: WeeklyIncentiveScoreRow[];
+  /** @deprecated Use below70ThreePlusWeeks. */
   passingThreeWeeksStraight: WeeklyIncentiveScoreRow[];
-  rows: WeeklyIncentiveScoreRow[];
 };
 
 function studentWeekKey(studentId: string, weekStart: string) {
@@ -136,6 +169,7 @@ export function buildWeeklyIncentiveRows(input: {
   checkins: WeeklyCheckIn[];
   partnerRecitations: WeeklyPartnerRecitation[];
   halaqaGrades: WeeklyHalaqaGrade[];
+  below70StreakByStudentWeek?: ReadonlyMap<string, number>;
 }): WeeklyIncentiveScoreRow[] {
   const checkinsByStudentWeek = groupCheckinsByStudentWeek(input.checkins);
   const partnerRecitationsByStudentWeek = groupPartnerRecitationsByStudentWeek(input.partnerRecitations);
@@ -143,43 +177,117 @@ export function buildWeeklyIncentiveRows(input: {
   const rows: WeeklyIncentiveScoreRow[] = [];
 
   for (const student of input.population) {
-      if (!student.scoring_eligible) continue;
+    if (!student.scoring_eligible) continue;
 
-      const weekStart = student.week_start;
-      const key = studentWeekKey(student.student_id, weekStart);
-      const score = calculateWeekScoreForStudent({
-        weekStart,
-        checkins: checkinsByStudentWeek.get(key) ?? [],
-        partnerRecitations: partnerRecitationsByStudentWeek.get(key) ?? [],
-        halaqaGrade: halaqaGradesByStudentWeek.get(key) ?? null
-      });
+    const weekStart = student.week_start;
+    const key = studentWeekKey(student.student_id, weekStart);
+    const score = calculateWeekScoreForStudent({
+      weekStart,
+      checkins: checkinsByStudentWeek.get(key) ?? [],
+      partnerRecitations: partnerRecitationsByStudentWeek.get(key) ?? [],
+      halaqaGrade: halaqaGradesByStudentWeek.get(key) ?? null
+    });
 
-      rows.push({
-        studentId: student.student_id,
-        studentName: student.student_name,
-        studentEmail: student.student_email,
-        studentPhone: student.student_phone,
-        canViewCurrentContact: student.can_view_current_contact,
-        canOpenCurrentProfile: student.can_open_current_profile,
-        masjidName: student.masjid_name,
-        cohortName: student.cohort_name,
-        groupName: student.group_name,
-        weekStart,
-        weeklyPercentage: score.percentage,
-        badgesAwarded: calculateBadgeAwardCount(score.percentage),
-        accountabilityAmountCents: calculateAccountabilityAmountCents(score.percentage)
-      });
+    rows.push({
+      studentId: student.student_id,
+      studentName: student.student_name,
+      studentEmail: student.student_email,
+      studentPhone: student.student_phone,
+      canViewCurrentContact: student.can_view_current_contact,
+      canOpenCurrentProfile: student.can_open_current_profile,
+      masjidName: student.masjid_name,
+      cohortName: student.cohort_name,
+      groupName: student.group_name,
+      weekStart,
+      weeklyPercentage: score.percentage,
+      below70Streak: input.below70StreakByStudentWeek?.get(key) ?? 0,
+      badgesAwarded: calculateBadgeAwardCount(score.percentage),
+      accountabilityAmountCents: calculateAccountabilityAmountCents(score.percentage)
+    });
   }
 
   return rows;
+}
+
+function compareStudentRows(
+  left: { studentName: string; studentId: string },
+  right: { studentName: string; studentId: string }
+) {
+  return left.studentName.localeCompare(right.studentName) || left.studentId.localeCompare(right.studentId);
+}
+
+function compareBelow70Rows(left: WeeklyFollowUpRow, right: WeeklyFollowUpRow) {
+  return left.weeklyPercentage - right.weeklyPercentage || compareStudentRows(left, right);
+}
+
+function compareThreePlusRows(left: WeeklyFollowUpRow, right: WeeklyFollowUpRow) {
+  return right.below70Streak - left.below70Streak
+    || left.weeklyPercentage - right.weeklyPercentage
+    || compareStudentRows(left, right);
+}
+
+function asWeeklyFollowUpRow(row: WeeklyIncentiveScoreRow, requiredSadaqaCents = row.accountabilityAmountCents) {
+  return {
+    ...row,
+    accountabilityAmountCents: requiredSadaqaCents,
+    requiredSadaqaCents
+  } satisfies WeeklyFollowUpRow;
+}
+
+export function buildWeeklyFollowUpReport(input: {
+  selectedWeekStart: string;
+  completedWeekStartsDescending: string[];
+  rows: WeeklyIncentiveScoreRow[];
+  pendingSadaqaRows?: WeeklyFollowUpRow[];
+}): WeeklyFollowUpReport {
+  const completedWeeks = new Set(input.completedWeekStartsDescending);
+  const selectedWeekIsComplete = completedWeeks.has(input.selectedWeekStart);
+  const selectedRows = selectedWeekIsComplete
+    ? input.rows
+        .filter((row) => row.weekStart === input.selectedWeekStart)
+        .map((row) => asWeeklyFollowUpRow(row))
+        .sort(compareStudentRows)
+    : [];
+  const selectedStudentIds = new Set(selectedRows.map((row) => row.studentId));
+  const pendingRowsByStudent = new Map(
+    (input.pendingSadaqaRows ?? [])
+      .filter((row) => row.weekStart === input.selectedWeekStart && selectedStudentIds.has(row.studentId))
+      .map((row) => [row.studentId, row])
+  );
+  const pendingSadaqaRows = selectedRows
+    .filter((row) => pendingRowsByStudent.has(row.studentId))
+    .map((row) => pendingRowsByStudent.get(row.studentId) ?? row)
+    .sort(compareBelow70Rows);
+  const below70ThisWeek = selectedRows
+    .filter((row) => row.weeklyPercentage < 70)
+    .sort(compareBelow70Rows);
+  const below70ThreePlusWeeks = selectedRows
+    .filter(
+      (row) =>
+        accountabilityAppliesToWeek(input.selectedWeekStart)
+        && row.weeklyPercentage < 70
+        && row.below70Streak >= 3
+    )
+    .sort(compareThreePlusRows);
+
+  return {
+    selectedWeekStart: input.selectedWeekStart,
+    selectedWeekLabel: formatWeekRange(input.selectedWeekStart),
+    below70ThisWeek,
+    pendingSadaqaRows,
+    below70ThreePlusWeeks,
+    rows: selectedRows
+  };
 }
 
 export function buildWeeklyIncentiveReport(input: {
   selectedWeekStart: string;
   completedWeekStartsDescending: string[];
   rows: WeeklyIncentiveScoreRow[];
+  pendingSadaqaRows?: WeeklyFollowUpRow[];
 }): WeeklyIncentiveReport {
-  const selectedRows = input.rows.filter((row) => row.weekStart === input.selectedWeekStart);
+  const followUpReport = buildWeeklyFollowUpReport(input);
+  const selectedRows = followUpReport.rows;
   const completedWeeks = new Set(input.completedWeekStartsDescending);
   const previousWeekStart = addDays(input.selectedWeekStart, -7);
   const twoWeeksAgoStart = addDays(input.selectedWeekStart, -14);
@@ -191,13 +299,10 @@ export function buildWeeklyIncentiveReport(input: {
       (a, b) =>
         b.badgesAwarded - a.badgesAwarded ||
         b.weeklyPercentage - a.weeklyPercentage ||
-        a.studentName.localeCompare(b.studentName)
+        compareStudentRows(a, b)
     );
-  const below70ThisWeek = selectedRows
-    .filter((row) => row.weeklyPercentage < 70)
-    .sort((a, b) => a.weeklyPercentage - b.weeklyPercentage || a.studentName.localeCompare(b.studentName));
   const below70TwoWeeksStraight = completedWeeks.has(previousWeekStart) && accountabilityAppliesToWeek(previousWeekStart)
-    ? below70ThisWeek.filter(
+    ? followUpReport.below70ThisWeek.filter(
         (row) => (scoreByStudentWeek.get(studentWeekKey(row.studentId, previousWeekStart))?.weeklyPercentage ?? 100) < 70
       )
     : [];
@@ -210,18 +315,72 @@ export function buildWeeklyIncentiveReport(input: {
               (scoreByStudentWeek.get(studentWeekKey(row.studentId, previousWeekStart))?.weeklyPercentage ?? 0) >= 70 &&
               (scoreByStudentWeek.get(studentWeekKey(row.studentId, twoWeeksAgoStart))?.weeklyPercentage ?? 0) >= 70
           )
-          .sort((a, b) => b.weeklyPercentage - a.weeklyPercentage || a.studentName.localeCompare(b.studentName))
+          .sort((a, b) => b.weeklyPercentage - a.weeklyPercentage || compareStudentRows(a, b))
       : [];
 
   return {
-    selectedWeekStart: input.selectedWeekStart,
-    selectedWeekLabel: formatWeekRange(input.selectedWeekStart),
+    ...followUpReport,
     mostBadgesThisWeek,
-    below70ThisWeek,
     below70TwoWeeksStraight,
-    passingThreeWeeksStraight,
-    rows: selectedRows
+    passingThreeWeeksStraight
   };
+}
+
+function uniqueScoringPopulationByStudent(
+  population: HistoricalReportingStudent[],
+  selectedWeekStart: string
+) {
+  const byStudent = new Map<string, HistoricalReportingStudent | null>();
+
+  for (const student of population) {
+    if (student.week_start !== selectedWeekStart || !student.scoring_eligible) continue;
+
+    byStudent.set(
+      student.student_id,
+      byStudent.has(student.student_id) ? null : student
+    );
+  }
+
+  return byStudent;
+}
+
+export function selectPendingAccountabilityRows(input: {
+  selectedWeekStart: string;
+  selectedRows: WeeklyIncentiveScoreRow[];
+  population: HistoricalReportingStudent[];
+  obligations: WeeklyPendingAccountabilityObligation[];
+}) {
+  const historicalPopulationByStudent = uniqueScoringPopulationByStudent(input.population, input.selectedWeekStart);
+  const selectedRowsByStudent = new Map<string, WeeklyIncentiveScoreRow | null>();
+
+  for (const row of input.selectedRows) {
+    if (row.weekStart !== input.selectedWeekStart) continue;
+    selectedRowsByStudent.set(row.studentId, selectedRowsByStudent.has(row.studentId) ? null : row);
+  }
+
+  const seenStudents = new Set<string>();
+
+  return [...input.obligations]
+    .filter((obligation) => obligation.status === "pending" && obligation.week_start === input.selectedWeekStart)
+    .sort((left, right) => left.student_id.localeCompare(right.student_id) || left.id.localeCompare(right.id))
+    .flatMap<WeeklyFollowUpRow>((obligation) => {
+      if (seenStudents.has(obligation.student_id)) return [];
+
+      const historical = historicalPopulationByStudent.get(obligation.student_id);
+      const row = selectedRowsByStudent.get(obligation.student_id);
+      if (!historical || !row) return [];
+      if (
+        obligation.masjid_id !== historical.masjid_id
+        || obligation.cohort_id !== historical.cohort_id
+        || obligation.halaqa_group_id !== historical.group_id
+      ) {
+        return [];
+      }
+
+      seenStudents.add(obligation.student_id);
+      return [asWeeklyFollowUpRow(row, obligation.amount_cents)];
+    })
+    .sort(compareBelow70Rows);
 }
 
 export function computedBadgeAwardFromRow(row: WeeklyIncentiveScoreRow): ComputedBadgeAward | null {
@@ -247,6 +406,40 @@ export async function loadCompletedWeekStarts(
   return (await loadHistoricalReportingAvailableWeeks(supabase))
     .filter((weekStart) => weekStart < currentWeekStart && weekIsComplete(weekStart, today))
     .sort((a, b) => b.localeCompare(a));
+}
+
+const PENDING_ACCOUNTABILITY_STUDENT_CHUNK_SIZE = 100;
+
+async function loadPendingAccountabilityObligations(input: {
+  supabase: SupabaseClient;
+  weekStart: string;
+  studentIds: string[];
+}) {
+  const obligations: WeeklyPendingAccountabilityObligation[] = [];
+
+  for (const studentIdChunk of chunksOf(
+    [...new Set(input.studentIds)].sort(),
+    PENDING_ACCOUNTABILITY_STUDENT_CHUNK_SIZE
+  )) {
+    const rows = await loadAllSupabasePages<WeeklyPendingAccountabilityObligation>((from, to) =>
+      input.supabase
+        .from("accountability_obligations")
+        .select("id,student_id,week_start,weekly_percentage,amount_cents,status,masjid_id,cohort_id,halaqa_group_id")
+        .eq("week_start", input.weekStart)
+        .eq("status", "pending")
+        .in("student_id", studentIdChunk)
+        .order("student_id", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to)
+        .returns<WeeklyPendingAccountabilityObligation[]>()
+    );
+
+    obligations.push(...rows);
+  }
+
+  return obligations.sort(
+    (left, right) => left.student_id.localeCompare(right.student_id) || left.id.localeCompare(right.id)
+  );
 }
 
 export async function loadComputedWeeklyIncentiveRows(input: {
@@ -337,6 +530,7 @@ export async function loadWeeklyIncentiveReportData(input: {
       availableWeekStarts: completedWeekStarts,
       selectedWeekStart: null,
       report: null,
+      pendingAccountabilityRows: [],
       pendingAccountabilityCount: 0
     };
   }
@@ -347,14 +541,11 @@ export async function loadWeeklyIncentiveReportData(input: {
     addDays(selectedWeekStart, -14)
   ].filter((weekStart) => completedWeekStarts.includes(weekStart));
   const population = await loadHistoricalReportingStudentsForWeeks(input.supabase, reportWeekStarts);
-  const rows = await loadComputedWeeklyIncentiveRows({
-    supabase: input.supabase,
-    weekStarts: reportWeekStarts,
-    population
-  });
-  const scopedStudentIds = population
-    .filter((student) => student.week_start === selectedWeekStart && student.scoring_eligible)
-    .map((student) => student.student_id);
+  const selectedPopulationByStudent = uniqueScoringPopulationByStudent(population, selectedWeekStart);
+  const scopedStudentIds = [...selectedPopulationByStudent.entries()]
+    .filter(([, student]) => student !== null)
+    .map(([studentId]) => studentId);
+
   if (!scopedStudentIds.length) {
     return {
       availableWeekStarts: completedWeekStarts,
@@ -362,51 +553,70 @@ export async function loadWeeklyIncentiveReportData(input: {
       report: buildWeeklyIncentiveReport({
         selectedWeekStart,
         completedWeekStartsDescending: reportWeekStarts,
-        rows
+        rows: []
       }),
+      pendingAccountabilityRows: [],
       pendingAccountabilityCount: 0
     };
   }
 
-  const selectedPopulationByStudent = new Map(
-    population
-      .filter((student) => student.week_start === selectedWeekStart && student.scoring_eligible)
-      .map((student) => [student.student_id, student])
-  );
-  const pendingObligations = (
-    await Promise.all(
-      chunksOf(scopedStudentIds).map((studentIdChunk) =>
-        loadAllSupabasePages<Pick<AccountabilityObligation, "student_id" | "masjid_id" | "cohort_id" | "halaqa_group_id">>(
-          (from, to) => input.supabase
-            .from("accountability_obligations")
-            .select("student_id,masjid_id,cohort_id,halaqa_group_id")
-            .eq("week_start", selectedWeekStart)
-            .eq("status", "pending")
-            .in("student_id", studentIdChunk)
-            .order("student_id")
-            .range(from, to)
-            .returns<Array<Pick<AccountabilityObligation, "student_id" | "masjid_id" | "cohort_id" | "halaqa_group_id">>>()
-        )
-      )
-    )
-  ).flat();
-  const pendingAccountabilityCount = pendingObligations.filter((obligation) => {
-    const historical = selectedPopulationByStudent.get(obligation.student_id);
-    return historical
-      && obligation.masjid_id === historical.masjid_id
-      && obligation.cohort_id === historical.cohort_id
-      && obligation.halaqa_group_id === historical.group_id;
-  }).length;
+  // Keep the pure report builders testable without importing the server-only
+  // dashboard module at module evaluation time.
+  const { loadAdminDashboardLeaderboardForWeek } = await import("@/lib/admin-dashboard");
+  const [dashboardRows, compatibilityRows] = await Promise.all([
+    loadAdminDashboardLeaderboardForWeek(input.supabase, selectedWeekStart, false),
+    loadComputedWeeklyIncentiveRows({
+      supabase: input.supabase,
+      weekStarts: reportWeekStarts,
+      population
+    })
+  ]);
+  const selectedRows = dashboardRows
+    .filter((row) => selectedPopulationByStudent.get(row.student_id) !== null && selectedPopulationByStudent.has(row.student_id))
+    .map<WeeklyIncentiveScoreRow>((row) => ({
+      studentId: row.student_id,
+      studentName: row.student_name,
+      studentEmail: row.student_email,
+      studentPhone: row.student_phone,
+      canViewCurrentContact: row.can_view_current_contact,
+      canOpenCurrentProfile: row.can_open_current_profile,
+      masjidName: row.masjid_name,
+      cohortName: row.cohort_name,
+      groupName: row.group_name,
+      weekStart: selectedWeekStart,
+      weeklyPercentage: row.percentage,
+      below70Streak: row.below70_streak,
+      badgesAwarded: calculateBadgeAwardCount(row.percentage),
+      accountabilityAmountCents: calculateAccountabilityAmountCents(row.percentage)
+    }));
+  const pendingObligations = await loadPendingAccountabilityObligations({
+    supabase: input.supabase,
+    weekStart: selectedWeekStart,
+    studentIds: scopedStudentIds
+  });
+  const pendingSadaqaRows = selectPendingAccountabilityRows({
+    selectedWeekStart,
+    selectedRows,
+    population,
+    obligations: pendingObligations
+  });
+  const rowsForCompatibility = [
+    ...selectedRows,
+    ...compatibilityRows.filter((row) => row.weekStart !== selectedWeekStart)
+  ];
+  const report = buildWeeklyIncentiveReport({
+    selectedWeekStart,
+    completedWeekStartsDescending: reportWeekStarts,
+    rows: rowsForCompatibility,
+    pendingSadaqaRows
+  });
 
   return {
     availableWeekStarts: completedWeekStarts,
     selectedWeekStart,
-    report: buildWeeklyIncentiveReport({
-      selectedWeekStart,
-      completedWeekStartsDescending: reportWeekStarts,
-      rows
-    }),
-    pendingAccountabilityCount
+    report,
+    pendingAccountabilityRows: pendingSadaqaRows,
+    pendingAccountabilityCount: pendingSadaqaRows.length
   };
 }
 

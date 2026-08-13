@@ -13,6 +13,18 @@ ITQAN reports separate viewer authorization from report population.
 
 `historical_reporting_students_for_weeks(date[])` validates Sundays, deduplicates inputs, enforces current caller scope, and returns deterministic ordering. Application loaders page the batch result and activity queries beyond the Data API row cap, while chunking student filters. Operational current-roster loaders remain separate.
 
+## Weekly follow-up contract
+
+The weekly follow-up report accepts one completed canonical Sunday and exposes only three actionable populations:
+
+- `below70ThisWeek`: eligible students below 70% in the selected week;
+- `pendingSadaqaRows`: students with a `pending` accountability obligation for that week whose stored masjid, cohort, and group exactly match the historical population; and
+- `below70ThreePlusWeeks`: eligible students whose canonical below-70 streak ending at the selected week is at least three.
+
+Every returned row carries the selected-week score, the current `below70Streak`, and `requiredSadaqaCents`. Pending rows use the stored obligation amount after the exact historical-scope check. The server obtains selected-week score, privacy flags, and the canonical set-based streak from `admin_dashboard_leaderboard_for_week`; pending obligations are read through the authenticated client's RLS and loaded in deterministic 100-student chunks. No reset metadata is forwarded to the report.
+
+The old `below70TwoWeeksStraight` and `passingThreeWeeksStraight` fields, plus the badge-only `mostBadgesThisWeek` field, remain only on the temporary `WeeklyIncentiveReport` compatibility adapter while the existing incentives page is moved to the Reports surfaces. They are not part of `WeeklyFollowUpReport` and must not be used by new callers. Badge calculations and monthly Badge Rewards continue to use `loadComputedBadgeAwards` unchanged.
+
 Selectable weeks are deliberately evidence-bounded. `historical_reporting_available_weeks()` takes the distinct canonical Sunday scopes represented by check-ins, partner recitations, halaqa grades, accountability obligations, badge awards, and completed weekly incentive runs, plus the current tracker week for the live leaderboard. It then intersects those candidates with an effective membership and `score_starts_on`, and excludes every week after the current tracker week. This retains intentional zero/missing rows for eligible peers in a report-bearing scope without expanding a membership interval into empty Sundays. In particular, the `1900-01-01` legacy membership sentinel is identity history, not a reporting-calendar floor. `score_starts_on` is an eligibility intersection, not the sole source of available weeks.
 
 Student leaderboard scope and peer RPCs enforce that same bounded rule inside PostgreSQL: the caller must be a currently active student, historically and scoring eligible in the requested cohort/week, and the week must be evidence-backed for that exact historical cohort or be the current tracker week. PostgreSQL and the application both use the established 1:00 a.m. Toronto tracker-day boundary (`current_effective_date()` / `checkInEffectiveDateString()`), so a scheduled Sunday transfer remains future through Sunday 00:59. A future Sunday is never allowed, even if a transfer and report evidence have already been scheduled. The page loads this database allowlist first; a rejected `?week=` value falls back to the current week when allowed, otherwise to the latest allowed historical week, and is never echoed into the dropdown or used for scope, teacher, or peer queries.
