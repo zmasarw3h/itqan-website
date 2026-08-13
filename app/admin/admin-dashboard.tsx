@@ -14,9 +14,7 @@ export type DashboardFilter = "all" | "below70" | "streaks" | "missing";
 export function dashboardRowsForFilter(rows: LeaderboardRow[], filter: DashboardFilter) {
   if (filter === "below70") return rows.filter((row) => row.score.percentage < 70);
   if (filter === "streaks") return rows.filter((row) => row.below70Streak > 0);
-  // The dashboard aggregate does not expose authoritative due/submitted-day
-  // counts. Keep this empty until that bounded contract exists.
-  if (filter === "missing") return [];
+  if (filter === "missing") return rows.filter((row) => row.missingDueDays > 0);
   return rows;
 }
 
@@ -88,7 +86,7 @@ export default function AdminDashboard({ availableWeekStarts, exportHref, initia
       <section className="min-w-0 lg:rounded-lg lg:border lg:border-stone-200 lg:bg-white lg:p-4">
         <div className="hidden lg:block"><h2 className="font-semibold">Students</h2><p className="mt-2 text-sm text-stone-600">Week of {selectedWeekLabel} · {rows.length} students</p></div>
         <div className="mt-5 grid grid-cols-2 overflow-hidden rounded-lg border border-stone-300 sm:grid-cols-4 lg:mt-4">
-          {filters.map(([key, label]) => <button aria-pressed={filter === key} className={`min-h-12 border-stone-300 px-2 text-sm font-medium sm:border-l first:border-l-0 ${filter === key ? "bg-moss text-white" : "bg-white text-ink hover:bg-stone-50"} disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-400`} disabled={key === "missing"} key={key} onClick={() => setFilter(key)} title={key === "missing" ? "Missing activity requires authoritative due-day counts in the dashboard aggregate." : undefined} type="button">{label} ({key === "missing" ? "—" : counts[key]})</button>)}
+          {filters.map(([key, label]) => <button aria-pressed={filter === key} className={`min-h-12 border-stone-300 px-2 text-sm font-medium sm:border-l first:border-l-0 ${filter === key ? "bg-moss text-white" : "bg-white text-ink hover:bg-stone-50"}`} key={key} onClick={() => setFilter(key)} type="button">{label} ({counts[key]})</button>)}
         </div>
         <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <label className="relative block sm:max-w-sm sm:flex-1"><MagnifyingGlass className="pointer-events-none absolute left-3 top-3.5 size-5 text-stone-500" /><span className="sr-only">Search students</span><input className="min-h-12 w-full rounded-md border border-stone-300 pl-10 pr-3" onChange={(event) => setSearch(event.target.value)} placeholder="Search students..." type="search" value={search} /></label>

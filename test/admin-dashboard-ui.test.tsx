@@ -29,6 +29,9 @@ function row(overrides: Partial<LeaderboardRow> = {}): LeaderboardRow {
     score: { daily_points: 300, partner_points: 75, halaqa_points: 0, total_points: 375, total_possible: 1000, percentage: 37.5 },
     status: "below_70_so_far",
     below70Streak: 1,
+    dueDays: 2,
+    submittedDays: 1,
+    missingDueDays: 1,
     ...overrides
   };
 }
@@ -54,11 +57,11 @@ function preview(overrides: Partial<AdminDashboardStudentPreview> = {}): AdminDa
 
 describe("admin dashboard responsive states", () => {
   it("uses the approved four filter semantics over authorized rows", () => {
-    const rows = [row(), row({ studentId: "student-2", score: { daily_points: 700, partner_points: 150, halaqa_points: 150, total_points: 1000, total_possible: 1000, percentage: 100 }, status: "passing", below70Streak: 0 }), row({ studentId: "student-3", score: { daily_points: 100, partner_points: 75, halaqa_points: 0, total_points: 175, total_possible: 1000, percentage: 17.5 }, below70Streak: 0 })];
+    const rows = [row(), row({ studentId: "student-2", score: { daily_points: 700, partner_points: 150, halaqa_points: 150, total_points: 1000, total_possible: 1000, percentage: 100 }, status: "passing", below70Streak: 0, dueDays: 2, submittedDays: 2, missingDueDays: 0 }), row({ studentId: "student-3", score: { daily_points: 100, partner_points: 75, halaqa_points: 0, total_points: 175, total_possible: 1000, percentage: 17.5 }, below70Streak: 0, dueDays: 2, submittedDays: 2, missingDueDays: 0 })];
     expect(dashboardRowsForFilter(rows, "all")).toHaveLength(3);
     expect(dashboardRowsForFilter(rows, "below70")).toHaveLength(2);
     expect(dashboardRowsForFilter(rows, "streaks")).toEqual([rows[0]]);
-    expect(dashboardRowsForFilter(rows, "missing")).toEqual([]);
+    expect(dashboardRowsForFilter(rows, "missing")).toEqual([rows[0]]);
   });
 
   it("keeps the desktop dashboard mounted while selection updates the detail pane", () => {
@@ -83,8 +86,22 @@ describe("admin dashboard responsive states", () => {
     expect(screen.getAllByText("Missing")).not.toHaveLength(0);
   });
 
-  it("disables Missing activity until an authoritative aggregate field exists", () => {
-    render(<AdminDashboard availableWeekStarts={["2026-08-09"]} exportHref="#" initialPreview={preview()} rows={[row()]} selectedWeekLabel="Aug 9–15, 2026" selectedWeekStart="2026-08-09" />);
-    expect(screen.getByRole("button", { name: "Missing activity (—)" })).toBeDisabled();
+  it("enables Missing activity and derives its count from missingDueDays", () => {
+    const submittedZeroPointStudent = row({
+      studentId: "student-2",
+      studentName: "Submitted Zero",
+      rank: 2,
+      score: { daily_points: 0, partner_points: 0, halaqa_points: 0, total_points: 0, total_possible: 1000, percentage: 0 },
+      dueDays: 1,
+      submittedDays: 1,
+      missingDueDays: 0
+    });
+    render(<AdminDashboard availableWeekStarts={["2026-08-09"]} exportHref="#" initialPreview={preview()} rows={[row(), submittedZeroPointStudent]} selectedWeekLabel="Aug 9–15, 2026" selectedWeekStart="2026-08-09" />);
+    const missingFilter = screen.getByRole("button", { name: "Missing activity (1)" });
+    expect(missingFilter).toBeEnabled();
+    fireEvent.click(missingFilter);
+    expect(screen.getByRole("button", { name: /Yusuf Umarbayev/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Submitted Zero/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 1 of 1 students")).toBeInTheDocument();
   });
 });
