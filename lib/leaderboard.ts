@@ -1,6 +1,10 @@
 import { addDays, weekDatesFromStart } from "@/lib/dates";
 import { accountabilityAppliesToWeek } from "@/lib/incentives";
-import { calculateWeeklyScore, type WeeklyScore } from "@/lib/scoring";
+import {
+  calculateDailyScoreProgress,
+  calculateWeeklyScore,
+  type WeeklyScore
+} from "@/lib/scoring";
 import type { CheckIn, HalaqaGrade, PartnerRecitation } from "@/lib/types";
 
 export const PASSING_PERCENTAGE = 70;
@@ -17,6 +21,9 @@ export type LeaderboardRow = {
   canViewCurrentContact: boolean;
   canOpenCurrentProfile: boolean;
   score: WeeklyScore;
+  dueDays: number;
+  submittedDays: number;
+  missingDueDays: number;
   status: "passing" | "below_70" | "in_progress" | "below_70_so_far";
   below70Streak: number;
 };
@@ -50,6 +57,9 @@ export type LeaderboardAggregate = {
   total_points: number;
   percentage: number;
   below70_streak: number;
+  due_days: number;
+  submitted_days: number;
+  missing_due_days: number;
 };
 
 function escapeCsv(value: string | number | boolean | null | undefined) {
@@ -166,6 +176,7 @@ export function buildLeaderboardRows(input: {
   below70StreakByStudent?: ReadonlyMap<string, number>;
 }) {
   const selectedWeekComplete = weekIsComplete(input.selectedWeekStart, input.today);
+  const selectedWeekDates = weekDatesFromStart(input.selectedWeekStart);
   const rows = input.students.flatMap<LeaderboardRow>((student) => {
     const minimumWeekStart = input.minimumWeekStartByStudent?.get(student.id) ?? null;
 
@@ -173,9 +184,19 @@ export function buildLeaderboardRows(input: {
       return [];
     }
 
+    const selectedWeekCheckins = input.selectedWeekCheckinsByStudent.get(student.id) ?? [];
+    const checkinByDate = new Map(selectedWeekCheckins.map((checkin) => [checkin.date, checkin.daily_score]));
+    const effectiveToday = !selectedWeekDates.includes(input.today) || checkinByDate.has(input.today)
+      ? input.today
+      : addDays(input.today, -1);
+    const dailyProgress = calculateDailyScoreProgress({
+      weekDates: selectedWeekDates,
+      dailyScoresByDate: checkinByDate,
+      today: effectiveToday
+    });
     const score = calculateWeekScoreForStudent({
       weekStart: input.selectedWeekStart,
-      checkins: input.selectedWeekCheckinsByStudent.get(student.id) ?? [],
+      checkins: selectedWeekCheckins,
       partnerRecitations: input.selectedWeekPartnerRecitationsByStudent.get(student.id) ?? [],
       halaqaGrade: input.selectedWeekHalaqaGradeByStudent.get(student.id) ?? null
     });
@@ -203,6 +224,9 @@ export function buildLeaderboardRows(input: {
       canViewCurrentContact: student.canViewCurrentContact,
       canOpenCurrentProfile: student.canOpenCurrentProfile,
       score,
+      dueDays: dailyProgress.due_days,
+      submittedDays: dailyProgress.submitted_days,
+      missingDueDays: Math.max(dailyProgress.due_days - dailyProgress.submitted_days, 0),
       status: selectedWeekComplete
         ? belowThreshold
           ? "below_70"
@@ -217,10 +241,15 @@ export function buildLeaderboardRows(input: {
 
   visibleRows.sort((a, b) => {
     if (input.below70Only) {
-      return b.below70Streak - a.below70Streak || a.score.percentage - b.score.percentage || a.studentName.localeCompare(b.studentName);
+      return b.below70Streak - a.below70Streak
+        || a.score.percentage - b.score.percentage
+        || a.studentName.localeCompare(b.studentName)
+        || a.studentId.localeCompare(b.studentId);
     }
 
-    return b.score.percentage - a.score.percentage || a.studentName.localeCompare(b.studentName);
+    return b.score.percentage - a.score.percentage
+      || a.studentName.localeCompare(b.studentName)
+      || a.studentId.localeCompare(b.studentId);
   });
 
   return visibleRows.map((row, index) => ({ ...row, rank: index + 1 }));
@@ -260,6 +289,9 @@ export function buildLeaderboardRowsFromAggregates(input: {
       canViewCurrentContact: aggregate.can_view_current_contact,
       canOpenCurrentProfile: aggregate.can_open_current_profile,
       score,
+      dueDays: aggregate.due_days,
+      submittedDays: aggregate.submitted_days,
+      missingDueDays: aggregate.missing_due_days,
       status: selectedWeekComplete
         ? belowThreshold
           ? "below_70"
@@ -279,11 +311,13 @@ export function buildLeaderboardRowsFromAggregates(input: {
     if (input.below70Only) {
       return b.below70Streak - a.below70Streak
         || a.score.percentage - b.score.percentage
-        || a.studentName.localeCompare(b.studentName);
+        || a.studentName.localeCompare(b.studentName)
+        || a.studentId.localeCompare(b.studentId);
     }
 
     return b.score.percentage - a.score.percentage
-      || a.studentName.localeCompare(b.studentName);
+      || a.studentName.localeCompare(b.studentName)
+      || a.studentId.localeCompare(b.studentId);
   });
 
   return visibleRows.map((row, index) => ({ ...row, rank: index + 1 }));

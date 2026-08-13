@@ -3561,6 +3561,9 @@ async function runAssertions(ids: SeedIds) {
     halaqa_points: number;
     percentage: number;
     below70_streak: number;
+    due_days: number;
+    submitted_days: number;
+    missing_due_days: number;
   } | undefined;
   assert.ok(dashboardStudentA, "bounded dashboard omitted the scoped student");
   assert.deepEqual(
@@ -3591,6 +3594,18 @@ async function runAssertions(ids: SeedIds) {
     dashboardStudentA?.below70_streak,
     legacyStreakLength,
     "completed below-70 streak semantics changed"
+  );
+  const selectedWeekDates = Array.from({ length: 7 }, (_, index) => addDays(ids.weekStart, index));
+  const expectedDueDays = selectedWeekDates.filter(
+    (date) => date < ids.today || (date === ids.today && selectedWeekDates.includes(ids.today))
+  ).length;
+  const expectedSubmittedDays = selectedWeekDates.includes(ids.today) ? 1 : 0;
+  assert.equal(dashboardStudentA?.due_days, expectedDueDays, "dashboard due-day semantics changed");
+  assert.equal(dashboardStudentA?.submitted_days, expectedSubmittedDays, "dashboard submitted-day semantics changed");
+  assert.equal(
+    dashboardStudentA?.missing_due_days,
+    Math.max(expectedDueDays - expectedSubmittedDays, 0),
+    "dashboard missing-day arithmetic changed"
   );
   const dashboardWeeksForStudentWorkspace = await adminA.rpc("admin_student_available_week_starts", {
     input_student_id: ids.users.studentA,
@@ -3650,6 +3665,22 @@ async function runAssertions(ids: SeedIds) {
         row.student_id === ids.users.studentA && row.masjid_name === "RLS Masjid B"
     ),
     "super admin did not receive the global historical dashboard placement"
+  );
+  const transferredDashboardStudentA = (superAdminTransferredDashboard.data?.rows ?? []).find(
+    (row: { student_id: string }) => row.student_id === ids.users.studentA
+  ) as {
+    due_days: number;
+    submitted_days: number;
+    missing_due_days: number;
+  } | undefined;
+  assert.deepEqual(
+    transferredDashboardStudentA ? {
+      due_days: transferredDashboardStudentA.due_days,
+      submitted_days: transferredDashboardStudentA.submitted_days,
+      missing_due_days: transferredDashboardStudentA.missing_due_days
+    } : null,
+    { due_days: 7, submitted_days: 1, missing_due_days: 6 },
+    "historical dashboard activity counts did not follow transferred membership scope"
   );
   const adminBStudentWorkspace = await adminB.rpc("admin_student_available_week_starts", {
     input_student_id: ids.users.studentA,

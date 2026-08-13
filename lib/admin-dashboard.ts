@@ -22,6 +22,23 @@ function parseNumber(value: unknown, field: string) {
   return parsed;
 }
 
+function parseNonNegativeInteger(value: unknown, field: string) {
+  if (
+    (typeof value !== "number" && typeof value !== "string")
+    || (typeof value === "string" && value.trim() === "")
+  ) {
+    throw new Error(`Invalid admin dashboard ${field}.`);
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`Invalid admin dashboard ${field}.`);
+  }
+
+  return parsed;
+}
+
 function parseString(value: unknown, field: string) {
   if (typeof value !== "string") {
     throw new Error(`Invalid admin dashboard ${field}.`);
@@ -53,6 +70,14 @@ function parseDashboardRow(value: unknown): AdminDashboardAggregate {
 
   const row = value as Record<string, unknown>;
 
+  const dueDays = parseNonNegativeInteger(row.due_days, "due days");
+  const submittedDays = parseNonNegativeInteger(row.submitted_days, "submitted days");
+  const missingDueDays = parseNonNegativeInteger(row.missing_due_days, "missing due days");
+
+  if (submittedDays > dueDays || missingDueDays !== dueDays - submittedDays) {
+    throw new Error("Invalid admin dashboard daily activity counts.");
+  }
+
   return {
     student_id: parseString(row.student_id, "student id"),
     student_name: parseString(row.student_name, "student name"),
@@ -69,7 +94,10 @@ function parseDashboardRow(value: unknown): AdminDashboardAggregate {
     halaqa_points: parseNumber(row.halaqa_points, "halaqa points"),
     total_points: parseNumber(row.total_points, "total points"),
     percentage: parseNumber(row.percentage, "percentage"),
-    below70_streak: parseNumber(row.below70_streak, "below-70 streak")
+    below70_streak: parseNumber(row.below70_streak, "below-70 streak"),
+    due_days: dueDays,
+    submitted_days: submittedDays,
+    missing_due_days: missingDueDays
   };
 }
 
