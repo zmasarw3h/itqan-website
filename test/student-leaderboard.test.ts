@@ -27,6 +27,9 @@ function leaderboardRow(overrides: Partial<LeaderboardRow> = {}): LeaderboardRow
       total_possible: 1000,
       percentage: 100
     },
+    dueDays: 7,
+    submittedDays: 7,
+    missingDueDays: 0,
     status: "passing",
     below70Streak: 0,
     ...overrides

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { checkInEffectiveDateString } from "@/lib/dates";
 import {
+  buildLeaderboardRows,
   buildLeaderboardRowsFromAggregates,
   calculateBelow70Streak,
   leaderboardRowsToCsv,
@@ -27,6 +29,9 @@ function leaderboardRow(overrides: Partial<LeaderboardRow> = {}): LeaderboardRow
       total_possible: 1000,
       percentage: 100
     },
+    dueDays: 7,
+    submittedDays: 7,
+    missingDueDays: 0,
     status: "passing",
     below70Streak: 0,
     ...overrides
@@ -51,6 +56,9 @@ function leaderboardAggregate(overrides: Partial<LeaderboardAggregate> = {}): Le
     total_points: 675,
     percentage: 67.5,
     below70_streak: 2,
+    due_days: 7,
+    submitted_days: 5,
+    missing_due_days: 2,
     ...overrides
   };
 }
@@ -169,5 +177,165 @@ describe("leaderboard CSV export", () => {
     ]);
 
     expect(csv).toContain('"\'-Student, ""One"""');
+  });
+});
+
+describe("selected-week daily activity counts", () => {
+  const student = {
+    id: "student-1",
+    name: "Student One",
+    email: "student@example.com",
+    phone: "+1 555 0101",
+    masjidName: "Masjid A",
+    cohortName: "Brothers",
+    groupName: "Group A",
+    canViewCurrentContact: true,
+    canOpenCurrentProfile: true
+  };
+
+  function buildRows(input: {
+    selectedWeekStart: string;
+    today: string;
+    checkinDates: string[];
+    minimumWeekStart?: string;
+  }) {
+    const checkins = input.checkinDates.map((date) => ({
+      student_id: student.id,
+      date,
+      daily_score: 0
+    }));
+
+    return buildLeaderboardRows({
+      students: [student],
+      selectedWeekStart: input.selectedWeekStart,
+      today: input.today,
+      below70Only: false,
+      completedWeekStartsDescending: [],
+      selectedWeekCheckinsByStudent: new Map([[student.id, checkins]]),
+      selectedWeekPartnerRecitationsByStudent: new Map(),
+      selectedWeekHalaqaGradeByStudent: new Map(),
+      streakDataByStudent: new Map(),
+      minimumWeekStartByStudent: new Map([[student.id, input.minimumWeekStart ?? input.selectedWeekStart]])
+    });
+  }
+
+  it("counts only due current-week dates and excludes upcoming dates", () => {
+    expect(buildRows({
+      selectedWeekStart: "2026-08-09",
+      today: "2026-08-11",
+      checkinDates: ["2026-08-09"]
+    })[0]).toMatchObject({
+      dueDays: 2,
+      submittedDays: 1,
+      missingDueDays: 1
+    });
+  });
+
+  it("includes the effective current date only when its check-in is saved", () => {
+    expect(buildRows({
+      selectedWeekStart: "2026-08-09",
+      today: "2026-08-11",
+      checkinDates: ["2026-08-09", "2026-08-10"]
+    })[0]).toMatchObject({
+      dueDays: 2,
+      submittedDays: 2,
+      missingDueDays: 0
+    });
+
+    expect(buildRows({
+      selectedWeekStart: "2026-08-09",
+      today: "2026-08-11",
+      checkinDates: ["2026-08-09", "2026-08-10", "2026-08-11"]
+    })[0]).toMatchObject({
+      dueDays: 3,
+      submittedDays: 3,
+      missingDueDays: 0
+    });
+  });
+
+  it("counts all seven historical due days and treats saved zero points as submitted", () => {
+    const completeDates = Array.from({ length: 7 }, (_, index) => `2026-08-${String(2 + index).padStart(2, "0")}`);
+
+    expect(buildRows({
+      selectedWeekStart: "2026-08-02",
+      today: "2026-08-11",
+      checkinDates: completeDates
+    })[0]).toMatchObject({
+      dueDays: 7,
+      submittedDays: 7,
+      missingDueDays: 0
+    });
+
+    expect(buildRows({
+      selectedWeekStart: "2026-08-02",
+      today: "2026-08-11",
+      checkinDates: ["2026-08-02", "2026-08-03", "2026-08-04"]
+    })[0]).toMatchObject({
+      dueDays: 7,
+      submittedDays: 3,
+      missingDueDays: 4
+    });
+  });
+
+  it("does not expose activity counts before the scoring start boundary", () => {
+    expect(buildLeaderboardRowsFromAggregates({
+      aggregates: [leaderboardAggregate({
+        score_starts_on: "2026-08-16",
+        due_days: 0,
+        submitted_days: 0,
+        missing_due_days: 0
+      })],
+      selectedWeekStart: "2026-08-09",
+      today: "2026-08-11",
+      below70Only: false
+    })).toEqual([]);
+  });
+
+  it("keeps deterministic ranking and aggregate count mapping", () => {
+    const rows = buildLeaderboardRowsFromAggregates({
+      aggregates: [
+        leaderboardAggregate({
+          student_id: "student-b",
+          student_name: "Same Name",
+          due_days: 3,
+          submitted_days: 1,
+          missing_due_days: 2
+        }),
+        leaderboardAggregate({
+          student_id: "student-a",
+          student_name: "Same Name",
+          due_days: 3,
+          submitted_days: 3,
+          missing_due_days: 0
+        })
+      ],
+      selectedWeekStart: "2026-08-09",
+      today: "2026-08-11",
+      below70Only: false
+    });
+
+    expect(rows.map((row) => row.studentId)).toEqual(["student-a", "student-b"]);
+    expect(rows.map((row) => [row.dueDays, row.submittedDays, row.missingDueDays])).toEqual([
+      [3, 3, 0],
+      [3, 1, 2]
+    ]);
+  });
+
+  it("uses the Toronto effective date across the DST/reset boundary", () => {
+    const beforeReset = checkInEffectiveDateString(new Date("2026-05-11T04:30:00.000Z"));
+    const atReset = checkInEffectiveDateString(new Date("2026-05-11T05:00:00.000Z"));
+
+    expect(beforeReset).toBe("2026-05-10");
+    expect(atReset).toBe("2026-05-11");
+    expect(buildRows({
+      selectedWeekStart: "2026-05-10",
+      today: beforeReset,
+      checkinDates: ["2026-05-10"]
+    })[0]).toMatchObject({ dueDays: 1, submittedDays: 1, missingDueDays: 0 });
+    expect(buildRows({
+      selectedWeekStart: "2026-05-10",
+      today: atReset,
+      checkinDates: ["2026-05-10", "2026-05-11"]
+    })[0]).toMatchObject({ dueDays: 2, submittedDays: 2, missingDueDays: 0 });
   });
 });
