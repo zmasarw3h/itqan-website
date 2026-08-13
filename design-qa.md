@@ -1,3 +1,9 @@
+# Current admin redesign QA
+
+The authenticated PR #74 amendment QA is recorded in `admin-design-qa.md`. It covers all ten approved admin canvases, authoritative Missing activity filtering, authenticated dashboard/report/Add User states, loading/empty/backend-unavailable behavior, desktop and 390-ish responsive behavior, direct image comparison, legacy redirects, and console checks. Final result: passed.
+
+---
+
 # Teacher screens design QA
 
 > Checkpoint 4 evidence for the admin student workspace is recorded in `artifacts/admin-student-workspace-checkpoint-4/design-qa.md`. It covers the Student settings and official-scoring surfaces, direct comparisons to canvases 11–14, responsive geometry, interaction checks, and contract limitations. Final result: passed.
