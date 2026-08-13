@@ -89,6 +89,10 @@ describe("admin report responsive sections", () => {
     render(<BadgeReport month="2026-08-01" rows={[badgeRow(awards as RewardBadgeAward[])]} />);
     const renderedAwards = screen.queryAllByTestId("recent-award");
     expect(renderedAwards).toHaveLength((awards as RewardBadgeAward[]).length);
+    if (renderedAwards.length) {
+      expect(renderedAwards[0].parentElement).toHaveClass("col-span-2");
+      expect(renderedAwards[0]).toHaveClass("min-h-11");
+    }
     const renderedText = renderedAwards.map((element) => element.textContent).join(" ");
     for (const text of expected as string[]) expect(renderedText).toContain(text);
     if (!(awards as RewardBadgeAward[]).length) expect(screen.getByText("No awards yet")).toBeInTheDocument();
