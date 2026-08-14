@@ -8,13 +8,12 @@ import {
   isAllowedWeeklyPlanType,
   safeWeeklyPlanFileName,
   WEEKLY_PLAN_MAX_BYTES,
-  weeklyPlanStoragePath
+  weeklyPlanPathMatchesExactContext as matchesWeeklyPlanPathExactContext
 } from "@/lib/weekly-plans";
 
 type SupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const WEEKLY_PLAN_PATH_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/\d{4}-\d{2}-\d{2}\/[^/\\]+$/i;
 
 export type AdminWeeklyPlanDisposition = "inline" | "attachment";
 
@@ -58,26 +57,7 @@ export function weeklyPlanPathMatchesExactContext(
   filePath: string,
   fileName?: string
 ) {
-  if (
-    !isUuid(studentId)
-    || !isCanonicalTrackerWeek(weekStart)
-    || !WEEKLY_PLAN_PATH_PATTERN.test(filePath)
-    || filePath.includes("..")
-  ) {
-    return false;
-  }
-
-  const [pathStudentId, pathWeekStart, pathFileName] = filePath.split("/");
-
-  if (pathStudentId !== studentId || pathWeekStart !== weekStart || !pathFileName) {
-    return false;
-  }
-
-  if (fileName !== undefined && filePath !== weeklyPlanStoragePath(studentId, weekStart, fileName)) {
-    return false;
-  }
-
-  return pathFileName === safeWeeklyPlanFileName(pathFileName);
+  return matchesWeeklyPlanPathExactContext(studentId, weekStart, filePath, fileName);
 }
 
 export function adminWeeklyPlanUrl(

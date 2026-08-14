@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireStudentScopeForWeek } from "@/lib/student-scope";
@@ -11,8 +12,8 @@ import {
   WEEKLY_PLAN_MAX_BYTES,
   currentWeeklyPlanContext,
   validateWeeklyPlanFile,
-  weeklyPlanPathBelongsToStudent,
-  weeklyPlanStoragePath
+  weeklyPlanPathMatchesExactContext,
+  weeklyPlanReplacementStoragePath
 } from "@/lib/weekly-plans";
 
 export async function uploadWeeklyPlan(formData: FormData) {
@@ -43,13 +44,13 @@ export async function uploadWeeklyPlan(formData: FormData) {
     .eq("week_start", weekStart)
     .maybeSingle<WeeklyPlan>();
 
-  const filePath = weeklyPlanStoragePath(profile.id, weekStart, file.name);
+  const filePath = weeklyPlanReplacementStoragePath(profile.id, weekStart, file.name, randomUUID());
   const { error: uploadError } = await storageSupabase.storage
     .from(WEEKLY_PLAN_BUCKET)
     .upload(filePath, file, {
       cacheControl: "3600",
       contentType: file.type,
-      upsert: true
+      upsert: false
     });
 
   if (uploadError) {
@@ -77,7 +78,7 @@ export async function uploadWeeklyPlan(formData: FormData) {
   if (
     existingPlan?.file_path &&
     existingPlan.file_path !== filePath &&
-    weeklyPlanPathBelongsToStudent(profile.id, weekStart, existingPlan.file_path)
+    weeklyPlanPathMatchesExactContext(profile.id, weekStart, existingPlan.file_path, existingPlan.file_name)
   ) {
     await storageSupabase.storage.from(WEEKLY_PLAN_BUCKET).remove([existingPlan.file_path]);
   }

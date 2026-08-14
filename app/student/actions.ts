@@ -2,13 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { canStudentAttestAccountabilityPaid } from "@/lib/accountability";
 import {
   blankCheckInItemPayloads,
   calculateTotalsFromCompletedKeys,
-  completedTaskKeysAfterToggle,
-  normalizeNote,
-  taskForDateOrThrow
+  normalizeNote
 } from "@/lib/checkins";
 import { checkInEffectiveDateString, weekStartForDate } from "@/lib/dates";
 import { assertNoDuplicatePartnerRecitation } from "@/lib/partner-recitations";
@@ -18,40 +15,26 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import { findOrCreateBlockingAccountabilityObligation } from "@/lib/weekly-incentives";
 import { currentWeeklyPlanContext, weeklyPlanBlocksCheckIn } from "@/lib/weekly-plans";
-import type { AccountabilityObligation, CheckIn, CheckInItem, PartnerRecitation, WeeklyPlan } from "@/lib/types";
+import type { CheckIn, CheckInItem, PartnerRecitation, WeeklyPlan } from "@/lib/types";
 
 export async function attestAccountabilityPaid(obligationId: string) {
-  const { supabase, profile } = await requireProfile(["student"]);
+  const { supabase } = await requireProfile(["student"]);
 
   if (!obligationId) {
     redirect("/student/check-in?status=accountability-error");
   }
 
-  const { data: obligation } = await supabase
-    .from("accountability_obligations")
-    .select("id,student_id,week_start,weekly_percentage,amount_cents,status")
-    .eq("id", obligationId)
-    .eq("student_id", profile.id)
-    .eq("status", "pending")
-    .maybeSingle<Pick<AccountabilityObligation, "id" | "student_id" | "week_start" | "weekly_percentage" | "amount_cents" | "status">>();
+  const { data, error } = await supabase.rpc("attest_oldest_accountability_obligation", {
+    input_obligation_id: obligationId
+  });
 
-  if (!canStudentAttestAccountabilityPaid(profile, obligation ?? null)) {
-    redirect("/student/check-in?status=accountability-error");
-  }
-
-  const now = new Date().toISOString();
-  const { error } = await supabase
-    .from("accountability_obligations")
-    .update({
-      status: "attested_paid",
-      attested_paid_at: now,
-      updated_at: now
-    })
-    .eq("id", obligationId)
-    .eq("student_id", profile.id)
-    .eq("status", "pending");
-
-  if (error) {
+  if (
+    error
+    || !data
+    || typeof data !== "object"
+    || Array.isArray(data)
+    || (data as { status?: unknown }).status !== "attested_paid"
+  ) {
     redirect("/student/check-in?status=accountability-error");
   }
 
@@ -235,7 +218,6 @@ export async function saveTodayChecklistItem(input: {
     }
 
     const { supabase, profile, today, checkin } = await findOrCreateTodayCheckIn();
-    taskForDateOrThrow(today, input.taskKey);
     await ensureTodayCheckInItems({
       supabase,
       checkin,
@@ -243,48 +225,32 @@ export async function saveTodayChecklistItem(input: {
       date: today
     });
 
-    const { error: itemUpdateError } = await supabase
-      .from("checkin_items")
-      .update({
-        completed: input.completed
-      })
-      .eq("checkin_id", checkin.id)
-      .eq("task_key", input.taskKey);
+    const { data, error } = await supabase.rpc("save_student_checklist_item", {
+      input_task_key: input.taskKey,
+      input_completed: input.completed
+    });
 
-    if (itemUpdateError) {
+    if (error || !data || typeof data !== "object" || Array.isArray(data)) {
       throw new Error("Unable to save checklist item.");
     }
 
-    const { data: currentItems, error: currentItemsError } = await supabase
-      .from("checkin_items")
-      .select("id,checkin_id,student_id,date,task_key,task_label,weight,completed,created_at")
-      .eq("checkin_id", checkin.id)
-      .returns<CheckInItem[]>();
+    const result = data as {
+      completed_task_keys?: unknown;
+      earned_weight?: unknown;
+      total_weight?: unknown;
+      daily_score?: unknown;
+      saved_at?: unknown;
+    };
 
-    if (currentItemsError) {
-      throw new Error("Unable to load saved checklist items.");
-    }
-
-    const completedTaskKeys = completedTaskKeysAfterToggle({
-      items: currentItems ?? [],
-      taskKey: input.taskKey,
-      completed: input.completed
-    });
-    const totals = calculateTotalsFromCompletedKeys(today, completedTaskKeys);
-    const savedAt = new Date().toISOString();
-    const { error: checkinUpdateError } = await supabase
-      .from("checkins")
-      .update({
-        earned_weight: totals.earnedWeight,
-        total_weight: totals.totalWeight,
-        daily_score: totals.dailyScore,
-        updated_at: savedAt
-      })
-      .eq("id", checkin.id)
-      .eq("student_id", profile.id);
-
-    if (checkinUpdateError) {
-      throw new Error("Unable to save checklist score.");
+    if (
+      !Array.isArray(result.completed_task_keys)
+      || !result.completed_task_keys.every((taskKey): taskKey is string => typeof taskKey === "string")
+      || typeof result.earned_weight !== "number"
+      || typeof result.total_weight !== "number"
+      || typeof result.daily_score !== "number"
+      || typeof result.saved_at !== "string"
+    ) {
+      throw new Error("Unable to read the authoritative checklist result.");
     }
 
     revalidatePath("/student/check-in");
@@ -292,11 +258,11 @@ export async function saveTodayChecklistItem(input: {
 
     return {
       ok: true,
-      completedTaskKeys: totals.completedTaskKeys,
-      earnedWeight: totals.earnedWeight,
-      totalWeight: totals.totalWeight,
-      dailyScore: totals.dailyScore,
-      savedAt
+      completedTaskKeys: result.completed_task_keys,
+      earnedWeight: result.earned_weight,
+      totalWeight: result.total_weight,
+      dailyScore: result.daily_score,
+      savedAt: result.saved_at
     };
   } catch (error) {
     return {

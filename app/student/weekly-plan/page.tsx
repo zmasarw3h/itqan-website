@@ -4,14 +4,12 @@ import { StudentSetupIncomplete, StudentWeekContextPanel } from "@/app/student/s
 import WeeklyPlanUploadForm from "@/app/student/weekly-plan/weekly-plan-upload-form";
 import { formatDateTimeInAppTimeZone, formatWeekRange } from "@/lib/dates";
 import { loadStudentWeekContext } from "@/lib/student-scope";
-import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireProfile } from "@/lib/supabase-server";
 import type { WeeklyPlan } from "@/lib/types";
 import {
-  WEEKLY_PLAN_BUCKET,
   WEEKLY_PLAN_MAX_SIZE_LABEL,
   currentWeeklyPlanContext,
-  weeklyPlanPathBelongsToStudent
+  weeklyPlanPathMatchesExactContext
 } from "@/lib/weekly-plans";
 
 export const dynamic = "force-dynamic";
@@ -64,15 +62,10 @@ export default async function StudentWeeklyPlanPage({
     .eq("week_start", weekStart)
     .maybeSingle<WeeklyPlan>();
 
-  const storageSupabase = createSupabaseAdminClient();
-
-  const signedUrl = weeklyPlan && weeklyPlanPathBelongsToStudent(profile.id, weekStart, weeklyPlan.file_path)
-    ? (
-        await storageSupabase.storage
-          .from(WEEKLY_PLAN_BUCKET)
-          .createSignedUrl(weeklyPlan.file_path, 60 * 60, { download: weeklyPlan.file_name })
-      ).data?.signedUrl
-    : null;
+  const hasValidPlanPath = Boolean(
+    weeklyPlan
+    && weeklyPlanPathMatchesExactContext(profile.id, weekStart, weeklyPlan.file_path, weeklyPlan.file_name)
+  );
   const status = resolvedSearchParams.status ? statusMessages[resolvedSearchParams.status] : null;
 
   return (
@@ -97,10 +90,21 @@ export default async function StudentWeeklyPlanPage({
                 <p className="text-sm text-stone-600">
                   Uploaded {formatDateTimeInAppTimeZone(weeklyPlan.uploaded_at)}
                 </p>
-                {signedUrl ? (
-                  <a className="inline-flex font-medium text-moss hover:text-ink" href={signedUrl}>
-                    View/download
-                  </a>
+                {hasValidPlanPath ? (
+                  <div className="flex flex-wrap gap-4">
+                    <a
+                      className="inline-flex font-medium text-moss hover:text-ink"
+                      href={`/student/weekly-plan/preview?week=${encodeURIComponent(weekStart)}`}
+                    >
+                      Preview
+                    </a>
+                    <a
+                      className="inline-flex font-medium text-moss hover:text-ink"
+                      href={`/student/weekly-plan/download?week=${encodeURIComponent(weekStart)}`}
+                    >
+                      Download
+                    </a>
+                  </div>
                 ) : null}
               </div>
             ) : (

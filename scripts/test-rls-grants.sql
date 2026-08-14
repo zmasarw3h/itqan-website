@@ -32,6 +32,7 @@ insert into expected_authenticated_definers (signature) values
   ('current_effective_date()'),
   ('current_partner_recitation_round()'),
   ('current_toronto_civil_date()'),
+  ('attest_oldest_accountability_obligation(uuid)'),
   ('admin_dashboard_available_weeks()'),
   ('admin_dashboard_leaderboard_for_week(date,boolean)'),
   ('admin_student_available_week_starts(uuid,date)'),
@@ -142,6 +143,40 @@ begin
       coalesce(missing_attachments, 'none'),
       coalesce(unexpected_attachments, 'none'),
       assignment_active_update_missing;
+  end if;
+end;
+$$;
+
+-- Student mutation RPCs are intentionally narrower than service-role
+-- reconciliation workflows: only authenticated callers can execute them.
+do $$
+begin
+  if not has_function_privilege(
+    'authenticated',
+    'public.save_student_checklist_item(text,boolean)',
+    'EXECUTE'
+  ) or has_function_privilege(
+    'anon',
+    'public.save_student_checklist_item(text,boolean)',
+    'EXECUTE'
+  ) or has_function_privilege(
+    'service_role',
+    'public.save_student_checklist_item(text,boolean)',
+    'EXECUTE'
+  ) or not has_function_privilege(
+    'authenticated',
+    'public.attest_oldest_accountability_obligation(uuid)',
+    'EXECUTE'
+  ) or has_function_privilege(
+    'anon',
+    'public.attest_oldest_accountability_obligation(uuid)',
+    'EXECUTE'
+  ) or has_function_privilege(
+    'service_role',
+    'public.attest_oldest_accountability_obligation(uuid)',
+    'EXECUTE'
+  ) then
+    raise exception 'student mutation RPC grants are broader than authenticated callers';
   end if;
 end;
 $$;
