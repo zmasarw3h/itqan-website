@@ -3016,6 +3016,83 @@ async function runAssertions(ids: SeedIds) {
   assert.equal(Number(reconciledObligation?.weekly_percentage), 0);
   assert.equal(reconciledObligation?.amount_cents, 3500);
   assert.equal(reconciledObligation?.status, "pending");
+  const { data: olderObligation, error: olderObligationError } = await service.rpc(
+    "reconcile_historical_accountability_obligation",
+    {
+      input_student_id: ids.users.studentA2,
+      input_week_start: addDays(ids.previousWeekStart, -7)
+    }
+  );
+  assert.equal(olderObligationError, null, olderObligationError?.message);
+  assert.equal(olderObligation?.student_id, ids.users.studentA2);
+  assert.equal(olderObligation?.week_start, addDays(ids.previousWeekStart, -7));
+  assert.equal(olderObligation?.status, "pending");
+  const futureObligationId = randomUUID();
+  await runLocalPsql(`
+    set session_replication_role = replica;
+    insert into public.accountability_obligations (
+      id, student_id, week_start, weekly_percentage, amount_cents, status,
+      masjid_id, cohort_id, halaqa_group_id, updated_at
+    ) values (
+      '${futureObligationId}'::uuid,
+      '${ids.users.studentA2}'::uuid,
+      '${addDays(ids.weekStart, 7)}'::date,
+      0,
+      0,
+      'pending',
+      '${ids.masjidA}'::uuid,
+      '${ids.cohortA}'::uuid,
+      '${ids.groupA}'::uuid,
+      now()
+    );
+    set session_replication_role = origin;
+  `);
+  const forgedYoungerAttestation = await studentA2.rpc("attest_oldest_accountability_obligation", {
+    input_obligation_id: reconciledObligation.id
+  });
+  assert.ok(forgedYoungerAttestation.error, "student attested a younger obligation before the oldest one");
+  assert.equal(forgedYoungerAttestation.data, null);
+  await assertRpcDenied(service, "attest_oldest_accountability_obligation", {
+    input_obligation_id: ids.obligationA
+  });
+  await assertRpcDenied(studentA2, "attest_oldest_accountability_obligation", {
+    input_obligation_id: randomUUID()
+  });
+  await assertRpcDenied(studentA2, "attest_oldest_accountability_obligation", {
+    input_obligation_id: ids.obligationB
+  });
+  await assertRpcDenied(studentA2, "attest_oldest_accountability_obligation", {
+    input_obligation_id: ids.obligationA
+  });
+  await assertRpcDenied(studentA2, "attest_oldest_accountability_obligation", {
+    input_obligation_id: futureObligationId
+  });
+  await assertRpcDenied(adminA, "attest_oldest_accountability_obligation", {
+    input_obligation_id: ids.obligationA
+  });
+  const oldestAttestation = await studentA2.rpc("attest_oldest_accountability_obligation", {
+    input_obligation_id: olderObligation.id
+  });
+  assert.equal(oldestAttestation.error, null, oldestAttestation.error?.message);
+  assert.equal(oldestAttestation.data?.status, "attested_paid");
+  const replayedAttestations = await Promise.all([
+    studentA2.rpc("attest_oldest_accountability_obligation", { input_obligation_id: olderObligation.id }),
+    studentA2.rpc("attest_oldest_accountability_obligation", { input_obligation_id: olderObligation.id })
+  ]);
+  for (const replay of replayedAttestations) {
+    assert.equal(replay.error, null, replay.error?.message);
+    assert.equal(replay.data?.status, "attested_paid");
+  }
+  const obligationStatuses = await requireData<Array<{ id: string; status: string }>>(
+    "read ordered attestation statuses",
+    service.from("accountability_obligations")
+      .select("id,status")
+      .in("id", [olderObligation.id, reconciledObligation.id])
+      .order("id")
+  );
+  assert.equal(obligationStatuses.find((row) => row.id === olderObligation.id)?.status, "attested_paid");
+  assert.equal(obligationStatuses.find((row) => row.id === reconciledObligation.id)?.status, "pending");
+  await service.from("accountability_obligations").delete().eq("id", futureObligationId);
   const { data: obligationBeforeAttestation, error: obligationBeforeAttestationError } = await studentA2
     .from("accountability_obligations")
     .select("student_id,week_start,status,masjid_id,cohort_id,halaqa_group_id")
@@ -3043,19 +3120,17 @@ async function runAssertions(ids: SeedIds) {
   });
   assert.equal(obligationScopeMatch.error, null, obligationScopeMatch.error?.message);
   assert.equal(obligationScopeMatch.data, true, "student obligation scope failed its RLS projection");
-  const { data: attestedObligation, error: attestedObligationError } = await studentA2
-    .from("accountability_obligations")
-    .update({
-      status: "attested_paid",
-      attested_paid_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    })
-    .eq("id", reconciledObligation.id)
-    .eq("status", "pending")
-    .select("id,status");
-  assert.equal(attestedObligationError, null, attestedObligationError?.message);
-  assert.equal(attestedObligation?.length, 1, "student self-attestation did not update its valid obligation");
-  assert.equal(attestedObligation?.[0]?.status, "attested_paid");
+  await assertUpdateBlocked(studentA2, "accountability_obligations", reconciledObligation.id, {
+    status: "attested_paid",
+    attested_paid_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  });
+  const attestedObligation = await studentA2.rpc("attest_oldest_accountability_obligation", {
+    input_obligation_id: reconciledObligation.id
+  });
+  assert.equal(attestedObligation.error, null, attestedObligation.error?.message);
+  assert.equal(attestedObligation.data?.id, reconciledObligation.id);
+  assert.equal(attestedObligation.data?.status, "attested_paid");
   const settledBeforeReconcile = await requireData<Record<string, unknown>>(
     "read settled obligation before reconciliation",
     service.from("accountability_obligations")
@@ -3126,6 +3201,74 @@ async function runAssertions(ids: SeedIds) {
   assert.equal(writerParent?.earned_weight, writerSubmission.earnedWeight);
   assert.equal(writerParent?.total_weight, writerSubmission.totalWeight);
   assert.equal(Number(writerParent?.daily_score), writerSubmission.dailyScore);
+
+  const concurrentTaskKeys = writerSubmission.items.slice(0, 2).map((item) => item.key);
+  assert.equal(concurrentTaskKeys.length, 2, "the checklist fixture must expose two distinct tasks");
+  const concurrentResults = await Promise.all(
+    concurrentTaskKeys.map((taskKey) => studentWriter.rpc("save_student_checklist_item", {
+      input_task_key: taskKey,
+      input_completed: false
+    }))
+  );
+  for (const result of concurrentResults) {
+    assert.equal(result.error, null, result.error?.message);
+    assert.ok(result.data?.saved_at, "checklist RPC did not return its authoritative save timestamp");
+    assert.ok(Array.isArray(result.data?.completed_task_keys), "checklist RPC omitted authoritative item state");
+  }
+  const concurrentExpected = calculateDailySubmission(
+    ids.today,
+    writerSubmission.items
+      .map((item) => item.key)
+      .filter((taskKey) => !concurrentTaskKeys.includes(taskKey))
+  );
+  const { data: concurrentParent, error: concurrentParentError } = await studentWriter
+    .from("checkins")
+    .select("earned_weight,total_weight,daily_score")
+    .eq("id", writerCheckin!.id)
+    .single();
+  assert.equal(concurrentParentError, null, concurrentParentError?.message);
+  assert.equal(concurrentParent?.earned_weight, concurrentExpected.earnedWeight);
+  assert.equal(concurrentParent?.total_weight, concurrentExpected.totalWeight);
+  assert.equal(Number(concurrentParent?.daily_score), concurrentExpected.dailyScore);
+  const repeatedResults = await Promise.all([
+    studentWriter.rpc("save_student_checklist_item", {
+      input_task_key: concurrentTaskKeys[0],
+      input_completed: false
+    }),
+    studentWriter.rpc("save_student_checklist_item", {
+      input_task_key: concurrentTaskKeys[0],
+      input_completed: false
+    })
+  ]);
+  for (const result of repeatedResults) {
+    assert.equal(result.error, null, result.error?.message);
+    assert.equal(result.data?.earned_weight, concurrentExpected.earnedWeight);
+    assert.equal(result.data?.daily_score, concurrentExpected.dailyScore);
+  }
+  const { data: beforeFailedChecklist, error: beforeFailedChecklistError } = await service
+    .from("checkins")
+    .select("earned_weight,total_weight,daily_score,updated_at")
+    .eq("id", writerCheckin!.id)
+    .single();
+  assert.equal(beforeFailedChecklistError, null, beforeFailedChecklistError?.message);
+  const failedChecklist = await studentWriter.rpc("save_student_checklist_item", {
+    input_task_key: "not-a-canonical-task",
+    input_completed: true
+  });
+  assert.ok(failedChecklist.error, "invalid checklist task was accepted");
+  await assertRpcDenied(service, "save_student_checklist_item", {
+    input_task_key: concurrentTaskKeys[0],
+    input_completed: true
+  });
+  const { data: afterFailedChecklist, error: afterFailedChecklistError } = await service
+    .from("checkins")
+    .select("earned_weight,total_weight,daily_score,updated_at")
+    .eq("id", writerCheckin!.id)
+    .single();
+  assert.equal(afterFailedChecklistError, null, afterFailedChecklistError?.message);
+  assert.deepEqual(afterFailedChecklist, beforeFailedChecklist, "failed checklist item mutation changed the parent score");
+  await assertUpdateBlocked(studentWriter, "checkins", ids.checkinA, { note: "cross-student/date write" });
+  await assertUpdateBlocked(studentWriter, "checkin_items", ids.itemA, { completed: false });
 
   const writerPlanPath = `${ids.users.studentWriter}/${ids.weekStart}/plan.pdf`;
   const { data: writerPlan, error: writerPlanError } = await studentWriter
@@ -3954,6 +4097,30 @@ async function runAssertions(ids: SeedIds) {
     .from("weekly-plans")
     .createSignedUrl(`${ids.users.studentA}/${ids.weekStart}/plan.pdf`, 60);
   assert.equal(ownSigned.error, null, `student own weekly-plan signing failed: ${ownSigned.error?.message}`);
+  const overwriteAttempt = await service.storage
+    .from("weekly-plans")
+    .upload(
+      `${ids.users.studentA}/${ids.weekStart}/plan.pdf`,
+      new Blob(["replacement"], { type: "application/pdf" }),
+      { contentType: "application/pdf", upsert: false }
+    );
+  assert.ok(overwriteAttempt.error, "non-destructive weekly-plan replacement overwrote the current object");
+  const currentObjectAfterFailedReplacement = await service.storage
+    .from("weekly-plans")
+    .download(`${ids.users.studentA}/${ids.weekStart}/plan.pdf`);
+  assert.equal(currentObjectAfterFailedReplacement.error, null, currentObjectAfterFailedReplacement.error?.message);
+  assert.equal(await currentObjectAfterFailedReplacement.data?.text(), "plan");
+  const candidateReplacementPath = `${ids.users.studentA}/${ids.weekStart}/${randomUUID()}-replacement.pdf`;
+  const candidateReplacement = await service.storage
+    .from("weekly-plans")
+    .upload(
+      candidateReplacementPath,
+      new Blob(["candidate"], { type: "application/pdf" }),
+      { contentType: "application/pdf", upsert: false }
+    );
+  assert.equal(candidateReplacement.error, null, candidateReplacement.error?.message);
+  const candidateCleanup = await service.storage.from("weekly-plans").remove([candidateReplacementPath]);
+  assert.equal(candidateCleanup.error, null, candidateCleanup.error?.message);
   const directUpload = await studentA.storage
     .from("weekly-plans")
     .upload(`${ids.users.studentA}/${ids.weekStart}/direct.pdf`, new Blob(["forbidden"]));

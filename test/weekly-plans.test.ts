@@ -12,6 +12,8 @@ import {
   WEEKLY_PLAN_MAX_BYTES,
   weeklyPlanBlocksCheckIn,
   weeklyPlanPathBelongsToStudent,
+  weeklyPlanPathMatchesExactContext as weeklyPlanPathMatchesStudentContext,
+  weeklyPlanReplacementStoragePath,
   weeklyPlanRequiredWeekStart,
   weeklyPlanStoragePath
 } from "@/lib/weekly-plans";
@@ -62,6 +64,14 @@ describe("weekly plan upload rules", () => {
     expect(weeklyPlanStoragePath("student-1", "2026-05-09", " My Plan.PDF ")).toBe(
       "student-1/2026-05-09/my-plan.pdf"
     );
+    expect(weeklyPlanReplacementStoragePath(
+      "11111111-1111-4111-8111-111111111111",
+      "2026-07-19",
+      " My Plan.PDF ",
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    )).toBe(
+      "11111111-1111-4111-8111-111111111111/2026-07-19/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa-my-plan.pdf"
+    );
   });
 
   it("rejects weekly-plan paths outside the student's week folder", () => {
@@ -83,6 +93,26 @@ describe("weekly plan upload rules", () => {
     expect(weeklyPlanPathMatchesExactContext(studentId, "2026-07-20", exactPath, "plan.pdf")).toBe(false);
     expect(weeklyPlanPathMatchesExactContext(studentId, weekStart, exactPath, "substituted.pdf")).toBe(false);
     expect(weeklyPlanPathMatchesExactContext(studentId, weekStart, `${studentId}/${weekStart}/Plan.PDF`)).toBe(false);
+    const replacementPath = weeklyPlanReplacementStoragePath(
+      studentId,
+      weekStart,
+      "plan.pdf",
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    );
+    expect(weeklyPlanPathMatchesExactContext(studentId, weekStart, replacementPath, "plan.pdf")).toBe(true);
+    expect(weeklyPlanPathMatchesStudentContext(studentId, weekStart, replacementPath, "plan.pdf")).toBe(true);
+    expect(weeklyPlanPathMatchesExactContext(
+      studentId,
+      weekStart,
+      `${studentId}/${weekStart}/not-a-uuid-plan.pdf`,
+      "plan.pdf"
+    )).toBe(false);
+    expect(weeklyPlanPathMatchesExactContext(
+      studentId,
+      weekStart,
+      replacementPath,
+      "other.pdf"
+    )).toBe(false);
   });
 });
 

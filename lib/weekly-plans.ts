@@ -1,11 +1,13 @@
 import type { Profile, WeeklyPlan } from "@/lib/types";
-import { checkInEffectiveDateString, weekStartForDate } from "@/lib/dates";
+import { checkInEffectiveDateString, isValidDateString, weekStartForDate } from "@/lib/dates";
 
 export const WEEKLY_PLAN_BUCKET = "weekly-plans";
 export const WEEKLY_PLAN_MAX_MB = 3;
 export const WEEKLY_PLAN_MAX_BYTES = WEEKLY_PLAN_MAX_MB * 1024 * 1024;
 export const WEEKLY_PLAN_MAX_SIZE_LABEL = `${WEEKLY_PLAN_MAX_MB} MB`;
 export const WEEKLY_PLAN_ALLOWED_TYPES = ["image/png", "image/jpeg", "application/pdf"] as const;
+
+const WEEKLY_PLAN_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type WeeklyPlanContext = {
   effectiveDate: string;
@@ -51,8 +53,74 @@ export function weeklyPlanStoragePath(studentId: string, weekStart: string, file
   return `${studentId}/${weekStart}/${safeWeeklyPlanFileName(fileName)}`;
 }
 
+/**
+ * Generates a never-overwritten candidate object path for a replacement.
+ * Legacy metadata paths remain valid; new uploads add a UUID only to the
+ * object name so the visible file name stays in weekly_plans.file_name.
+ */
+export function weeklyPlanReplacementStoragePath(
+  studentId: string,
+  weekStart: string,
+  fileName: string,
+  replacementId: string
+) {
+  if (!WEEKLY_PLAN_UUID_PATTERN.test(replacementId)) {
+    throw new Error("Weekly-plan replacement ids must be UUIDs.");
+  }
+
+  return `${studentId}/${weekStart}/${replacementId}-${safeWeeklyPlanFileName(fileName)}`;
+}
+
 export function weeklyPlanPathBelongsToStudent(studentId: string, weekStart: string, filePath: string) {
   return filePath.startsWith(`${studentId}/${weekStart}/`) && !filePath.includes("..");
+}
+
+/**
+ * Accepts both the original exact filename path and the UUID-prefixed paths
+ * created by non-destructive replacements. The caller must still provide the
+ * stored metadata filename so a substituted object cannot pass validation.
+ */
+export function weeklyPlanPathMatchesExactContext(
+  studentId: string,
+  weekStart: string,
+  filePath: string,
+  fileName?: string
+) {
+  if (
+    !WEEKLY_PLAN_UUID_PATTERN.test(studentId)
+    || !isValidDateString(weekStart)
+    || weekStartForDate(weekStart) !== weekStart
+    || !filePath.startsWith(`${studentId}/${weekStart}/`)
+    || filePath.includes("..")
+  ) {
+    return false;
+  }
+
+  const parts = filePath.split("/");
+  if (parts.length !== 3 || parts[0] !== studentId || parts[1] !== weekStart || !parts[2]) {
+    return false;
+  }
+
+  const pathFileName = parts[2];
+  if (pathFileName !== safeWeeklyPlanFileName(pathFileName)) {
+    return false;
+  }
+
+  if (fileName === undefined) {
+    return true;
+  }
+
+  const safeFileName = safeWeeklyPlanFileName(fileName);
+  if (filePath === weeklyPlanStoragePath(studentId, weekStart, fileName)) {
+    return true;
+  }
+
+  const replacementSuffix = `-${safeFileName}`;
+  if (!pathFileName.endsWith(replacementSuffix)) {
+    return false;
+  }
+
+  return WEEKLY_PLAN_UUID_PATTERN.test(pathFileName.slice(0, -replacementSuffix.length));
 }
 
 export const WEEKLY_PLAN_GATE_COPY = {
