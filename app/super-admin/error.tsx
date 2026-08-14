@@ -2,7 +2,7 @@
 
 import RoleErrorFallback from "@/app/error-fallback";
 
-export default function PersonAccessError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+export default function SuperAdminError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
     <RoleErrorFallback
       dashboardHref="/super-admin"
@@ -10,7 +10,7 @@ export default function PersonAccessError({ error, reset }: { error: Error & { d
       error={error}
       reset={reset}
       tone="super-admin"
-      workspaceLabel="Person access workspace"
+      workspaceLabel="Super admin workspace"
     />
   );
 }

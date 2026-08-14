@@ -2,13 +2,7 @@
 
 import RoleErrorFallback from "@/app/error-fallback";
 
-export default function AdminStudentWorkspaceError({
-  error,
-  reset
-}: {
-  error: Error & { digest?: string };
-  reset: () => void;
-}) {
+export default function AdminError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
     <RoleErrorFallback
       dashboardHref="/admin"
@@ -16,7 +10,7 @@ export default function AdminStudentWorkspaceError({
       error={error}
       reset={reset}
       tone="admin"
-      workspaceLabel="Student workspace"
+      workspaceLabel="Admin workspace"
     />
   );
 }
