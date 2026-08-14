@@ -1,5 +1,5 @@
-import AppNav from "@/app/nav";
 import { submitPartnerRecitation } from "@/app/student/actions";
+import StudentProgressNav from "@/app/student/progress-nav";
 import { StudentPage } from "@/app/student/student-ui";
 import { StudentSetupIncomplete, StudentWeekContextPanel } from "@/app/student/student-week-context";
 import { checkInEffectiveDateString, formatDateTimeInAppTimeZone, friendlyDate, weekStartForDate } from "@/lib/dates";
@@ -26,7 +26,7 @@ export default async function PartnerRecitationPage({
   const studentContext = await loadStudentWeekContext(supabase, profile.id, weekStart);
 
   if (!studentContext.scope) {
-    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={weekStart} teacher={studentContext.teacher} />;
+    return <StudentSetupIncomplete weekStart={weekStart} />;
   }
 
   const { data: partnerRecitations } = await supabase
@@ -41,9 +41,8 @@ export default async function PartnerRecitationPage({
   });
 
   return (
-    <>
-      <AppNav role={profile.role} name={profile.name} />
-      <StudentPage width="focused">
+    <StudentPage width="focused">
+      <StudentProgressNav />
         <section className="rounded-lg border border-stone-200 bg-white p-6 shadow-sm">
           <div>
             <h1 className="text-2xl font-semibold text-ink">Partner Recitation</h1>
@@ -131,7 +130,6 @@ export default async function PartnerRecitationPage({
             ))}
           </div>
         </section>
-      </StudentPage>
-    </>
+    </StudentPage>
   );
 }

@@ -128,16 +128,12 @@ describe("access rules", () => {
     expect(navigationLinksForRole("teacher").find((link) => link.href === "/teacher")?.prefetch).toBe(false);
   });
 
-  it("keeps the complete student workflow navigation in product order", () => {
+  it("keeps the approved student shell navigation in product order", () => {
     expect(navigationLinksForRole("student")).toEqual([
-      { href: "/student/check-in", label: "Check-In" },
-      { href: "/student/partner-recitation", label: "Partner Recitation" },
-      { href: "/student/grades", label: "Grades" },
-      { href: "/student/leaderboard", label: "Leaderboard" },
+      { href: "/student/check-in", label: "Today" },
+      { href: "/student/partner-recitation", label: "My Progress" },
       { href: "/student/weekly-plan", label: "Weekly Plan" },
-      { href: "/student/rewards", label: "Rewards" },
-      { href: "/student/history", label: "History" },
-      { href: "/account/change-password", label: "Password" }
+      { href: "/account/change-password", label: "Account" }
     ]);
   });
 

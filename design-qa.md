@@ -215,3 +215,42 @@ final result: superseded by the completed authenticated pass below
 - No actionable P0, P1, or P2 visual or interaction finding remains.
 
 final result: passed
+
+---
+
+# Student shell checkpoint design QA
+
+Final result: blocked
+
+## Source of truth
+
+- Canonical behavior: `docs/design-handoff/student-experience-redesign-2026-08-14/README.md`
+- Relevant canvases: `01-today-check-in.png`, `02-partner-recitation.png`, `03-weekly-plan-uploaded.png`, `10-account-password.png`, `11-mobile-account-sheet.png`, `14-assignment-pending.png`, and `16-loading-error-empty-states.png`
+- Implementation captures: `artifacts/student-shell-checkpoint/desktop/` and `artifacts/student-shell-checkpoint/mobile/`
+
+## Viewports and states checked
+
+- Desktop CSS viewport: 1440 × 1024
+- Mobile CSS viewport: 390 × 844
+- Authenticated assigned-student states checked: Today, My Progress, Weekly Plan, Account, and the mobile account sheet
+- Interaction checks: account sheet open, overlay/close behavior, Escape close, and focus restoration to the avatar trigger
+- Layout checks: horizontal overflow, fixed mobile navigation clearance, visible primary navigation, and representative page-content coexistence
+- Browser console: no application errors observed on the captured assigned-student routes
+
+## Findings fixed during QA
+
+- Allowed the existing Account page to fill the shell content column instead of shrinking inside the grid.
+- Removed the duplicate desktop Today verse because the approved shell owns the desktop verse card.
+- Increased the mobile account-sheet placement contrast.
+- Replaced a text chevron with the existing Phosphor icon library.
+- Added explicit Escape handling and verified focus restoration for the native dialog account sheet.
+
+## Capture notes
+
+The browser capture backend reported larger physical image dimensions than the requested CSS viewports. The checked-in outputs were normalized to the requested 1440 × 1024 and 390 × 844 dimensions. They are authenticated development working captures, retain the Next.js development indicator, and precede some of the fixes listed above. They document the QA pass but are not final visual-acceptance captures.
+
+## Blocking limitation
+
+After the assigned-student pass, the in-app browser rejected further local navigation under its URL security policy. Its instruction explicitly prohibited alternate browser workarounds. As a result, final authenticated screenshots for assignment-pending, loading, and route-error states could not be captured in this pass, and the existing normalized captures could not be recaptured with a crop-based normalization. Those states have implementation and focused component coverage, but their final visual comparison remains outstanding. This is why the design-QA result is `blocked`, not `passed`.
+
+final result: blocked
