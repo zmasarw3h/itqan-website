@@ -89,25 +89,23 @@ test.describe("authenticated student flow", () => {
       })
     ).toBeVisible();
 
-    await revealResponsiveNavigation(page);
-    const expectedStudentLinks = [
-      "Check-In",
-      "Partner Recitation",
-      "Grades",
-      "Leaderboard",
-      "Weekly Plan",
-      "Rewards",
-      "History",
-      "Password"
-    ];
+    const viewport = page.viewportSize();
+    const expectedStudentLinks = viewport && viewport.width < 1024
+      ? ["Today", "My Progress", "Weekly Plan"]
+      : ["Today", "My Progress", "Weekly Plan", "Account"];
 
     for (const label of expectedStudentLinks) {
       await expect(page.getByRole("link", { name: label, exact: true })).toBeVisible();
     }
 
-    const activeCheckInLink = page.getByRole("link", { name: "Check-In", exact: true });
+    const activeCheckInLink = page.getByRole("link", { name: "Today", exact: true });
     await expect(activeCheckInLink).toHaveAttribute("aria-current", "page");
     expect(await activeCheckInLink.evaluate((link) => link.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+
+    if (viewport && viewport.width < 1024) {
+      await expect(page.getByRole("button", { name: /Open account menu/ })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Account", exact: true })).toHaveCount(0);
+    }
 
     const checklist = page.getByRole("group", { name: "Today's checklist" });
     if ((await checklist.count()) === 1) {
@@ -122,7 +120,6 @@ test.describe("authenticated student flow", () => {
       await expect(page.getByRole("button", { name: "Save note" })).toBeVisible();
       await expect(page.getByRole("complementary", { name: "Halaqa and Quran guidance" })).toBeVisible();
 
-      const viewport = page.viewportSize();
       if (viewport && viewport.width < 1024) {
         const mobileGuidanceVerse = page.locator(
           '[aria-labelledby="check-in-guidance-verse-title-mobile"]'

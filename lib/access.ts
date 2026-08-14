@@ -36,14 +36,10 @@ export function navigationLinksForRole(role: Role, hasTeacherCapability = false)
 
   if (role === "student") {
     return [
-      { href: "/student/check-in", label: "Check-In" },
-      { href: "/student/partner-recitation", label: "Partner Recitation" },
-      { href: "/student/grades", label: "Grades" },
-      { href: "/student/leaderboard", label: "Leaderboard" },
+      { href: "/student/check-in", label: "Today" },
+      { href: "/student/partner-recitation", label: "My Progress" },
       { href: "/student/weekly-plan", label: "Weekly Plan" },
-      { href: "/student/rewards", label: "Rewards" },
-      { href: "/student/history", label: "History" },
-      { href: "/account/change-password", label: "Password" }
+      { href: "/account/change-password", label: "Account" }
     ];
   }
 
