@@ -69,7 +69,7 @@ function Placement({ placement, light = false }: { placement: StudentShellPlacem
   if (!placement) return <p className={`mt-1 text-xs ${light ? "text-stone-500" : "text-stone-300"}`}>Assignment pending</p>;
 
   return (
-    <p className={`mt-1 truncate text-xs ${light ? "text-stone-600" : "text-stone-200"}`}>
+    <p className={`mt-1 break-words text-xs leading-5 ${light ? "text-stone-600" : "text-stone-200"}`}>
       {placement.cohortName} · {placement.groupName}
     </p>
   );
@@ -211,7 +211,7 @@ function AccountSheet({
               {initials}
             </span>
             <div className="min-w-0 flex-1">
-              <h2 className="truncate text-xl font-semibold" id="student-account-sheet-title">{name}</h2>
+              <h2 className="break-words text-xl font-semibold leading-7" id="student-account-sheet-title">{name}</h2>
               <Placement light placement={placement} />
             </div>
             <button
@@ -279,7 +279,7 @@ function StudentShellNavigation({
             {initials}
           </span>
           <div className="min-w-0 pt-0.5">
-            <p className="truncate text-sm font-semibold text-white">{name}</p>
+            <p className="break-words text-sm font-semibold leading-5 text-white">{name}</p>
             <p className="mt-0.5 text-xs text-stone-200">Student</p>
             <Placement placement={placement} />
           </div>

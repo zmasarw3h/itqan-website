@@ -254,3 +254,47 @@ The browser capture backend reported larger physical image dimensions than the r
 After the assigned-student pass, the in-app browser rejected further local navigation under its URL security policy. Its instruction explicitly prohibited alternate browser workarounds. As a result, final authenticated screenshots for assignment-pending, loading, and route-error states could not be captured in this pass, and the existing normalized captures could not be recaptured with a crop-based normalization. Those states have implementation and focused component coverage, but their final visual comparison remains outstanding. This is why the design-QA result is `blocked`, not `passed`.
 
 final result: blocked
+
+---
+
+# Student shell checkpoint — final merge-ready amendment
+
+## Final-state evidence
+
+- Source of truth: `docs/design-handoff/student-experience-redesign-2026-08-14/README.md` and canvases 01, 02, 03, 06–11, 14, and 16.
+- Fresh authenticated implementation captures from the rebased production build are under `artifacts/student-shell-final-qa-2026-08-14/implementation/`.
+- Every desktop capture is exactly 1440 × 1024; every mobile capture is exactly 390 × 844.
+- Direct reference-versus-implementation images are under `artifacts/student-shell-final-qa-2026-08-14/comparisons/`. Each comparison places the matching canonical state beside the exact final implementation capture. The canonical desktop/mobile panel is normalized only for side-by-side inspection; the implementation evidence remains at its exact requested viewport.
+- Assigned-student evidence covers Today, Partner Recitation, Grades, Check-In History, Leaderboard, Badge Awards, Weekly Plan with Preview and Download, Account, and the mobile Account sheet.
+- State evidence covers assignment pending, shell-stable loading, and a sanitized route error on desktop and mobile.
+- The fixture uses deliberately long student, masjid, cohort, and group names to exercise wrapping. It is disposable local data; no production or remote data was read or mutated.
+
+## Direct comparison findings
+
+- The 256 px desktop sidebar, compact gold ITQAN wordmark, deep-forest navigation, warm-ivory content surface, restrained gold active accent, identity placement, and Surah Aal-Imran 3:8 card match the approved shell hierarchy and density.
+- Mobile retains the compact deep-forest header and fixed three-item bottom navigation. At 390 px, `scrollWidth === innerWidth`, the page fills the full width without a blank strip, and the 96 px content clearance keeps controls above the bottom navigation and safe-area inset.
+- The five My Progress destinations appear in the required order and each route exposes its current active state. Desktop uses links; mobile uses the labelled `Progress view` route selector. No destination or selector control is clipped.
+- Long identity and placement text wraps without hiding the student, masjid, cohort, group, or teacher context. There is one shell, one relevant verse treatment per viewport, and no duplicate primary navigation.
+- Assignment pending preserves Account and sign-out while rendering Today, My Progress, and Weekly Plan visibly subdued and non-actionable. No internal identifiers or fabricated scope are presented.
+- Loading retains the complete shell and uses structural skeletons without fabricated scores or counts. Route errors retain the shell, show `Try again` and `Go to Today`, and contain no raw Supabase/internal text.
+- Weekly Plan retains the merged owner-only Preview and Download links for the exact current week. The checkpoint intentionally leaves the existing page content composition unchanged.
+- Account-sheet keyboard verification passed: focus moves into the sheet, Escape closes it, overlay/close behavior works, and focus returns to the avatar trigger. Reduced-motion treatment is present.
+
+## Runtime and interaction checks
+
+- A clean production-server audit loaded all eight accepted routes without an error presentation. Browser console inspection reported zero warnings and zero errors; the clean server emitted no failed-request or application-error output.
+- Accepted captures contain no Next.js development indicator.
+- All 23 saved implementation screenshots and all 23 direct comparison images were inspected after capture. No actionable P0, P1, or P2 shell/navigation issue remains.
+- The deliberately injected route-error capture is excluded from the clean-route error count; it was created by temporarily revoking execute permission on a local Grades RPC, then restoring it and confirming normal Grades loading. That state emits the expected sanitized boundary log containing only the generic message and digest, while the rendered page and client log expose no raw internal or Supabase text.
+
+## Intentionally deferred surfaces
+
+- Today checklist and progress content redesign.
+- Weekly Plan upload, replacement, and preview-page content redesign.
+- Partner Recitation, Grades, Check-In History, Leaderboard, and Badge Awards content redesign.
+- Account/password form redesign.
+- Offline/retry product behavior and all admin, teacher, and super-admin redesigns.
+
+The visible content differences inside those existing route surfaces are expected for this shell-only checkpoint and were not treated as shell QA failures.
+
+final result: passed

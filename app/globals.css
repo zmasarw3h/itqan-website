@@ -29,6 +29,12 @@ body {
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .student-account-sheet[open] {
+    animation: none;
+  }
+}
+
 body:has(> .student-shell-root) > main#main-content {
   padding-bottom: calc(6rem + env(safe-area-inset-bottom));
 }

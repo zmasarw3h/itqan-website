@@ -69,7 +69,7 @@ export default async function StudentWeeklyPlanPage({
 
   return (
     <StudentPage width="narrow">
-        <section className="rounded-lg border border-stone-200 bg-white p-6 shadow-sm">
+      <section className="rounded-lg border border-stone-200 bg-white p-6 shadow-sm">
           <div>
             <h1 className="text-2xl font-semibold text-ink">Weekly Plan</h1>
             <p className="mt-1 text-stone-600">{formatWeekRange(weekStart)}</p>
@@ -110,7 +110,7 @@ export default async function StudentWeeklyPlanPage({
           </div>
 
           <WeeklyPlanUploadForm />
-        </section>
+      </section>
     </StudentPage>
   );
 }
