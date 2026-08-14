@@ -10,7 +10,7 @@ export default async function ChangePasswordPage() {
   return (
     <>
       <AppNav role={profile.role} name={profile.name} />
-      <main className="mx-auto w-full max-w-3xl px-4 py-8" id="main-content">
+      <main className="mx-auto max-w-3xl px-4 py-8" id="main-content">
         <section className="rounded-lg border border-stone-200 bg-white p-6 shadow-sm">
           <div className="mb-6">
             <h1 className="text-2xl font-semibold text-ink">Change Password</h1>
