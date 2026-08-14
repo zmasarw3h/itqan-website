@@ -1,3 +1,4 @@
+import AppNav from "@/app/nav";
 import { StudentPage } from "@/app/student/student-ui";
 import { StudentSetupIncomplete, StudentWeekContextPanel } from "@/app/student/student-week-context";
 import WeeklyPlanUploadForm from "@/app/student/weekly-plan/weekly-plan-upload-form";
@@ -51,7 +52,7 @@ export default async function StudentWeeklyPlanPage({
   const studentContext = await loadStudentWeekContext(supabase, profile.id, weekStart);
 
   if (!studentContext.scope) {
-    return <StudentSetupIncomplete weekStart={weekStart} />;
+    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={weekStart} teacher={studentContext.teacher} />;
   }
 
   const { data: weeklyPlan } = await supabase
@@ -68,8 +69,10 @@ export default async function StudentWeeklyPlanPage({
   const status = resolvedSearchParams.status ? statusMessages[resolvedSearchParams.status] : null;
 
   return (
-    <StudentPage width="narrow">
-      <section className="rounded-lg border border-stone-200 bg-white p-6 shadow-sm">
+    <>
+      <AppNav role={profile.role} name={profile.name} />
+      <StudentPage width="narrow">
+        <section className="rounded-lg border border-stone-200 bg-white p-6 shadow-sm">
           <div>
             <h1 className="text-2xl font-semibold text-ink">Weekly Plan</h1>
             <p className="mt-1 text-stone-600">{formatWeekRange(weekStart)}</p>
@@ -110,7 +113,8 @@ export default async function StudentWeeklyPlanPage({
           </div>
 
           <WeeklyPlanUploadForm />
-      </section>
-    </StudentPage>
+        </section>
+      </StudentPage>
+    </>
   );
 }

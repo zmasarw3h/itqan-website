@@ -1,5 +1,5 @@
+import AppNav from "@/app/nav";
 import { arabicFont } from "@/app/arabic-font";
-import StudentProgressNav from "@/app/student/progress-nav";
 import { StudentPage } from "@/app/student/student-ui";
 import { StudentSetupIncomplete } from "@/app/student/student-week-context";
 import { formatWeekRange } from "@/lib/dates";
@@ -29,12 +29,17 @@ export default async function StudentLeaderboardPage({
   searchParams: Promise<StudentLeaderboardSearchParams>;
 }) {
   const resolvedSearchParams = await searchParams;
-  const { supabase } = await requireProfile(["student"]);
+  const { supabase, profile } = await requireProfile(["student"]);
   const data = await loadStudentLeaderboardData(supabase, resolvedSearchParams);
 
   if (!data.scope) {
     return (
-      <StudentSetupIncomplete weekStart={data.selectedWeekStart} />
+      <StudentSetupIncomplete
+        name={profile.name}
+        role={profile.role}
+        teacher={data.teacher}
+        weekStart={data.selectedWeekStart}
+      />
     );
   }
 
@@ -45,8 +50,9 @@ export default async function StudentLeaderboardPage({
   const topScore = data.rows[0]?.scorePercentage ?? null;
 
   return (
-    <StudentPage width="wide">
-      <StudentProgressNav />
+    <>
+      <AppNav role={profile.role} name={profile.name} />
+      <StudentPage width="wide">
         <section className="overflow-hidden rounded-lg border border-stone-200 bg-ink text-white shadow-sm">
           <div className="grid gap-5 p-6 md:grid-cols-[1.2fr_0.8fr] md:items-end">
             <div>
@@ -157,6 +163,7 @@ export default async function StudentLeaderboardPage({
             </table>
           </div>
         </section>
-    </StudentPage>
+      </StudentPage>
+    </>
   );
 }

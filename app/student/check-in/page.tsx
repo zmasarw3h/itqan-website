@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Diamond } from "@phosphor-icons/react/dist/ssr";
 import { arabicFont } from "@/app/arabic-font";
+import AppNav from "@/app/nav";
 import AccountabilityGateActions from "@/app/student/check-in/accountability-gate-actions";
 import CheckInChecklist from "@/app/student/check-in/check-in-checklist";
 import { StudentPage } from "@/app/student/student-ui";
@@ -86,6 +87,7 @@ function CheckInSupportRail({
   return (
     <aside aria-label="Halaqa and Quran guidance" className="space-y-6 lg:sticky lg:top-6">
       <StudentWeekContextPanel layout="stacked" scope={scope} teacher={teacher} />
+      <GuidanceVerse />
     </aside>
   );
 }
@@ -93,18 +95,22 @@ function CheckInSupportRail({
 function AccountabilityGate({
   obligation,
   status,
+  studentName,
   scope,
   teacher
 }: {
   obligation: Pick<AccountabilityObligation, "id" | "week_start" | "weekly_percentage" | "amount_cents">;
   status?: string;
+  studentName: string;
   scope: StudentWeekScope;
   teacher: StudentWeekTeacher | null;
 }) {
   const attestAction = attestAccountabilityPaid.bind(null, obligation.id);
 
   return (
-    <StudentPage width="expanded">
+    <>
+      <AppNav role="student" name={studentName} />
+      <StudentPage width="expanded">
         <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,2.05fr)_minmax(20rem,0.95fr)] xl:gap-10">
           <section className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm sm:p-6 lg:p-8">
             <div>
@@ -160,21 +166,26 @@ function AccountabilityGate({
           </section>
           <CheckInSupportRail scope={scope} teacher={teacher} />
         </div>
-    </StudentPage>
+      </StudentPage>
+    </>
   );
 }
 
 function WeeklyPlanGate({
+  studentName,
   weekStart,
   scope,
   teacher
 }: {
+  studentName: string;
   weekStart: string;
   scope: StudentWeekScope;
   teacher: StudentWeekTeacher | null;
 }) {
   return (
-    <StudentPage width="expanded">
+    <>
+      <AppNav role="student" name={studentName} />
+      <StudentPage width="expanded">
         <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,2.05fr)_minmax(20rem,0.95fr)] xl:gap-10">
           <section className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm sm:p-6 lg:p-8">
             <div>
@@ -203,7 +214,8 @@ function WeeklyPlanGate({
           </section>
           <CheckInSupportRail scope={scope} teacher={teacher} />
         </div>
-    </StudentPage>
+      </StudentPage>
+    </>
   );
 }
 
@@ -218,7 +230,7 @@ export default async function StudentCheckInPage({
   const studentContext = await loadStudentWeekContext(supabase, profile.id, currentWeekStart);
 
   if (!studentContext.scope) {
-    return <StudentSetupIncomplete weekStart={currentWeekStart} />;
+    return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={currentWeekStart} teacher={studentContext.teacher} />;
   }
 
   const { data: currentWeeklyPlan } = await supabase
@@ -231,6 +243,7 @@ export default async function StudentCheckInPage({
   if (weeklyPlanBlocksCheckIn(currentWeeklyPlan ?? null, today)) {
     return (
       <WeeklyPlanGate
+        studentName={profile.name}
         weekStart={currentWeekStart}
         scope={studentContext.scope}
         teacher={studentContext.teacher}
@@ -251,6 +264,7 @@ export default async function StudentCheckInPage({
       <AccountabilityGate
         obligation={blockingObligation}
         status={resolvedSearchParams.status}
+        studentName={profile.name}
         scope={studentContext.scope}
         teacher={studentContext.teacher}
       />
@@ -282,7 +296,9 @@ export default async function StudentCheckInPage({
   const initialSavedAt = checkin?.updated_at ?? checkin?.submitted_at ?? null;
 
   return (
-    <StudentPage width="expanded">
+    <>
+      <AppNav role={profile.role} name={profile.name} />
+      <StudentPage width="expanded">
         <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,2.05fr)_minmax(20rem,0.95fr)] xl:gap-10">
           <div className="min-w-0">
             <section>
@@ -325,8 +341,10 @@ export default async function StudentCheckInPage({
           </div>
           <aside aria-label="Halaqa and Quran guidance" className="space-y-6 lg:sticky lg:top-6">
             <StudentWeekContextPanel layout="stacked" scope={studentContext.scope} teacher={studentContext.teacher} />
+            <GuidanceVerse className="hidden lg:block" titleId="check-in-guidance-verse-title-desktop" />
           </aside>
         </div>
-    </StudentPage>
+      </StudentPage>
+    </>
   );
 }
