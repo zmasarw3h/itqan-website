@@ -264,10 +264,10 @@ export async function saveTodayChecklistItem(input: {
       dailyScore: result.daily_score,
       savedAt: result.saved_at
     };
-  } catch (error) {
+  } catch {
     return {
       ok: false,
-      error: error instanceof Error ? error.message : "Unable to save checklist item."
+      error: "Your checklist change could not be saved. Please try again."
     };
   }
 }
@@ -317,10 +317,10 @@ export async function saveTodayCheckInNote(input: { note: string }): Promise<Sav
       dailyScore: totals.dailyScore,
       savedAt
     };
-  } catch (error) {
+  } catch {
     return {
       ok: false,
-      error: error instanceof Error ? error.message : "Unable to save note."
+      error: "Your note could not be saved. Please try again."
     };
   }
 }

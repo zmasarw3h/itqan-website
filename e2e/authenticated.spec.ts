@@ -43,11 +43,8 @@ async function signIn(page: Page, phone: string, password: string) {
 }
 
 async function revealResponsiveNavigation(page: Page) {
-  const menuSummary = page.locator("summary").filter({ hasText: "Menu" });
-  if (await menuSummary.isVisible()) {
-    await menuSummary.click();
-    await expect(menuSummary.locator("..")).toHaveAttribute("open", "");
-  }
+  const accountTrigger = page.getByRole("button", { name: "Open account menu" });
+  if (await accountTrigger.isVisible()) await accountTrigger.click();
 }
 
 const studentFixture = authFixture(
@@ -85,27 +82,18 @@ test.describe("authenticated student flow", () => {
     await expect(
       page.getByRole("heading", {
         level: 1,
-        name: /Check-In|Today's Check-In|Confirm your sadaqa to unlock today's checklist|Upload this week's plan to unlock today's checklist/
+        name: /Assalamu alaykum|Confirm your sadaqa to unlock today's checklist|Upload this week's plan to unlock today's checklist/
       })
     ).toBeVisible();
 
     await revealResponsiveNavigation(page);
-    const expectedStudentLinks = [
-      "Check-In",
-      "Partner Recitation",
-      "Grades",
-      "Leaderboard",
-      "Weekly Plan",
-      "Rewards",
-      "History",
-      "Password"
-    ];
+    const expectedStudentLinks = ["Today", "My Progress", "Weekly Plan", "Account & security"];
 
     for (const label of expectedStudentLinks) {
       await expect(page.getByRole("link", { name: label, exact: true })).toBeVisible();
     }
 
-    const activeCheckInLink = page.getByRole("link", { name: "Check-In", exact: true });
+    const activeCheckInLink = page.getByRole("link", { name: "Today", exact: true }).first();
     await expect(activeCheckInLink).toHaveAttribute("aria-current", "page");
     expect(await activeCheckInLink.evaluate((link) => link.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
 
@@ -118,9 +106,9 @@ test.describe("authenticated student flow", () => {
       expect(
         await checklistItems.first().evaluate((checkbox) => checkbox.closest("label")?.getBoundingClientRect().height ?? 0)
       ).toBeGreaterThanOrEqual(64);
+      await page.getByText("Add optional note", { exact: true }).click();
       await expect(page.getByLabel("Optional note")).toBeVisible();
       await expect(page.getByRole("button", { name: "Save note" })).toBeVisible();
-      await expect(page.getByRole("complementary", { name: "Halaqa and Quran guidance" })).toBeVisible();
 
       const viewport = page.viewportSize();
       if (viewport && viewport.width < 1024) {

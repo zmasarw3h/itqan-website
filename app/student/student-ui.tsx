@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import ProgressNavigation from "@/app/student/progress-navigation";
 
 const pageWidths = {
   narrow: "max-w-3xl",
@@ -17,9 +18,10 @@ export function StudentPage({
 }) {
   return (
     <main
-      className={`mx-auto w-full ${pageWidths[width]} px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10`}
+      className={`student-page mx-auto w-full ${pageWidths[width]} px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10`}
       id="main-content"
     >
+      <ProgressNavigation />
       {children}
     </main>
   );

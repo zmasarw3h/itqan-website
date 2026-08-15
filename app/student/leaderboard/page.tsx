@@ -1,4 +1,3 @@
-import AppNav from "@/app/nav";
 import { arabicFont } from "@/app/arabic-font";
 import { StudentPage } from "@/app/student/student-ui";
 import { StudentSetupIncomplete } from "@/app/student/student-week-context";
@@ -50,9 +49,7 @@ export default async function StudentLeaderboardPage({
   const topScore = data.rows[0]?.scorePercentage ?? null;
 
   return (
-    <>
-      <AppNav role={profile.role} name={profile.name} />
-      <StudentPage width="wide">
+    <StudentPage width="wide">
         <section className="overflow-hidden rounded-lg border border-stone-200 bg-ink text-white shadow-sm">
           <div className="grid gap-5 p-6 md:grid-cols-[1.2fr_0.8fr] md:items-end">
             <div>
@@ -163,7 +160,6 @@ export default async function StudentLeaderboardPage({
             </table>
           </div>
         </section>
-      </StudentPage>
-    </>
+    </StudentPage>
   );
 }

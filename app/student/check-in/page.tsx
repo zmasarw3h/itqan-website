@@ -1,14 +1,14 @@
 import Link from "next/link";
-import { Diamond } from "@phosphor-icons/react/dist/ssr";
-import { arabicFont } from "@/app/arabic-font";
-import AppNav from "@/app/nav";
+import { CheckCircle, Circle, MinusCircle } from "@phosphor-icons/react/dist/ssr";
 import AccountabilityGateActions from "@/app/student/check-in/accountability-gate-actions";
 import CheckInChecklist from "@/app/student/check-in/check-in-checklist";
 import { StudentPage } from "@/app/student/student-ui";
-import { StudentSetupIncomplete, StudentWeekContextPanel } from "@/app/student/student-week-context";
+import { StudentSetupIncomplete } from "@/app/student/student-week-context";
 import { attestAccountabilityPaid } from "@/app/student/actions";
 import { ACCOUNTABILITY_GATE_COPY } from "@/lib/accountability";
-import { friendlyDate, formatWeekRange } from "@/lib/dates";
+import { friendlyDate, formatWeekRange, weekDatesFromStart } from "@/lib/dates";
+import { buildWeeklyGradeBreakdown, completedStudentGradeWeekStartsDescending } from "@/lib/grades";
+import { parseBelow70StreakReadRows, type Below70StreakReadRow } from "@/lib/below70-streak";
 import { formatAmountCents } from "@/lib/incentives";
 import { calculateDailySubmission, tasksForDate } from "@/lib/scoring";
 import { loadStudentWeekContext, type StudentWeekScope, type StudentWeekTeacher } from "@/lib/student-scope";
@@ -20,7 +20,7 @@ import {
   currentWeeklyPlanContext,
   weeklyPlanBlocksCheckIn
 } from "@/lib/weekly-plans";
-import type { AccountabilityObligation, CheckIn, CheckInItem, WeeklyPlan } from "@/lib/types";
+import type { AccountabilityObligation, CheckIn, CheckInItem, HalaqaGrade, PartnerRecitation, WeeklyPlan } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -36,8 +36,8 @@ function GuidanceVerse({
   return (
     <section
       aria-labelledby={titleId}
-      className={`rounded-lg bg-forest text-white shadow-sm ${
-        compact ? "p-4 sm:p-6" : "p-6 sm:p-7 lg:p-8"
+      className={`rounded-lg border border-gold bg-[#0d382c] text-white shadow-sm ${
+        compact ? "p-3 sm:p-5" : "p-6 sm:p-7 lg:p-8"
       } ${className}`}
     >
       <h2
@@ -46,18 +46,10 @@ function GuidanceVerse({
       >
         Surah Aal-Imran 3:8
       </h2>
-      <div
-        aria-hidden="true"
-        className={`${compact ? "my-3" : "my-5"} flex items-center text-gold-on-dark`}
-      >
-        <span className={`${compact ? "w-9" : "w-12"} h-px bg-current opacity-60`} />
-        <Diamond className="mx-2" size={compact ? 12 : 14} weight="regular" />
-        <span className={`${compact ? "w-9" : "w-12"} h-px bg-current opacity-60`} />
-      </div>
       <p
-        className={`${arabicFont.className} text-white ${
+        className={`mt-3 text-white ${
           compact
-            ? "text-center text-2xl leading-[1.65]"
+            ? "text-center text-lg leading-[1.65]"
             : "text-right text-3xl leading-[1.9] lg:text-[2.15rem]"
         }`}
         dir="rtl"
@@ -66,36 +58,55 @@ function GuidanceVerse({
         رَبَّنَا لَا تُزِغْ قُلُوبَنَا بَعْدَ إِذْ هَدَيْتَنَا وَهَبْ لَنَا مِن لَّدُنكَ رَحْمَةً ۚ
         إِنَّكَ أَنتَ الْوَهَّابُ
       </p>
-      <div aria-hidden="true" className={`${compact ? "my-3" : "my-5"} h-px bg-gold-on-dark/55`} />
       <p
-        className={`${compact ? "text-center text-sm leading-5" : "text-base leading-7"} text-stone-100`}
+        className={`${compact ? "mt-2 text-center text-xs leading-4" : "mt-5 text-base leading-7"} text-stone-100`}
       >
-        “Our Lord, do not let our hearts deviate after You have guided us. Grant us mercy from Yourself. You are the
-        Ever-Giving.”
+        Our Lord, do not let our hearts deviate after You have guided us, and grant us mercy from Yourself. Indeed, You are the Ever-Giving.
       </p>
     </section>
   );
 }
 
-function CheckInSupportRail({
-  scope,
-  teacher
-}: {
-  scope: StudentWeekScope;
-  teacher: StudentWeekTeacher | null;
-}) {
+function GateContext({ scope, teacher }: { scope: StudentWeekScope; teacher: StudentWeekTeacher | null }) {
   return (
-    <aside aria-label="Halaqa and Quran guidance" className="space-y-6 lg:sticky lg:top-6">
-      <StudentWeekContextPanel layout="stacked" scope={scope} teacher={teacher} />
-      <GuidanceVerse />
-    </aside>
+    <div className="today-gate-context">
+      <span>{scope.cohortName} · {scope.groupName}</span>
+      <span>This week&apos;s teacher: <strong>{teacher?.teacher_name ?? "Not assigned yet"}</strong></span>
+    </div>
+  );
+}
+
+function WeekStatusStrip({ weekStart, today, checkins }: { weekStart: string; today: string; checkins: CheckIn[] }) {
+  const savedDates = new Set(checkins.map((checkin) => checkin.date));
+  return (
+    <section className="today-week-strip" aria-labelledby="today-week-heading">
+      <div className="today-week-heading-row">
+        <h2 id="today-week-heading">This week <span>•</span> {formatWeekRange(weekStart)}</h2>
+        <div className="today-week-legend" aria-label="Day status legend">
+          <span><CheckCircle aria-hidden="true" className="is-saved" weight="fill" />Saved</span><span><MinusCircle aria-hidden="true" className="is-missing" weight="fill" />Missing</span><span><Circle aria-hidden="true" className="is-today" weight="duotone" />Today</span><span><Circle aria-hidden="true" className="is-upcoming" weight="fill" />Upcoming</span>
+        </div>
+      </div>
+      <ol>
+        {weekDatesFromStart(weekStart).map((date) => {
+          const state = date === today ? "today" : date > today ? "upcoming" : savedDates.has(date) ? "saved" : "missing";
+          const parsed = new Date(`${date}T00:00:00Z`);
+          const StateIcon = state === "saved" ? CheckCircle : state === "missing" ? MinusCircle : Circle;
+          return (
+            <li key={date} aria-label={`${friendlyDate(date)}: ${state}`}>
+              <span>{new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" }).format(parsed)}</span>
+              <small>{new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit", timeZone: "UTC" }).format(parsed)}</small>
+              <StateIcon className={`is-${state}`} aria-hidden="true" weight={state === "today" ? "duotone" : "fill"} />
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }
 
 function AccountabilityGate({
   obligation,
   status,
-  studentName,
   scope,
   teacher
 }: {
@@ -108,11 +119,9 @@ function AccountabilityGate({
   const attestAction = attestAccountabilityPaid.bind(null, obligation.id);
 
   return (
-    <>
-      <AppNav role="student" name={studentName} />
-      <StudentPage width="expanded">
-        <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,2.05fr)_minmax(20rem,0.95fr)] xl:gap-10">
-          <section className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm sm:p-6 lg:p-8">
+    <StudentPage width="expanded">
+        <div className="today-gate-wrap">
+          <section className="today-gate">
             <div>
               <p className="text-sm font-medium uppercase text-moss">Accountability confirmation</p>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
@@ -140,7 +149,7 @@ function AccountabilityGate({
               </p>
             ) : null}
 
-            <div className="mt-6 grid gap-3 rounded-md bg-stone-50 p-4 text-sm text-stone-700">
+            <div className="today-gate-details">
               <p>
                 <span className="font-medium text-ink">Week:</span> {formatWeekRange(obligation.week_start)}
               </p>
@@ -163,16 +172,14 @@ function AccountabilityGate({
                 </form>
               </AccountabilityGateActions>
             </div>
+            <GateContext scope={scope} teacher={teacher} />
           </section>
-          <CheckInSupportRail scope={scope} teacher={teacher} />
         </div>
-      </StudentPage>
-    </>
+    </StudentPage>
   );
 }
 
 function WeeklyPlanGate({
-  studentName,
   weekStart,
   scope,
   teacher
@@ -183,11 +190,9 @@ function WeeklyPlanGate({
   teacher: StudentWeekTeacher | null;
 }) {
   return (
-    <>
-      <AppNav role="student" name={studentName} />
-      <StudentPage width="expanded">
-        <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,2.05fr)_minmax(20rem,0.95fr)] xl:gap-10">
-          <section className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm sm:p-6 lg:p-8">
+    <StudentPage width="expanded">
+        <div className="today-gate-wrap">
+          <section className="today-gate">
             <div>
               <p className="text-sm font-medium uppercase text-moss">Weekly plan required</p>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
@@ -196,7 +201,7 @@ function WeeklyPlanGate({
               <p className="mt-3 max-w-2xl text-base leading-7 text-stone-600">{WEEKLY_PLAN_GATE_COPY.support}</p>
             </div>
 
-            <div className="mt-6 rounded-md bg-stone-50 p-4 text-sm text-stone-700">
+            <div className="today-gate-details">
               <p>
                 <span className="font-medium text-ink">{WEEKLY_PLAN_GATE_COPY.weekLabel}:</span>{" "}
                 {formatWeekRange(weekStart)}
@@ -211,11 +216,11 @@ function WeeklyPlanGate({
                 {WEEKLY_PLAN_GATE_COPY.actionLabel}
               </Link>
             </div>
+            <p className="mt-4 text-sm text-stone-600">Your checklist will become available after the plan finishes uploading.</p>
+            <GateContext scope={scope} teacher={teacher} />
           </section>
-          <CheckInSupportRail scope={scope} teacher={teacher} />
         </div>
-      </StudentPage>
-    </>
+    </StudentPage>
   );
 }
 
@@ -294,35 +299,54 @@ export default async function StudentCheckInPage({
   const initialTotalWeight = checkin?.total_weight ?? fallbackTotals.totalWeight;
   const initialDailyScore = checkin?.daily_score ?? fallbackTotals.dailyScore;
   const initialSavedAt = checkin?.updated_at ?? checkin?.submitted_at ?? null;
+  const weekDates = weekDatesFromStart(currentWeekStart);
+  const completedWeeks = completedStudentGradeWeekStartsDescending({ selectedWeekStart: currentWeekStart, today });
+  const [weekCheckinsResult, partnerResult, halaqaResult, streakResult] = await Promise.all([
+    supabase
+      .from("checkins")
+      .select("id,student_id,date,completed,note,earned_weight,total_weight,daily_score,submitted_at,updated_at,updated_by_admin")
+      .eq("student_id", profile.id)
+      .in("date", weekDates)
+      .returns<CheckIn[]>(),
+    supabase
+      .from("partner_recitations")
+      .select("id,student_id,week_start,round,points,submitted_at")
+      .eq("student_id", profile.id)
+      .eq("week_start", currentWeekStart)
+      .returns<PartnerRecitation[]>(),
+    supabase
+      .from("halaqa_grades")
+      .select("id,student_id,week_start,attended,attendance_points,recitation_points,notes,graded_by,graded_at,updated_at")
+      .eq("student_id", profile.id)
+      .eq("week_start", currentWeekStart)
+      .maybeSingle<HalaqaGrade>(),
+    completedWeeks.length
+      ? supabase.rpc("get_student_below70_streak", { input_student_id: profile.id, input_through_week_start: completedWeeks[0] }).returns<Below70StreakReadRow[]>()
+      : Promise.resolve({ data: [] as Below70StreakReadRow[], error: null })
+  ]);
+
+  if (weekCheckinsResult.error || partnerResult.error || halaqaResult.error || streakResult.error) {
+    throw new Error("Unable to load today's progress.");
+  }
+
+  const weekCheckins = weekCheckinsResult.data ?? [];
+  const weeklyScore = buildWeeklyGradeBreakdown({
+    weekDates,
+    checkins: weekCheckins,
+    partnerRecitations: partnerResult.data ?? [],
+    halaqaGrade: halaqaResult.data ?? null
+  });
+  const below70Streak = parseBelow70StreakReadRows(streakResult.data)[0]?.active_streak_length ?? 0;
 
   return (
-    <>
-      <AppNav role={profile.role} name={profile.name} />
-      <StudentPage width="expanded">
-        <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,2.05fr)_minmax(20rem,0.95fr)] xl:gap-10">
-          <div className="min-w-0">
-            <section>
-              <div className="flex items-start justify-between gap-3 sm:gap-4">
-                <div className="min-w-0">
-                  <h1 className="text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
-                    <span className="sm:hidden">Check-In</span>
-                    <span className="hidden sm:inline">Today&apos;s Check-In</span>
-                  </h1>
-                  <p className="mt-2 hidden text-lg text-stone-600 sm:block">{profile.name}</p>
-                  <p className="mt-1 text-sm text-stone-500 sm:text-base">{friendlyDate(today)}</p>
-                </div>
-                <div className="shrink-0 rounded-lg border border-green-100 bg-green-50 px-3 py-3 text-right sm:px-5 sm:py-4">
-                  <p className="text-[0.65rem] font-medium uppercase tracking-wide text-green-700 sm:text-xs">
-                    {checkin ? "Saved" : "Ready to save"}
-                  </p>
-                  <p className="mt-1 text-xl font-semibold text-ink sm:text-3xl">Today</p>
-                </div>
-              </div>
-            </section>
-
-            <GuidanceVerse className="mt-5 lg:hidden" compact titleId="check-in-guidance-verse-title-mobile" />
-
-            <CheckInChecklist
+    <StudentPage width="expanded">
+      <header className="today-greeting">
+        <h1>Assalamu alaykum, {profile.name}</h1>
+        <p>{new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date(`${today}T00:00:00Z`))}</p>
+      </header>
+      <WeekStatusStrip weekStart={currentWeekStart} today={today} checkins={weekCheckins} />
+      <GuidanceVerse className="mt-5 lg:hidden" compact titleId="check-in-guidance-verse-title-mobile" />
+      <CheckInChecklist
               initialCompletedTaskKeys={completedTaskKeys}
               initialDailyScore={Number(initialDailyScore)}
               initialEarnedWeight={initialEarnedWeight}
@@ -336,15 +360,13 @@ export default async function StudentCheckInPage({
               }
               initialSavedAt={initialSavedAt}
               initialTotalWeight={initialTotalWeight}
+              initialWeeklyDailyPoints={weeklyScore.daily_points}
+              partnerPoints={weeklyScore.partner_points}
+              halaqaPoints={weeklyScore.halaqa_points}
+              halaqaLabel={studentContext.scope.groupName}
+              below70Streak={below70Streak}
               tasks={todayTasks}
             />
-          </div>
-          <aside aria-label="Halaqa and Quran guidance" className="space-y-6 lg:sticky lg:top-6">
-            <StudentWeekContextPanel layout="stacked" scope={studentContext.scope} teacher={studentContext.teacher} />
-            <GuidanceVerse className="hidden lg:block" titleId="check-in-guidance-verse-title-desktop" />
-          </aside>
-        </div>
-      </StudentPage>
-    </>
+    </StudentPage>
   );
 }

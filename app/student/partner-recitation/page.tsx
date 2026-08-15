@@ -1,4 +1,3 @@
-import AppNav from "@/app/nav";
 import { submitPartnerRecitation } from "@/app/student/actions";
 import { StudentPage } from "@/app/student/student-ui";
 import { StudentSetupIncomplete, StudentWeekContextPanel } from "@/app/student/student-week-context";
@@ -41,9 +40,7 @@ export default async function PartnerRecitationPage({
   });
 
   return (
-    <>
-      <AppNav role={profile.role} name={profile.name} />
-      <StudentPage width="focused">
+    <StudentPage width="focused">
         <section className="rounded-lg border border-stone-200 bg-white p-6 shadow-sm">
           <div>
             <h1 className="text-2xl font-semibold text-ink">Partner Recitation</h1>
@@ -131,7 +128,6 @@ export default async function PartnerRecitationPage({
             ))}
           </div>
         </section>
-      </StudentPage>
-    </>
+    </StudentPage>
   );
 }

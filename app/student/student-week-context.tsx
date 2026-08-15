@@ -1,12 +1,10 @@
-import AppNav from "@/app/nav";
-import { StudentNotice, StudentPage, StudentPageHeader, StudentSurface } from "@/app/student/student-ui";
+import Link from "next/link";
+import { StudentPage } from "@/app/student/student-ui";
 import { formatWeekRange } from "@/lib/dates";
 import type { Role } from "@/lib/types";
 import type { StudentWeekScope, StudentWeekTeacher } from "@/lib/student-scope";
 
 export function StudentSetupIncomplete({
-  name,
-  role,
   weekStart,
   teacher
 }: {
@@ -16,29 +14,23 @@ export function StudentSetupIncomplete({
   teacher?: StudentWeekTeacher | null;
 }) {
   return (
-    <>
-      <AppNav role={role} name={name} />
-      <StudentPage width="narrow">
-        <StudentSurface emphasis="primary">
-          <StudentPageHeader
-            eyebrow="Halaqa setup"
-            title="Assignment pending"
-            description={
-              <>Your account is active, but it is not assigned to a halaqa group for {formatWeekRange(weekStart)}.</>
-            }
-          />
-          <StudentNotice className="mt-5" tone="warning">
-            Ask an admin to assign your cohort and group before using check-ins, weekly plans, recitation, grades, and
-            leaderboard.
-          </StudentNotice>
-          {teacher ? (
-            <p className="mt-4 text-sm text-stone-700">
-              Assigned teacher for this historical week: <span className="font-medium text-ink">{teacher.teacher_name}</span>
-            </p>
-          ) : null}
-        </StudentSurface>
-      </StudentPage>
-    </>
+    <StudentPage width="standard">
+      <section className="student-assignment-pending">
+        <p className="student-assignment-eyebrow">Halaqa setup</p>
+        <h1>Assignment pending</h1>
+        <p className="student-assignment-lead">Your account is active, but it is not assigned to a halaqa group for {formatWeekRange(weekStart)}.</p>
+        <div className="student-assignment-notice">Ask an admin to assign your cohort and group before using check-ins, weekly plans, partner recitation, grades, history, leaderboard, and badge awards.</div>
+        <dl>
+          <div><dt>Account status</dt><dd>Active</dd></div>
+          <div><dt>Week</dt><dd>{formatWeekRange(weekStart)}</dd></div>
+          <div><dt>Halaqa assignment</dt><dd>Not assigned</dd></div>
+        </dl>
+        <h2>What to do next</h2>
+        <p>Contact your ITQAN administrator and ask them to complete your halaqa assignment.</p>
+        <Link href="/account/change-password">Open account &amp; security</Link>
+        {teacher ? <p className="student-assignment-historical">A historical teacher is recorded for this week, but an active halaqa assignment is still required.</p> : null}
+      </section>
+    </StudentPage>
   );
 }
 

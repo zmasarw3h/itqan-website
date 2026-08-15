@@ -1,17 +1,13 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { CheckCircle, WarningCircle, WifiSlash } from "@phosphor-icons/react";
 import { saveTodayCheckInNote, saveTodayChecklistItem } from "@/app/student/actions";
 import { formatDateTimeInAppTimeZone } from "@/lib/dates";
-import { formatScore, type CheckInTask } from "@/lib/scoring";
+import { type CheckInTask } from "@/lib/scoring";
 
-type ChecklistScore = {
-  earnedWeight: number;
-  totalWeight: number;
-  dailyScore: number;
-};
-
-type SaveStatus = "idle" | "saving" | "saved" | "error";
+type ChecklistScore = { earnedWeight: number; totalWeight: number; dailyScore: number };
+type RowState = { status: "saving" | "error"; intendedValue: boolean };
 
 type Props = {
   tasks: CheckInTask[];
@@ -22,211 +18,188 @@ type Props = {
   initialNote: string;
   initialNotice?: { tone: "success" | "error"; message: string } | null;
   initialSavedAt: string | null;
+  initialWeeklyDailyPoints: number;
+  partnerPoints: number;
+  halaqaPoints: number;
+  halaqaLabel: string;
+  below70Streak: number;
 };
 
 function scoreForTasks(tasks: CheckInTask[], completedTaskKeys: Set<string>): ChecklistScore {
   const totalWeight = tasks.reduce((sum, task) => sum + task.weight, 0);
   const earnedWeight = tasks.reduce((sum, task) => sum + (completedTaskKeys.has(task.key) ? task.weight : 0), 0);
-  const dailyScore = totalWeight === 0 ? 0 : Math.round((earnedWeight / totalWeight) * 10000) / 100;
-
-  return { earnedWeight, totalWeight, dailyScore };
+  return { earnedWeight, totalWeight, dailyScore: totalWeight === 0 ? 0 : Math.round((earnedWeight / totalWeight) * 10000) / 100 };
 }
 
-export default function CheckInChecklist({
-  tasks,
-  initialCompletedTaskKeys,
-  initialEarnedWeight,
-  initialTotalWeight,
-  initialDailyScore,
-  initialNote,
-  initialNotice,
-  initialSavedAt
-}: Props) {
-  const [completedTaskKeys, setCompletedTaskKeys] = useState(() => new Set(initialCompletedTaskKeys));
-  const [score, setScore] = useState<ChecklistScore>({
-    earnedWeight: initialEarnedWeight,
-    totalWeight: initialTotalWeight,
-    dailyScore: initialDailyScore
-  });
-  const [note, setNote] = useState(initialNote);
-  const [savedAt, setSavedAt] = useState(initialSavedAt);
-  const [status, setStatus] = useState<SaveStatus>(initialSavedAt ? "saved" : "idle");
-  const [showInitialNotice, setShowInitialNotice] = useState(Boolean(initialNotice));
-  const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
-  const [isNotePending, startNoteTransition] = useTransition();
+function ProgressBar({ label, value, maximum }: { label: string; value: number; maximum: number }) {
+  const percentage = maximum ? Math.round((value / maximum) * 100) : 0;
+  return (
+    <div className="today-progress-row">
+      <div><span>{label}</span><small>{value} / {maximum} pts ({percentage}%)</small></div>
+      <div className="today-progress-track" aria-label={`${label}: ${percentage}%`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentage}><i style={{ width: `${percentage}%` }} /></div>
+    </div>
+  );
+}
 
-  const statusLabel = useMemo(() => {
-    if (status === "saving") return "Saving...";
-    if (status === "saved") return "Saved";
-    if (status === "error") return "Could not save. Try again.";
-    return "Not saved yet";
-  }, [status]);
-  const displayedInitialNotice = showInitialNotice ? initialNotice : null;
+function subscribeToConnectivity(callback: () => void) {
+  window.addEventListener("online", callback);
+  window.addEventListener("offline", callback);
+  return () => {
+    window.removeEventListener("online", callback);
+    window.removeEventListener("offline", callback);
+  };
+}
 
-  function handleToggle(taskKey: string, completed: boolean) {
-    setShowInitialNotice(false);
-    const previousCompletedTaskKeys = new Set(completedTaskKeys);
-    const optimisticCompletedTaskKeys = new Set(completedTaskKeys);
+function connectivitySnapshot() { return navigator.onLine; }
+function serverConnectivitySnapshot() { return true; }
 
-    if (completed) {
-      optimisticCompletedTaskKeys.add(taskKey);
-    } else {
-      optimisticCompletedTaskKeys.delete(taskKey);
+export default function CheckInChecklist(props: Props) {
+  const [completedTaskKeys, setCompletedTaskKeys] = useState(() => new Set(props.initialCompletedTaskKeys));
+  const [, setPersistedTaskKeys] = useState(() => new Set(props.initialCompletedTaskKeys));
+  const [score, setScore] = useState<ChecklistScore>({ earnedWeight: props.initialEarnedWeight, totalWeight: props.initialTotalWeight, dailyScore: props.initialDailyScore });
+  const [rowStates, setRowStates] = useState<Record<string, RowState>>({});
+  const [note, setNote] = useState(props.initialNote);
+  const [savedAt, setSavedAt] = useState(props.initialSavedAt);
+  const [noteState, setNoteState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const online = useSyncExternalStore(subscribeToConnectivity, connectivitySnapshot, serverConnectivitySnapshot);
+  const [reconnecting, setReconnecting] = useState(false);
+  const latestRequest = useRef<Record<string, number>>({});
+  const requestCounter = useRef(0);
+
+  useEffect(() => {
+    function goOnline() { setReconnecting(true); window.location.reload(); }
+    window.addEventListener("online", goOnline);
+    return () => { window.removeEventListener("online", goOnline); };
+  }, []);
+
+  const weeklyDailyPoints = props.initialWeeklyDailyPoints - props.initialDailyScore + score.dailyScore;
+  const weeklyTotal = weeklyDailyPoints + props.partnerPoints + props.halaqaPoints;
+  const weeklyPercentage = Math.round((weeklyTotal / 1000) * 100);
+  const anySaving = Object.values(rowStates).some((row) => row.status === "saving");
+  const statusText = useMemo(() => {
+    if (anySaving) return "Saving…";
+    if (Object.values(rowStates).some((row) => row.status === "error")) return "Some changes need attention";
+    if (savedAt) return "Saved just now";
+    return "Each change saves automatically.";
+  }, [anySaving, rowStates, savedAt]);
+
+  async function saveTask(taskKey: string, intendedValue: boolean) {
+    if (!online || reconnecting) return;
+    const requestId = ++requestCounter.current;
+    latestRequest.current[taskKey] = requestId;
+    setRowStates((current) => ({ ...current, [taskKey]: { status: "saving", intendedValue } }));
+    let result: Awaited<ReturnType<typeof saveTodayChecklistItem>>;
+    try {
+      result = await saveTodayChecklistItem({ taskKey, completed: intendedValue });
+    } catch {
+      result = { ok: false, error: "Your checklist change could not be saved. Please try again." };
+    }
+    if (latestRequest.current[taskKey] !== requestId) return;
+
+    if (!result.ok) {
+      setPersistedTaskKeys((current) => {
+        setCompletedTaskKeys((displayed) => {
+          const rolledBack = new Set(displayed);
+          if (current.has(taskKey)) rolledBack.add(taskKey); else rolledBack.delete(taskKey);
+          return rolledBack;
+        });
+        setScore(scoreForTasks(props.tasks, current));
+        return current;
+      });
+      setRowStates((current) => ({ ...current, [taskKey]: { status: "error", intendedValue } }));
+      return;
     }
 
-    setCompletedTaskKeys(optimisticCompletedTaskKeys);
-    setScore(scoreForTasks(tasks, optimisticCompletedTaskKeys));
-    setStatus("saving");
-    setError(null);
-
-    startTransition(async () => {
-      const result = await saveTodayChecklistItem({ taskKey, completed });
-
-      if (!result.ok) {
-        setCompletedTaskKeys(previousCompletedTaskKeys);
-        setScore(scoreForTasks(tasks, previousCompletedTaskKeys));
-        setStatus("error");
-        setError(result.error);
-        return;
-      }
-
-      setCompletedTaskKeys(new Set(result.completedTaskKeys));
-      setScore({
-        earnedWeight: result.earnedWeight,
-        totalWeight: result.totalWeight,
-        dailyScore: result.dailyScore
-      });
-      setSavedAt(result.savedAt);
-      setStatus("saved");
+    setPersistedTaskKeys((current) => {
+      const next = new Set(current);
+      if (intendedValue) next.add(taskKey); else next.delete(taskKey);
+      setScore(scoreForTasks(props.tasks, next));
+      return next;
+    });
+    setCompletedTaskKeys((current) => {
+      const next = new Set(current);
+      if (intendedValue) next.add(taskKey); else next.delete(taskKey);
+      return next;
+    });
+    setSavedAt(result.savedAt);
+    setRowStates((current) => {
+      const next = { ...current };
+      delete next[taskKey];
+      return next;
     });
   }
 
-  function handleSaveNote() {
-    setShowInitialNotice(false);
-    setStatus("saving");
-    setError(null);
+  function handleToggle(taskKey: string, completed: boolean) {
+    const next = new Set(completedTaskKeys);
+    if (completed) next.add(taskKey); else next.delete(taskKey);
+    setCompletedTaskKeys(next);
+    saveTask(taskKey, completed);
+  }
 
-    startNoteTransition(async () => {
-      const result = await saveTodayCheckInNote({ note });
-
-      if (!result.ok) {
-        setStatus("error");
-        setError(result.error);
-        return;
-      }
-
-      setNote(result.note ?? "");
-      setCompletedTaskKeys(new Set(result.completedTaskKeys));
-      setScore({
-        earnedWeight: result.earnedWeight,
-        totalWeight: result.totalWeight,
-        dailyScore: result.dailyScore
-      });
-      setSavedAt(result.savedAt);
-      setStatus("saved");
-    });
+  async function handleSaveNote() {
+    setNoteState("saving");
+    let result: Awaited<ReturnType<typeof saveTodayCheckInNote>>;
+    try {
+      result = await saveTodayCheckInNote({ note });
+    } catch {
+      setNoteState("error");
+      return;
+    }
+    if (!result.ok) { setNoteState("error"); return; }
+    setNote(result.note ?? "");
+    setSavedAt(result.savedAt);
+    setNoteState("saved");
   }
 
   return (
     <>
-      <section className="mt-4 rounded-lg border border-stone-200 bg-white p-4 shadow-none sm:mt-6 sm:p-6 sm:shadow-sm lg:p-7">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-sm font-medium uppercase text-moss">Live checklist</p>
-            <h2 className="mt-1 text-xl font-semibold text-ink">Today&apos;s checklist</h2>
-            <p className="mt-1 hidden text-sm text-stone-600 sm:block">
-              Check tasks as you complete them. Each change saves immediately.
-            </p>
-          </div>
-          <div className="shrink-0 text-right sm:rounded-md sm:bg-stone-50 sm:px-4 sm:py-3">
-            <p className="text-2xl font-semibold text-ink sm:text-3xl">{formatScore(score.dailyScore)}</p>
-            <p className="text-xs text-stone-600 sm:text-sm">
-              <span className="sm:hidden">
-                {score.earnedWeight}/{score.totalWeight}
-              </span>
-              <span className="hidden sm:inline">
-                {score.earnedWeight}/{score.totalWeight} checklist points
-              </span>
-            </p>
-          </div>
-        </div>
-
-        <p className="mt-2 text-sm leading-5 text-stone-600 sm:hidden">
-          Check tasks as you complete them. Each change saves immediately.
-        </p>
-
-        <div className="mt-3 flex flex-wrap items-center gap-3 sm:mt-4">
-          <span
-            className={
-              displayedInitialNotice?.tone === "error" || status === "error"
-                ? "rounded-md bg-red-50 px-3 py-2 text-sm font-medium text-red-700"
-                : !displayedInitialNotice && status === "saving"
-                  ? "rounded-md bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700"
-                  : "rounded-md bg-green-50 px-3 py-2 text-sm font-medium text-green-800"
-            }
-            role={displayedInitialNotice?.tone === "error" || status === "error" ? "alert" : "status"}
-          >
-            {displayedInitialNotice?.message ?? statusLabel}
-          </span>
-          {savedAt ? (
-            <span className="text-sm text-stone-600">Last saved {formatDateTimeInAppTimeZone(savedAt)}</span>
-          ) : null}
-        </div>
-
-        {error ? <p className="mt-3 text-sm text-red-700">{error}</p> : null}
-
-        <fieldset className="mt-4 sm:mt-5">
-          <legend className="sr-only">Today&apos;s checklist</legend>
-          <div className="grid gap-0 border-b border-stone-200 sm:gap-3 sm:border-b-0">
-            {tasks.map((task) => {
+      {props.initialNotice ? <div className={`today-initial-notice is-${props.initialNotice.tone}`} role={props.initialNotice.tone === "error" ? "alert" : "status"}>{props.initialNotice.message}</div> : null}
+      {!online || reconnecting ? (
+        <div className="today-offline" role="status"><WifiSlash aria-hidden="true" size={25} /><span><strong>{reconnecting ? "Refreshing saved progress…" : "You’re offline"}</strong><small>{reconnecting ? "Confirming the latest checklist before editing." : "Checklist changes cannot be saved until you reconnect."}</small></span></div>
+      ) : null}
+      <div className="today-main-grid">
+        <section className="today-checklist-card" aria-labelledby="today-checklist-title">
+          <header>
+            <div><h2 id="today-checklist-title">Today’s Checklist</h2><p>Complete your authentic Quran practice and track your progress.</p></div>
+            <div className="today-score"><small>Today’s score</small><strong>{Math.round(score.dailyScore)}<span>/100</span></strong></div>
+          </header>
+          <div className="today-save-status" role="status">{savedAt && !anySaving ? <CheckCircle aria-hidden="true" size={16} weight="fill" /> : null}<span>{statusText}</span>{savedAt && !anySaving ? <small>Last saved {formatDateTimeInAppTimeZone(savedAt)}</small> : null}</div>
+          <fieldset>
+            <legend className="sr-only">Today’s checklist</legend>
+            {props.tasks.map((task) => {
               const checked = completedTaskKeys.has(task.key);
-
+              const rowState = rowStates[task.key];
+              const disabled = rowState?.status === "saving" || !online || reconnecting;
               return (
-                <label
-                  className="flex min-h-16 cursor-pointer items-center justify-between gap-4 border-x-0 border-b-0 border-t border-stone-200 bg-transparent px-0 py-3 transition has-[:checked]:border-moss has-[:checked]:bg-moss/5 sm:rounded-md sm:border sm:bg-white sm:px-5"
-                  key={task.key}
-                >
-                  <span className="flex min-w-0 items-center gap-3">
-                    <input
-                      checked={checked}
-                      className="h-6 w-6 shrink-0 accent-moss"
-                      disabled={isPending}
-                      onChange={(event) => handleToggle(task.key, event.target.checked)}
-                      type="checkbox"
-                    />
-                    <span className="min-w-0 break-words text-base font-medium text-ink">{task.label}</span>
-                  </span>
-                  <span className="shrink-0 rounded-md bg-stone-50 px-2 py-1 text-sm font-medium text-stone-700">
-                    {task.weight}
-                  </span>
-                </label>
+                <div className={`today-checklist-row ${rowState?.status === "error" ? "has-error" : ""}`} key={task.key}>
+                  <label>
+                    <span>{task.label}</span><small>{task.weight} pts</small>
+                    <input type="checkbox" checked={checked} disabled={disabled} aria-label={`${task.label}${rowState?.status === "saving" ? ", saving" : rowState?.status === "error" ? ", save failed" : ""}`} onChange={(event) => handleToggle(task.key, event.target.checked)} />
+                  </label>
+                  <div className="today-row-message" aria-live="polite">
+                    {rowState?.status === "saving" ? <span>Saving…</span> : rowState?.status === "error" ? <><WarningCircle aria-hidden="true" size={17} /><span>Could not save this change. Your previously saved selection is still intact.</span><button type="button" onClick={() => saveTask(task.key, rowState.intendedValue)}>Retry</button></> : null}
+                  </div>
+                </div>
               );
             })}
-          </div>
-        </fieldset>
-      </section>
-
-      <section className="mt-8">
-        <label className="block">
-          <span className="text-base font-semibold text-ink">Optional note</span>
-          <span className="mt-1 block text-sm text-stone-600">Add anything your admin should know.</span>
-          <textarea
-            className="mt-3 min-h-28 w-full rounded-lg border border-stone-300 bg-white px-4 py-3 text-base outline-none focus:border-moss focus:ring-2 focus:ring-moss/20"
-            onChange={(event) => setNote(event.target.value)}
-            placeholder="Anything admin should know?"
-            value={note}
-          />
-        </label>
-        <button
-          className="mt-3 min-h-12 rounded-md bg-action px-5 py-3 font-semibold text-white transition hover:bg-ink disabled:cursor-not-allowed disabled:bg-stone-400"
-          disabled={isNotePending || isPending}
-          onClick={handleSaveNote}
-          type="button"
-        >
-          {isNotePending ? "Saving..." : "Save note"}
-        </button>
-      </section>
+          </fieldset>
+          <details className="today-note" open={Boolean(props.initialNote)}>
+            <summary>Add optional note</summary>
+            <label><span className="sr-only">Optional note</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Anything your admin should know?" /></label>
+            {noteState === "error" ? <p role="alert">Your note could not be saved. Please try again.</p> : null}
+            {noteState === "saved" ? <p role="status">Note saved.</p> : null}
+            <button type="button" disabled={noteState === "saving" || !online || reconnecting} onClick={handleSaveNote}>{noteState === "saving" ? "Saving…" : "Save note"}</button>
+          </details>
+        </section>
+        <section className="today-progress-card" aria-labelledby="today-progress-title">
+          <h2 id="today-progress-title">Your Progress This Week</h2>
+          <div className="today-progress-total"><strong>{Math.round(weeklyTotal)}</strong><span>/ 1000 pts</span><small>{weeklyPercentage}%</small></div>
+          <ProgressBar label="Daily checklist" value={Math.round(weeklyDailyPoints)} maximum={700} />
+          <ProgressBar label="Partner recitation" value={props.partnerPoints} maximum={150} />
+          <ProgressBar label={`Halaqa (${props.halaqaLabel})`} value={props.halaqaPoints} maximum={150} />
+          <div className="today-streak"><strong>Below-70 streak</strong><span>{props.below70Streak} {props.below70Streak === 1 ? "week" : "weeks"}</span><small>Completed weeks only.</small></div>
+        </section>
+      </div>
     </>
   );
 }

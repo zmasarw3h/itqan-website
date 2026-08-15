@@ -1,4 +1,66 @@
-# Current admin redesign QA
+**Source visual truth**
+
+- `docs/design-handoff/student-experience-redesign-2026-08-14/canvases/01-today-check-in.png`
+- Source pixels: 1536 × 1024. This is a design board containing separate desktop and mobile compositions, not one CSS viewport.
+
+**Rendered implementation evidence**
+
+- `output/student-redesign-batch-1/today-1440x1024.png`
+- `output/student-redesign-batch-1/today-390x844.png`
+- `output/student-redesign-batch-1/today-canvas-comparison.png`
+- Desktop: 1440 × 1024 CSS pixels and output pixels, device scale factor 1.
+- Mobile: 390 × 844 CSS pixels and output pixels, device scale factor 1.
+- Comparison board: 3366 × 1024, with the unscaled canonical canvas, desktop capture, and mobile capture together in one image. The source board was not density-normalized because it combines two differently sized compositions; layout and region-level evidence were compared instead of making false pixel claims.
+- State: authenticated populated student, current Toronto operational date Saturday, August 15, 2026. The canonical canvas illustrates Thursday. The implementation intentionally uses the live Saturday checklist definition (two 50-point tasks) rather than copying the sample Thursday data.
+
+**Full-view comparison evidence**
+
+- The persistent forest sidebar, compact gold wordmark, identity, four desktop destinations, active gold rule, and bottom verse treatment match the canonical hierarchy.
+- The mobile forest header and exactly three fixed bottom destinations match the canonical navigation model. Account remains in the accessible avatar sheet.
+- Today preserves the canonical order: greeting, week strip, mobile verse, checklist, and weekly progress. Desktop places checklist and weekly progress side by side.
+- Warm ivory, deep forest, moss, gold, white work surfaces, stone rules, restrained radii, and minimal shadow follow the approved token roles.
+
+**Focused region comparison evidence**
+
+- Typography: system sans fallback, weights, hierarchy, readable 12–16 px support text, compact uppercase metadata, and long-text wrapping were inspected in the exact captures. The implementation deliberately does not shrink mobile body copy to the raster's illustrative size.
+- Spacing: sidebar width, content bounds, week-strip rhythm, checklist row heights, card padding, fixed-nav clearance, and safe-area padding were inspected. No horizontal overflow or fixed-nav clipping remains.
+- Colors: forest, moss, gold, ivory, saved/missing/today/upcoming states, error, and offline colors retain semantic contrast and are not color-only.
+- Icons and assets: the existing ITQAN wordmark is text as approved; all UI icons use the installed Phosphor library. There are no generated raster assets in this screen and no placeholder imagery.
+- Copy: the exact handoff verse, Today labels, autosave language, completed-week streak qualifier, gate copy, and assignment-pending language are present. Dynamic student/date/checklist content remains authoritative.
+
+**Comparison history**
+
+1. P2 — initial evidence was accidentally captured during the route loading skeleton, so it was invalid for fidelity judgment. Fix: the E2E capture now waits for the greeting and real checklist before taking screenshots. Post-fix evidence: both exact screenshots show populated Today.
+2. P2 — desktop content exceeded the viewport because a full-width max container was combined with the fixed sidebar margin. Fix: desktop `.student-page` width is now `calc(100% - 16rem)`. Post-fix evidence: the 1440 × 1024 capture includes Saturday, the entire progress card, and no horizontal overflow.
+3. P2 — the first mobile verse treatment consumed too much of the initial viewport. Fix: compact mobile Arabic, translation, and padding were tightened while retaining readable text and the required placement. Post-fix evidence: the 390 × 844 capture shows the complete week strip, verse, checklist heading, score, saved state, and first live row above the fixed nav.
+
+**Findings**
+
+- No actionable P0, P1, or P2 visual differences remain.
+- P3: the desktop sidebar is slightly broader than the illustrative source crop, but it preserves the approved hierarchy and gives real placement/verse text safer wrapping.
+- P3: the Saturday production state has fewer checklist rows than the Thursday illustration; this is required by live date/version-aware scoring and is not design drift.
+
+**Interactions and resilience checked**
+
+- Production build, authenticated local fixtures, check/uncheck, two-row rapid changes, failure rollback, retry, reload persistence, offline disable, reconnect refresh, assignment pending, shell-stable loading, long identity/group wrapping, account-sheet Enter/Escape/focus restoration, mobile fixed-nav clearance, and desktop/mobile overflow.
+- Browser console and page errors were asserted empty in the screenshot flow. Production server output showed no application errors and no development indicator appears in the captures.
+- The sanitized route-error boundary is covered by a focused component test because deliberately taking the disposable database offline would also invalidate the authenticated layout fixture during this production-browser run.
+
+**Implementation checklist**
+
+- [x] Exact 1440 × 1024 and 390 × 844 populated captures
+- [x] Canonical source and both captures in one comparison image
+- [x] Fonts, spacing, colors, icons/assets, copy, responsiveness, focus, reduced motion, and saved/error/offline states reviewed
+- [x] Earlier P2 findings fixed and recaptured
+- [x] No remaining P0/P1/P2 findings
+
+**Follow-up polish**
+
+- Revisit P3 density only if future Batch screens establish a tighter shared sidebar width.
+
+final result: passed
+\n+---\n+\n+## Preserved prior QA history
+\n+# Current admin redesign QA
 
 The authenticated PR #74 amendment QA is recorded in `admin-design-qa.md`. It covers all ten approved admin canvases, authoritative Missing activity filtering, authenticated dashboard/report/Add User states, loading/empty/backend-unavailable behavior, desktop and 390-ish responsive behavior, direct image comparison, legacy redirects, and console checks. Final result: passed.
 

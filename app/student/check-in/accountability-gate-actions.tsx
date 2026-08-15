@@ -8,7 +8,7 @@ export default function AccountabilityGateActions({ children }: { children: Reac
 
   return (
     <div>
-      <div className="mt-4 flex flex-wrap gap-3">
+      <div className="today-gate-actions mt-4">
         {children}
         <button
           className="min-h-12 rounded-md border border-stone-300 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:bg-stone-50"

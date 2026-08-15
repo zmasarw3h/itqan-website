@@ -1,4 +1,3 @@
-import AppNav from "@/app/nav";
 import { StudentPage } from "@/app/student/student-ui";
 import { StudentSetupIncomplete } from "@/app/student/student-week-context";
 import { checkInEffectiveDateString, formatWeekRange, weekStartForDate } from "@/lib/dates";
@@ -35,9 +34,7 @@ export default async function StudentRewardsPage() {
   const recentAwards = studentAwards.slice(0, 8);
 
   return (
-    <>
-      <AppNav role={profile.role} name={profile.name} />
-      <StudentPage>
+    <StudentPage>
         <section className="rounded-lg border border-stone-200 bg-white p-6 shadow-sm">
           <div>
             <p className="text-sm font-medium uppercase text-moss">Rewards</p>
@@ -92,7 +89,6 @@ export default async function StudentRewardsPage() {
             </p>
           )}
         </section>
-      </StudentPage>
-    </>
+    </StudentPage>
   );
 }
