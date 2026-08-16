@@ -40,7 +40,7 @@ export function partnerRecitationPayloads(input: {
   }));
 }
 
-export type PartnerRoundStatus = "completed" | "open" | "closed" | "not_completed";
+export type PartnerRoundStatus = "completed" | "open" | "closed" | "upcoming";
 
 export type PartnerRecitationView = {
   currentRound: PartnerRound;
@@ -49,6 +49,8 @@ export type PartnerRecitationView = {
   currentRoundStatus: PartnerRoundStatus;
   currentRoundStatusLabel: string;
   currentRoundMessage: string;
+  currentRoundGuidance: string;
+  currentRoundPoints: number;
   canSubmitCurrentRound: boolean;
   rounds: Array<{
     round: PartnerRound;
@@ -68,7 +70,6 @@ const ROUND_META: Record<PartnerRound, { name: string; range: string }> = {
 };
 
 function statusLabel(status: PartnerRoundStatus) {
-  if (status === "not_completed") return "Not completed";
   return status[0].toUpperCase() + status.slice(1);
 }
 
@@ -82,7 +83,7 @@ export function buildPartnerRecitationView(input: {
   const round2 = recitationByRound.get("round_2");
   const rounds = (["round_1", "round_2"] as const).map((round) => {
     const recitation = recitationByRound.get(round);
-    let status: PartnerRoundStatus = "not_completed";
+    let status: PartnerRoundStatus = "upcoming";
 
     if (recitation) {
       status = "completed";
@@ -94,7 +95,7 @@ export function buildPartnerRecitationView(input: {
 
     let detail = "";
 
-    if (round === "round_2" && status === "not_completed" && currentRound === "round_1") {
+    if (round === "round_2" && status === "upcoming" && currentRound === "round_1") {
       detail = "Round 2 opens Thursday.";
     }
 
@@ -116,15 +117,19 @@ export function buildPartnerRecitationView(input: {
   }
 
   let currentRoundMessage = `${currentRoundView.name} is open`;
+  let currentRoundGuidance = `${currentRoundView.name} can be confirmed during ${currentRoundView.range}.`;
 
   if (round1 && !round2 && currentRound === "round_1") {
     currentRoundMessage = "Round 1 completed. Come back Thursday–Saturday to complete Round 2.";
+    currentRoundGuidance = "Round 2 is upcoming and opens Thursday.";
   } else if (!round1 && currentRound === "round_2") {
     currentRoundMessage = "Round 1 is closed. You can still complete Round 2.";
   } else if (round1 && round2) {
     currentRoundMessage = "Both rounds are complete for this week.";
+    currentRoundGuidance = "Your two weekly partner recitation rounds are confirmed.";
   } else if (round1 && currentRound === "round_1") {
     currentRoundMessage = "Round 2 opens Thursday.";
+    currentRoundGuidance = "Round 1 is complete and Round 2 is upcoming.";
   }
 
   return {
@@ -134,6 +139,8 @@ export function buildPartnerRecitationView(input: {
     currentRoundStatus: currentRoundView.status,
     currentRoundStatusLabel: currentRoundView.statusLabel,
     currentRoundMessage,
+    currentRoundGuidance,
+    currentRoundPoints: PARTNER_RECITATION_POINTS_PER_ROUND,
     canSubmitCurrentRound: currentRoundView.status === "open",
     rounds
   };

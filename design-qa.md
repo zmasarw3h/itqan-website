@@ -1,3 +1,73 @@
+# Student redesign Batch 2 — Partner Recitation and Weekly Plan
+
+## Source visual truth
+
+- `docs/design-handoff/student-experience-redesign-2026-08-14/canvases/02-partner-recitation.png`
+- `docs/design-handoff/student-experience-redesign-2026-08-14/canvases/03-weekly-plan-uploaded.png`
+- `docs/design-handoff/student-experience-redesign-2026-08-14/canvases/04-weekly-plan-preview.png`
+- `docs/design-handoff/student-experience-redesign-2026-08-14/canvases/05-weekly-plan-missing.png`
+- Shared shell and state behavior was checked against canvases 01, 11, 12, and 16.
+- Each approved source is a 1536 × 1024 design board containing separate desktop and mobile compositions, not one browser viewport.
+
+## Tracked implementation evidence
+
+- Partner Recitation:
+  - `artifacts/student-redesign-batch-2/partner-desktop-1440x1024.png`
+  - `artifacts/student-redesign-batch-2/partner-tablet-768x1024.png`
+  - `artifacts/student-redesign-batch-2/partner-mobile-390x844.png`
+  - `artifacts/student-redesign-batch-2/partner-completed-mobile-390x844.png`
+  - `artifacts/student-redesign-batch-2/partner-comparison.png`
+- Weekly Plan uploaded:
+  - `artifacts/student-redesign-batch-2/weekly-plan-uploaded-desktop-1440x1024.png`
+  - `artifacts/student-redesign-batch-2/weekly-plan-uploaded-tablet-768x1024.png`
+  - `artifacts/student-redesign-batch-2/weekly-plan-uploaded-mobile-390x844.png`
+  - `artifacts/student-redesign-batch-2/weekly-plan-uploaded-comparison.png`
+- Weekly Plan missing:
+  - `artifacts/student-redesign-batch-2/weekly-plan-missing-desktop-1440x1024.png`
+  - `artifacts/student-redesign-batch-2/weekly-plan-missing-tablet-768x1024.png`
+  - `artifacts/student-redesign-batch-2/weekly-plan-missing-mobile-390x844.png`
+  - `artifacts/student-redesign-batch-2/weekly-plan-missing-comparison.png`
+- Secure preview:
+  - `artifacts/student-redesign-batch-2/weekly-plan-image-preview-desktop-1440x1024.png`
+  - `artifacts/student-redesign-batch-2/weekly-plan-image-preview-mobile-390x844.png`
+  - `artifacts/student-redesign-batch-2/weekly-plan-pdf-preview-desktop-1440x1024.png`
+  - `artifacts/student-redesign-batch-2/weekly-plan-pdf-preview-mobile-390x844.png`
+  - `artifacts/student-redesign-batch-2/weekly-plan-image-preview-comparison.png`
+  - `artifacts/student-redesign-batch-2/weekly-plan-pdf-preview-comparison.png`
+
+Desktop captures are exactly 1440 × 1024 CSS/output pixels, tablet captures are 768 × 1024, and mobile captures are exactly 390 × 844, all at device scale factor 1. The state is an authenticated disposable local student fixture for the Toronto operational week Aug 16–22, 2026. Fixture plans are synthetic files from `e2e/fixtures`; no private or production data appears.
+
+## Direct comparison findings
+
+- Partner Recitation preserves the approved Progress hierarchy, two date-window cards, single actionable emphasis, live point value, and one confirm action. The evidence uses the real Sunday operational state, so Round 1 is open and Round 2 is upcoming rather than copying the canvas's Thursday example.
+- Weekly Plan uploaded and missing states preserve the approved context, information order, privacy explanation, secure actions, replacement hierarchy, desktop drag-and-drop treatment, and mobile choose-file treatment.
+- The secure viewer matches the approved centered desktop modal and full-viewport mobile presentation. Image and PDF content are visibly rendered; PDF rendering is independent of browser plug-ins and exposes a truthful page count. Zoom, fit, download, explicit close, Escape, focus containment/restoration, background inertness, scroll lock, safe areas, and usable scrolling were exercised.
+- The final 390 × 844 Partner cards use the compact inline status composition, bringing the current-round card into the initial viewport. The uploaded-plan mobile current file uses the approved compact thumbnail/details composition, with View and Download visible before replacement work.
+- No horizontal overflow, fixed-navigation coverage, clipped controls, duplicate navigation, loading skeleton, development indicator, raw failure detail, or console/page error appears in the final evidence.
+
+## Comparison history
+
+1. P1 — native embedded PDF rendering produced blank captured documents despite a successful secure response. Fix: render the securely fetched PDF through a client-only PDF canvas renderer and expose the real page count. Post-fix desktop/mobile evidence visibly contains the plan.
+2. P2 — mobile Partner status pills occupied separate rows and pushed the current action too far below the first viewport. Fix: use the approved inline status composition while retaining the upcoming explanation.
+3. P2 — the uploaded mobile thumbnail originally consumed a full content row and delayed View/Download. Fix: use a compact thumbnail/details grid at mobile and tablet widths.
+4. P2 — a valid selected upload was visually retained but cleared from the native file input, causing browser constraint validation to block submission. Fix: retain valid same-input selections; production-build upload and replacement E2E now complete.
+5. P2 — an initial uploaded desktop capture preceded thumbnail paint. Fix: wait for the secure thumbnail to settle before tracked capture; the final evidence contains the rendered fixture.
+
+## Findings and intentional P3 differences
+
+- No actionable P0, P1, or P2 differences remain.
+- P3: operational dates, teacher assignment, student initials, filename, and the Sunday partner state differ from illustrative canvas samples because all visible values are live disposable-fixture data.
+- P3: the synthetic fixture plan has a simpler visual design than the handoff's sample plan, while preserving the approved preview proportions and controls.
+
+## Verification result
+
+- Authenticated production-build E2E passed all six Batch 2 scenarios, including concurrent duplicate Partner confirmation; open/upcoming/completed states; upload validation; upload and replacement; failed/invalid replacement preservation; secure image/PDF preview; zoom/fit/download/close; focus trap, Escape, restoration, and scroll lock; long text; loading; denied/sanitized error; and responsive overflow/nav clearance.
+- Direct inspection of every comparison board and the underlying exact captures found no remaining P0/P1/P2 issue, private/production data, loading skeleton, development indicator, clipping, or overflow.
+
+final result: passed
+
+---
+
 **Source visual truth**
 
 - `docs/design-handoff/student-experience-redesign-2026-08-14/canvases/01-today-check-in.png`

@@ -16,6 +16,8 @@ describe("partner recitation view state", () => {
     expect(view.currentRoundRange).toBe("Sunday–Wednesday");
     expect(view.currentRoundMessage).toBe("Round 1 is open");
     expect(view.canSubmitCurrentRound).toBe(true);
+    expect(view.currentRoundPoints).toBe(75);
+    expect(view.rounds.find((round) => round.round === "round_2")?.status).toBe("upcoming");
     expect(view.rounds.find((round) => round.round === "round_2")?.detail).toBe("Round 2 opens Thursday.");
   });
 

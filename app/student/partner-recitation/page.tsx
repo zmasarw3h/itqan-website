@@ -1,6 +1,7 @@
-import { submitPartnerRecitation } from "@/app/student/actions";
-import { StudentPage } from "@/app/student/student-ui";
-import { StudentSetupIncomplete, StudentWeekContextPanel } from "@/app/student/student-week-context";
+import { CheckCircle, Clock, User, UsersThree, WarningCircle } from "@phosphor-icons/react/dist/ssr";
+import PartnerConfirmForm from "@/app/student/partner-recitation/partner-confirm-form";
+import { StudentNotice, StudentPage } from "@/app/student/student-ui";
+import { StudentSetupIncomplete } from "@/app/student/student-week-context";
 import { checkInEffectiveDateString, formatDateTimeInAppTimeZone, friendlyDate, weekStartForDate } from "@/lib/dates";
 import { buildPartnerRecitationView } from "@/lib/partner-recitations";
 import { loadStudentWeekContext } from "@/lib/student-scope";
@@ -9,8 +10,13 @@ import type { PartnerRecitation } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-type PartnerSearchParams = {
-  status?: string;
+type PartnerSearchParams = { status?: string };
+
+const statusNotices = {
+  submitted: { tone: "success" as const, text: "Partner recitation confirmed." },
+  duplicate: { tone: "warning" as const, text: "This partner recitation round is already completed." },
+  error: { tone: "error" as const, text: "Unable to confirm partner recitation. Please try again." },
+  "setup-incomplete": { tone: "warning" as const, text: "Your halaqa assignment is not ready yet." }
 };
 
 export default async function PartnerRecitationPage({
@@ -28,106 +34,77 @@ export default async function PartnerRecitationPage({
     return <StudentSetupIncomplete name={profile.name} role={profile.role} weekStart={weekStart} teacher={studentContext.teacher} />;
   }
 
-  const { data: partnerRecitations } = await supabase
+  const { data: partnerRecitations, error: partnerError } = await supabase
     .from("partner_recitations")
     .select("id,student_id,week_start,round,points,submitted_at")
     .eq("student_id", profile.id)
     .eq("week_start", weekStart)
     .returns<PartnerRecitation[]>();
-  const partnerView = buildPartnerRecitationView({
-    today,
-    recitations: partnerRecitations ?? []
-  });
+  const partnerView = buildPartnerRecitationView({ today, recitations: partnerRecitations ?? [] });
+  const notice = resolvedSearchParams.status && resolvedSearchParams.status in statusNotices
+    ? statusNotices[resolvedSearchParams.status as keyof typeof statusNotices]
+    : null;
 
   return (
-    <StudentPage width="focused">
-        <section className="rounded-lg border border-stone-200 bg-white p-6 shadow-sm">
-          <div>
-            <h1 className="text-2xl font-semibold text-ink">Partner Recitation</h1>
-            <p className="mt-1 text-stone-600">{friendlyDate(today)}</p>
+    <StudentPage width="standard">
+      <section className="partner-page">
+        <header className="partner-header">
+          <h1>Partner Recitation</h1>
+          <p>{friendlyDate(today)}</p>
+          <div className="student-context-inline">
+            <span><UsersThree aria-hidden="true" size={20} />{studentContext.scope.cohortName} · {studentContext.scope.groupName}</span>
+            <span><User aria-hidden="true" size={20} />This week&apos;s teacher: {studentContext.teacher?.teacher_name ?? "Not assigned yet"}</span>
           </div>
-          <StudentWeekContextPanel scope={studentContext.scope} teacher={studentContext.teacher} />
+          <p className="partner-intro">Complete two partner recitation rounds each week.</p>
+        </header>
 
-          {resolvedSearchParams.status === "submitted" ? (
-            <p className="mt-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
-              Partner recitation confirmed.
-            </p>
-          ) : null}
-          {resolvedSearchParams.status === "duplicate" ? (
-            <p className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              This partner recitation round is already completed.
-            </p>
-          ) : null}
-          {resolvedSearchParams.status === "error" ? (
-            <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-              Unable to confirm partner recitation. Please try again.
-            </p>
-          ) : null}
-          {resolvedSearchParams.status === "setup-incomplete" ? (
-            <p className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              Your halaqa assignment is not ready yet.
-            </p>
-          ) : null}
+        {notice ? <StudentNotice className="partner-notice" tone={notice.tone}>{notice.text}</StudentNotice> : null}
+        {partnerError ? (
+          <StudentNotice className="partner-notice" tone="error">
+            We couldn&apos;t load your saved partner recitations. Refresh this page to try again.
+          </StudentNotice>
+        ) : null}
 
-          <div className="mt-6 rounded-lg border-2 border-moss bg-moss/5 p-5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium uppercase text-moss">Current round</p>
-                <h2 className="mt-1 text-2xl font-semibold text-ink">{partnerView.currentRoundName}</h2>
-                <p className="mt-1 text-stone-600">{partnerView.currentRoundRange}</p>
-              </div>
-              <span
-                className={
-                  partnerView.currentRoundStatus === "completed"
-                    ? "rounded-md bg-green-50 px-3 py-1.5 text-sm font-medium text-green-700"
-                    : "rounded-md bg-white px-3 py-1.5 text-sm font-medium text-moss"
-                }
-              >
-                {partnerView.currentRoundStatusLabel}
-              </span>
-            </div>
-            <p className="mt-4 text-lg font-semibold text-ink">{partnerView.currentRoundMessage}</p>
-            {partnerView.canSubmitCurrentRound ? (
-              <form action={submitPartnerRecitation} className="mt-4">
-                <button className="rounded-md bg-moss px-4 py-2.5 text-sm font-medium text-white hover:bg-ink">
-                  Confirm partner recitation
-                </button>
-              </form>
-            ) : null}
-          </div>
-
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
-            {partnerView.rounds.map((round) => (
-              <div className="rounded-md border border-stone-200 p-4" key={round.round}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="font-semibold text-ink">{round.name}</h2>
-                    <p className="mt-1 text-sm text-stone-600">{round.range}</p>
-                  </div>
-                  <span
-                    className={
-                      round.status === "completed"
-                        ? "font-medium text-green-700"
-                        : round.status === "open"
-                          ? "font-medium text-moss"
-                          : round.status === "closed"
-                            ? "font-medium text-stone-500"
-                            : "font-medium text-amber-700"
-                    }
-                  >
-                    {round.statusLabel}
-                  </span>
+        <div className="partner-rounds" aria-label="Weekly partner recitation rounds">
+          {partnerView.rounds.map((round, index) => {
+            const actionable = round.status === "open";
+            return (
+              <article className={`partner-round ${actionable ? "is-actionable" : ""}`} key={round.round}>
+                <span className="partner-round-number" aria-hidden="true">{index + 1}</span>
+                <div>
+                  <h2>{round.name}</h2>
+                  <p>{round.range}</p>
+                  {round.submittedAt ? <small>Confirmed {formatDateTimeInAppTimeZone(round.submittedAt)}</small> : round.detail ? <small>{round.detail}</small> : null}
                 </div>
-                {round.detail ? <p className="mt-3 text-sm text-stone-600">{round.detail}</p> : null}
-                {round.submittedAt ? (
-                  <p className="mt-3 text-sm text-stone-600">
-                    Submitted {formatDateTimeInAppTimeZone(round.submittedAt)} · {round.points} points
-                  </p>
-                ) : null}
-              </div>
-            ))}
+                <span className={`partner-round-status is-${round.status}`}>
+                  {round.status === "completed" ? <CheckCircle aria-hidden="true" size={17} weight="fill" /> : null}
+                  {round.status === "upcoming" ? <Clock aria-hidden="true" size={17} /> : null}
+                  {round.statusLabel}
+                </span>
+              </article>
+            );
+          })}
+        </div>
+
+        <section className={`partner-current ${partnerView.canSubmitCurrentRound ? "is-actionable" : ""}`} aria-labelledby="partner-current-title">
+          <div className="partner-current-heading">
+            <p>Current round</p>
+            <span>{partnerView.currentRoundPoints} points</span>
+          </div>
+          <h2 id="partner-current-title">{partnerView.currentRoundMessage}</h2>
+          <p className="partner-current-window">{partnerView.currentRoundName} · {partnerView.currentRoundRange}</p>
+          <div className="partner-current-action">
+            {partnerView.canSubmitCurrentRound ? (
+              <>
+                <p>Confirm after you have completed this round with your partner.</p>
+                <PartnerConfirmForm />
+              </>
+            ) : (
+              <p><WarningCircle aria-hidden="true" size={20} />{partnerView.currentRoundGuidance}</p>
+            )}
           </div>
         </section>
+      </section>
     </StudentPage>
   );
 }
