@@ -21,7 +21,8 @@ test.describe("student redesign Batch 1", () => {
     await signIn(page, studentPhone);
     const checklist = page.getByRole("group", { name: "Today’s checklist" });
     const boxes = checklist.getByRole("checkbox");
-    await expect(boxes).toHaveCount(2);
+    await expect(boxes.nth(1)).toBeVisible();
+    expect(await boxes.count()).toBeGreaterThanOrEqual(2);
 
     const firstInitial = await boxes.first().isChecked();
     await boxes.first().click();

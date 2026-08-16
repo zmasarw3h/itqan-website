@@ -9,7 +9,6 @@
 body {
   background: #f8f7f2;
   color: #17211d;
-  overflow-wrap: anywhere;
 }
 
 input,
@@ -25,6 +24,14 @@ textarea {
 
 .focus-on-forest:focus-visible {
   outline-color: #d2aa5f;
+}
+
+.student-sidebar,
+.student-mobile-header,
+.student-bottom-nav,
+.student-account-sheet,
+.student-page {
+  overflow-wrap: anywhere;
 }
 
 .student-skip-link {

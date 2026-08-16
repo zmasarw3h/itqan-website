@@ -5,13 +5,13 @@
 
 **Rendered implementation evidence**
 
-- `output/student-redesign-batch-1/today-1440x1024.png`
-- `output/student-redesign-batch-1/today-390x844.png`
-- `output/student-redesign-batch-1/today-canvas-comparison.png`
+- `artifacts/student-redesign-batch-1/today-1440x1024.png`
+- `artifacts/student-redesign-batch-1/today-390x844.png`
+- `artifacts/student-redesign-batch-1/today-canvas-comparison.png`
 - Desktop: 1440 × 1024 CSS pixels and output pixels, device scale factor 1.
 - Mobile: 390 × 844 CSS pixels and output pixels, device scale factor 1.
 - Comparison board: 3366 × 1024, with the unscaled canonical canvas, desktop capture, and mobile capture together in one image. The source board was not density-normalized because it combines two differently sized compositions; layout and region-level evidence were compared instead of making false pixel claims.
-- State: authenticated populated student, current Toronto operational date Saturday, August 15, 2026. The canonical canvas illustrates Thursday. The implementation intentionally uses the live Saturday checklist definition (two 50-point tasks) rather than copying the sample Thursday data.
+- State: authenticated disposable local student, current Toronto operational date Sunday, August 16, 2026. The canonical canvas illustrates Thursday. The implementation intentionally uses the current Sunday checklist definition (six weighted tasks) rather than copying the sample Thursday data.
 
 **Full-view comparison evidence**
 
@@ -31,19 +31,19 @@
 **Comparison history**
 
 1. P2 — initial evidence was accidentally captured during the route loading skeleton, so it was invalid for fidelity judgment. Fix: the E2E capture now waits for the greeting and real checklist before taking screenshots. Post-fix evidence: both exact screenshots show populated Today.
-2. P2 — desktop content exceeded the viewport because a full-width max container was combined with the fixed sidebar margin. Fix: desktop `.student-page` width is now `calc(100% - 16rem)`. Post-fix evidence: the 1440 × 1024 capture includes Saturday, the entire progress card, and no horizontal overflow.
+2. P2 — desktop content exceeded the viewport because a full-width max container was combined with the fixed sidebar margin. Fix: desktop `.student-page` width is now `calc(100% - 16rem)`. Post-fix evidence: the 1440 × 1024 capture includes the full seven-day strip, all six Sunday checklist rows, the entire progress card, and no horizontal overflow.
 3. P2 — the first mobile verse treatment consumed too much of the initial viewport. Fix: compact mobile Arabic, translation, and padding were tightened while retaining readable text and the required placement. Post-fix evidence: the 390 × 844 capture shows the complete week strip, verse, checklist heading, score, saved state, and first live row above the fixed nav.
 
 **Findings**
 
 - No actionable P0, P1, or P2 visual differences remain.
 - P3: the desktop sidebar is slightly broader than the illustrative source crop, but it preserves the approved hierarchy and gives real placement/verse text safer wrapping.
-- P3: the Saturday production state has fewer checklist rows than the Thursday illustration; this is required by live date/version-aware scoring and is not design drift.
+- P3: the Sunday disposable-fixture state has one more checklist row than the Thursday illustration; this is required by live date/version-aware scoring and is not design drift.
 
 **Interactions and resilience checked**
 
 - Production build, authenticated local fixtures, check/uncheck, two-row rapid changes, failure rollback, retry, reload persistence, offline disable, reconnect refresh, assignment pending, shell-stable loading, long identity/group wrapping, account-sheet Enter/Escape/focus restoration, mobile fixed-nav clearance, and desktop/mobile overflow.
-- Browser console and page errors were asserted empty in the screenshot flow. Production server output showed no application errors and no development indicator appears in the captures.
+- Browser console and page errors were asserted empty in the screenshot flow. Production-build server output showed no application errors. Direct inspection of all three tracked images confirmed no development indicator, loading skeleton, layout clipping, horizontal overflow, or private/production data.
 - The sanitized route-error boundary is covered by a focused component test because deliberately taking the disposable database offline would also invalidate the authenticated layout fixture during this production-browser run.
 
 **Implementation checklist**
@@ -59,8 +59,12 @@
 - Revisit P3 density only if future Batch screens establish a tighter shared sidebar width.
 
 final result: passed
-\n+---\n+\n+## Preserved prior QA history
-\n+# Current admin redesign QA
+
+---
+
+## Preserved prior QA history
+
+# Current admin redesign QA
 
 The authenticated PR #74 amendment QA is recorded in `admin-design-qa.md`. It covers all ten approved admin canvases, authoritative Missing activity filtering, authenticated dashboard/report/Add User states, loading/empty/backend-unavailable behavior, desktop and 390-ish responsive behavior, direct image comparison, legacy redirects, and console checks. Final result: passed.
 
